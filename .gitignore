@@ -31,8 +31,10 @@ doc/tables.sgml
 .*
 
 # don't ignore (yourself, github, ...)
-!.gitignore 
+!.gitignore
 !.github/
 
+# Sauron API
+sauron_api/sauron_a_p_i.yml
 
 # eof
