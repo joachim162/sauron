@@ -1,25 +1,23 @@
 package SauronAPI::Controller::Server;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
-use Sauron::BackEnd;
+
+use Sauron::BackEnd ();
+use Sauron::DB ();
 
 # GET /servers
-# List all servers managed by Sauron using legacy BackEnd logic
+# List all servers managed by Sauron
 sub list_servers ($self) {
   my @ids;
   my %descriptions;
 
-  # 1. Get the list of server IDs from the BackEnd
-  # Passing -1 tells Sauron not to exclude any specific server
-  get_server_list(-1, \%descriptions, \@ids);
+  Sauron::BackEnd::get_server_list(-1, \%descriptions, \@ids);
 
   my @servers;
   for my $id (@ids) {
-    # Skip the internal "None" marker (-1) used by the legacy UI
     next if $id == -1;
 
-    # 2. Retrieve the full record for each server to ensure data integrity
     my %server_data;
-    if (get_server($id, \%server_data) == 0) {
+    if (Sauron::BackEnd::get_server($id, \%server_data) == 0) {
       push @servers, {
         id      => $id,
         name    => $server_data{name},
@@ -28,8 +26,48 @@ sub list_servers ($self) {
     }
   }
 
-  # 3. Render the JSON response validated against openapi.yaml
   $self->render(openapi => \@servers);
+}
+
+# GET /servers/{server}
+# Get server by name
+sub get_server ($self) {
+  my %server_data;
+
+  return unless $self->openapi->valid_input;
+
+  my $name = $self->param("server");
+
+  my $id = Sauron::BackEnd::get_server_id($name);
+
+  if ($id <= 0) {
+    return $self->render(
+      openapi => {
+        error   => 'Not Found',
+        message => "Server '$name' not found"
+      },
+      status  => 404
+    );
+  }
+
+  if (Sauron::BackEnd::get_server($id, \%server_data) != 0) {
+    return $self->render(
+      openapi => {
+        error   => 'Internal Server Error',
+        message => Sauron::DB::db_errormsg()
+      },
+      status  => 500
+    );
+  }
+
+  # Map to schema
+  my $res = {
+    id      => $id,
+    name    => $server_data{name},
+    comment => $server_data{comment} // ''
+  };
+
+  $self->render(openapi => $res);
 }
 
 1;
