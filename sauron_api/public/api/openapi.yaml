@@ -27,6 +27,89 @@ paths:
         '500':
           $ref: '#/components/responses/Error'
 
+  /servers/{server}/zones:
+    post:
+      summary: Create a new zone
+      description: Adds a new DNS zone to a specific server.
+      operationId: create_zone
+      x-mojo-name: create_zone
+      x-mojo-to: "Zone#create_zone"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewZone'
+      responses:
+        '201':
+          description: Zone created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Zone already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+
+  /servers/{server}/zones/{zone}:
+    delete:
+      summary: Delete a zone
+      description: Removes a DNS zone from a specific server.
+      operationId: delete_zone
+      x-mojo-name: delete_zone
+      x-mojo-to: "Zone#delete_zone"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+        - name: zone
+          in: path
+          required: true
+          description: Unique name of the zone
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Zone deleted successfully
+        '404':
+          description: Server or zone not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+
 components:
   schemas:
     Server:
@@ -44,6 +127,46 @@ components:
         comment:
           type: string
           example: Primary DNS for Middle Earth
+
+    NewZone:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          description: Zone name or CIDR for reverse zones
+          type: string
+          example: example.com
+        type:
+          type: string
+          enum: [Master, Forward, Hint, Slave]
+          default: Master
+        reverse:
+          type: boolean
+          default: false
+
+    Zone:
+      type: object
+      required:
+        - id
+        - name
+        - server_id
+      properties:
+        id:
+          type: integer
+          example: 10
+        name:
+          type: string
+          example: example.com
+        server_id:
+          type: integer
+          example: 1
+        type:
+          type: string
+          example: M
+        reverse:
+          type: boolean
+          example: false
 
     Error:
       type: object
