@@ -28,11 +28,15 @@ sub startup {
     skip_validating_specification => 1,
   });
 
+  $self->plugin(SwaggerUI => {
+    route => $self->routes()->any('api'),
+    url => "/api/v1",
+    title => "Sauron API Documentation"
+  });
+
   # Router
   my $r = $self->routes;
 
-  # Normal route to controller
-  $r->get('/')->to('Example#welcome');
 }
 
 1;
