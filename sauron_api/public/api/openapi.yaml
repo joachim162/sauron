@@ -27,6 +27,37 @@ paths:
         '500':
           $ref: '#/components/responses/Error'
 
+  /servers/{server}:
+    get:
+      summary: Get server details
+      description: Returns detailed information about a specific DNS/DHCP server.
+      operationId: get_server
+      x-mojo-name: get_server
+      x-mojo-to: "Server#get_server"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Server details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+
   /servers/{server}/zones:
     post:
       summary: Create a new zone

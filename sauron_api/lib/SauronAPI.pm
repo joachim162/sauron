@@ -37,6 +37,20 @@ sub startup {
   # Router
   my $r = $self->routes;
 
+  # Helpers
+  $self->helper(get_server_id_or_404 => sub ($c, $name) {
+    my $id = Sauron::BackEnd::get_server_id($name);
+    return $id if $id > 0;
+
+    $c->render(
+      openapi => {
+        error   => 'Not Found',
+        message => "Server '$name' not found"
+      },
+      status  => 404
+    );
+    return undef;
+  });
 }
 
 1;

@@ -13,16 +13,7 @@ sub create_zone ($self) {
   my $json = $self->req->json;
   my $server = $self->param("server");
 
-  my $server_id = Sauron::BackEnd::get_server_id($server);
-  if ($server_id <= 0) {
-    return $self->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "Server '$server' not found"
-      },
-      status  => 404
-    );
-  }
+  my $server_id = $self->get_server_id_or_404($server) or return;
 
   my $zone = $json->{name};
   my $raw_type  = $json->{type} // 'Master';
@@ -97,16 +88,7 @@ sub delete_zone ($self) {
   my $server = $self->param("server");
   my $zone = $self->param("zone");
 
-  my $server_id = Sauron::BackEnd::get_server_id($server);
-  if ($server_id <= 0) {
-    return $self->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "Server '$server' not found"
-      },
-      status  => 404
-    );
-  }
+  my $server_id = $self->get_server_id_or_404($server) or return;
 
   my $zone_id = Sauron::BackEnd::get_zone_id($zone, $server_id);
   if ($zone_id <= 0) {

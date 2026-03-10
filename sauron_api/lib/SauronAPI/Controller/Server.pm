@@ -38,17 +38,7 @@ sub get_server ($self) {
 
   my $name = $self->param("server");
 
-  my $id = Sauron::BackEnd::get_server_id($name);
-
-  if ($id <= 0) {
-    return $self->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "Server '$name' not found"
-      },
-      status  => 404
-    );
-  }
+  my $id = $self->get_server_id_or_404($name) or return;
 
   if (Sauron::BackEnd::get_server($id, \%server_data) != 0) {
     return $self->render(
