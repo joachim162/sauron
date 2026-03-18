@@ -62,6 +62,46 @@ paths:
         '500':
           $ref: '#/components/responses/Error'
 
+  /hosts/{host}:
+    get:
+      summary: Get host by FQDN
+      description: Returns detailed information about a specific host by its Fully Qualified Domain Name (FQDN).
+      operationId: get_host
+      x-mojo-name: get_host
+      x-mojo-to: "Host#get_host"
+      security:
+        - ApiKeyAuth: ['user']
+      parameters:
+        - name: host
+          in: path
+          required: true
+          description: Fully Qualified Domain Name of the host (e.g., www.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: www.example.com
+      responses:
+        '200':
+          description: Host details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Host'
+        '400':
+          description: Invalid FQDN format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Host not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+
   /servers/{server}/zones:
     post:
       summary: Create a new zone
@@ -202,6 +242,52 @@ components:
         reverse:
           type: boolean
           example: false
+
+    Host:
+      type: object
+      required:
+        - id
+        - domain
+        - fqdn
+      properties:
+        id:
+          type: integer
+          example: 100
+        domain:
+          type: string
+          example: www
+        fqdn:
+          type: string
+          example: www.example.com.
+        zone_id:
+          type: integer
+          example: 10
+        server_id:
+          type: integer
+          example: 1
+        server:
+          type: string
+          example: example-server
+        type:
+          type: integer
+          example: 1
+          description: Host type (0=misc, 1=host, 2=subdomain, 3=mx entry, 4=alias/cname, 5=printer, etc.)
+        ips:
+          type: array
+          items:
+            type: string
+          example: ["192.168.1.100", "2001:db8::1"]
+        ether:
+          type: string
+          description: Ethernet MAC address
+          example: "001122334455"
+        asset_id:
+          type: string
+          description: Asset ID
+          example: "ASSET-12345"
+        comment:
+          type: string
+          example: "Web server"
 
     Error:
       type: object
