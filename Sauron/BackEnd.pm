@@ -63,6 +63,7 @@ $VERSION = '$Id:$ ';
 	     copy_zone
 
 	     get_host_id
+	     get_host_id_by_fqdn
 	     get_host
 	     update_host
 	     delete_host
@@ -2465,6 +2466,44 @@ sub get_host_id($$) {
   $domain=db_encode_str($domain);
   db_query("SELECT id FROM hosts WHERE zone=$zoneid AND domain=$domain",\@q);
   return ($q[0][0] > 0 ? $q[0][0] : -1);
+}
+
+sub get_host_id_by_fqdn($) {
+  my($fqdn) = @_;
+  my(@q,$zone_name,$domain);
+
+  return -1 unless ($fqdn);
+
+  # Strip trailing dot if present (e.g., "www.example.com." -> "www.example.com")
+  $fqdn =~ s/\.$//;
+
+  # Split FQDN into parts
+  my @parts = split(/\./, $fqdn);
+  return -1 if (@parts < 2);
+
+  # Try progressively shorter zone suffixes (longest match first)
+  # e.g., for "host.sub.example.com":
+  #   1. zone="sub.example.com", domain="host"
+  #   2. zone="example.com",     domain="host.sub"
+  for my $i (1 .. $#parts) {
+    $zone_name = join('.', @parts[$i .. $#parts]);
+    $domain = join('.', @parts[0 .. $i - 1]);
+
+    $zone_name = db_encode_str($zone_name);
+    db_query("SELECT z.id FROM zones z WHERE z.name=$zone_name", \@q);
+
+    if (@q > 0) {
+      for my $row (@q) {
+        my $zone_id = $row->[0];
+        next unless ($zone_id > 0);
+        my $host_id = get_host_id($zone_id, $domain);
+        return $host_id if ($host_id > 0);
+      }
+    }
+    undef @q;
+  }
+
+  return -1;
 }
 
 sub get_host($$); # declare it here since get_host uses sometimes recursion

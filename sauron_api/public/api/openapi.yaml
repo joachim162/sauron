@@ -65,21 +65,19 @@ paths:
   /hosts/{host}:
     get:
       summary: Get host by FQDN
-      description: Returns detailed information about a specific host by its Fully Qualified Domain Name (FQDN).
+      description: Returns detailed information about a specific host by its FQDN.
       operationId: get_host
       x-mojo-name: get_host
       x-mojo-to: "Host#get_host"
-      security:
-        - ApiKeyAuth: ['user']
       parameters:
         - name: host
           in: path
           required: true
-          description: Fully Qualified Domain Name of the host (e.g., www.example.com)
+          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
           x-mojo-placeholder: '#'
           schema:
             type: string
-            example: www.example.com
+            example: host.example.com
       responses:
         '200':
           description: Host details
@@ -248,6 +246,7 @@ components:
       required:
         - id
         - domain
+        - zone_id
         - fqdn
       properties:
         id:
@@ -271,7 +270,48 @@ components:
         type:
           type: integer
           example: 1
-          description: Host type (0=misc, 1=host, 2=subdomain, 3=mx entry, 4=alias/cname, 5=printer, etc.)
+          description: >
+            Host type:
+            0=misc, 1=host, 2=subdomain (delegation), 3=mx entry,
+            4=alias (cname), 5=printer, 6=glue record, 7=alias (arec),
+            8=srv entry, 9=dhcp only, 10=zone, 11=sshfp entry,
+            12=tlsa entry, 13=txt entry, 14=naptr entry, 101=host reservation
+        ttl:
+          type: integer
+          nullable: true
+          description: TTL for host records (default if null)
+          example: 3600
+        class:
+          type: string
+          description: DNS class
+          example: IN
+        grp:
+          type: integer
+          description: Group ID (-1 if none)
+          example: -1
+        alias:
+          type: integer
+          description: Pointer to host record for CNAME alias (-1 if none)
+          example: -1
+        cname_txt:
+          type: string
+          nullable: true
+          description: CNAME value for out-of-zone alias
+          example: external.example.net.
+        hinfo_hw:
+          type: string
+          nullable: true
+          description: HINFO hardware
+          example: x86_64
+        hinfo_sw:
+          type: string
+          nullable: true
+          description: HINFO software
+          example: Linux
+        router:
+          type: integer
+          description: Router flag and priority (0=not a router, 1=highest priority)
+          example: 0
         ips:
           type: array
           items:
@@ -279,15 +319,98 @@ components:
           example: ["192.168.1.100", "2001:db8::1"]
         ether:
           type: string
+          nullable: true
           description: Ethernet MAC address
-          example: "001122334455"
+          example: "00:11:22:33:44:55"
+        ether_alias:
+          type: integer
+          description: Pointer to host record for ETHER address alias (-1 if none)
+          example: -1
+        info:
+          type: string
+          nullable: true
+          description: Host info (appears as TXT record)
+        location:
+          type: string
+          nullable: true
+          description: Physical location
+          example: "Building A, Room 101"
+        dept:
+          type: string
+          nullable: true
+          description: Department name
+          example: IT
+        huser:
+          type: string
+          nullable: true
+          description: User associated with host
+        email:
+          type: string
+          nullable: true
+          description: User email address
+        model:
+          type: string
+          nullable: true
+          description: Host model info
+          example: Dell PowerEdge R740
+        serial:
+          type: string
+          nullable: true
+          description: Serial number
+          example: "SN-12345678"
+        misc:
+          type: string
+          nullable: true
+          description: Miscellaneous info
         asset_id:
           type: string
+          nullable: true
           description: Asset ID
           example: "ASSET-12345"
+        dhcp_date:
+          type: integer
+          nullable: true
+          description: Last time host was issued a DHCP lease (Unix timestamp)
+        dhcp_info:
+          type: string
+          nullable: true
+          description: DHCP info
         comment:
           type: string
+          nullable: true
           example: "Web server"
+        duid:
+          type: string
+          nullable: true
+          description: DHCPv6 DUID
+        iaid:
+          type: integer
+          nullable: true
+          description: DHCPv6 IAID
+        flags:
+          type: integer
+          description: Reserved flags
+          example: 0
+        cdate:
+          type: integer
+          nullable: true
+          description: Creation timestamp (Unix epoch)
+        cuser:
+          type: string
+          nullable: true
+          description: Created by user
+        mdate:
+          type: integer
+          nullable: true
+          description: Last modification timestamp (Unix epoch)
+        muser:
+          type: string
+          nullable: true
+          description: Last modified by user
+        expiration:
+          type: integer
+          nullable: true
+          description: Host expiration timestamp (Unix epoch, 0 if no expiry)
 
     Error:
       type: object

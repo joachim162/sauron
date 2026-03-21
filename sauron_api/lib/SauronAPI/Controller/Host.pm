@@ -2,7 +2,6 @@ package SauronAPI::Controller::Host;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
-use Sauron::DB ();
 
 # GET /hosts/{host}
 # Get host by FQDN (Fully Qualified Domain Name)
@@ -11,17 +10,9 @@ sub get_host ($self) {
   return unless $self->openapi->valid_input;
 
   my $fqdn = $self->param("host");
-  
-  # Remove trailing dot if present
-  $fqdn =~ s/\.$//;
-  
-  # Parse FQDN into domain and zone name
-  # e.g., "www.example.com" -> domain="www", zone_name="example.com"
-  my ($domain, $zone_name);
-  if ($fqdn =~ /^([^\.]+)\.(.*)$/) {
-    $domain = $1;
-    $zone_name = $2;
-  } else {
+
+  # Basic validation
+  unless ($fqdn && $fqdn =~ /\./) {
     return $self->render(
       openapi => {
         error   => 'Bad Request',
@@ -30,21 +21,10 @@ sub get_host ($self) {
       status  => 400
     );
   }
-  
-  # Use a JOIN query to efficiently find host across all servers
-  my $domain_q = Sauron::DB::db_encode_str($domain);
-  my $zone_q = Sauron::DB::db_encode_str($zone_name);
-  
-  my @q;
-  Sauron::DB::db_query(
-    "SELECT h.id, h.zone, z.server, s.name " .
-    "FROM hosts h " . "JOIN zones z ON h.zone = z.id " .
-    "JOIN servers s ON z.server = s.id " .
-    "WHERE h.domain = $domain_q AND z.name = $zone_q",
-    \@q
-  );
-  
-  if (@q == 0 || $q[0][0] <= 0) {
+
+  # Look up host ID via BackEnd
+  my $host_id = Sauron::BackEnd::get_host_id_by_fqdn($fqdn);
+  if ($host_id <= 0) {
     return $self->render(
       openapi => {
         error   => 'Not Found',
@@ -53,25 +33,32 @@ sub get_host ($self) {
       status  => 404
     );
   }
-  
-  my $host_id = $q[0][0];
-  my $zone_id = $q[0][1];
-  my $server_id = $q[0][2];
-  my $server_name = $q[0][3];
-  
-  # Now get full host data
+
+  # Get full host data
   my %host_data;
   if (Sauron::BackEnd::get_host($host_id, \%host_data) != 0) {
     return $self->render(
       openapi => {
         error   => 'Internal Server Error',
-        message => Sauron::DB::db_errormsg()
+        message => "Failed to retrieve host data"
       },
       status  => 500
     );
   }
-  
-  # Build response according to Host schema
+
+  # Resolve zone and server info
+  my %zone_data;
+  my $zone_id = $host_data{zone};
+  my ($server_id, $server_name) = (0, '');
+  # TODO: Check what happens if get_zone won't return 0
+  if ($zone_id > 0 && Sauron::BackEnd::get_zone($zone_id, \%zone_data) == 0) {
+    $server_id = $zone_data{server};
+    my %server_data;
+    if ($server_id > 0 && Sauron::BackEnd::get_server($server_id, \%server_data) == 0) {
+      $server_name = $server_data{name};
+    }
+  }
+
   # Extract IP addresses from the ip array (skip header row)
   my @ips;
   if (ref $host_data{ip} eq 'ARRAY' && @{$host_data{ip}} > 1) {
@@ -79,23 +66,48 @@ sub get_host ($self) {
       push @ips, $host_data{ip}[$i][1] if defined $host_data{ip}[$i][1];
     }
   }
-  
+
   my $res = {
-    id        => $host_id,
-    domain    => $host_data{domain},
-    fqdn      => $host_data{fqdn} // "$domain.$zone_name.",
-    zone_id   => $zone_id,
-    server_id => $server_id,
-    server    => $server_name,
-    type      => $host_data{type},
-    ips       => \@ips,
-    ether     => $host_data{ether} // undef,
-    model     => $host_data{model} // undef,
-    serial    => $host_data{serial} // undef,
-    asset_id  => $host_data{asset_id} // undef,
-    comment   => $host_data{comment} // ''
+    id         => $host_id,
+    domain     => $host_data{domain},
+    fqdn       => $host_data{fqdn} // '',
+    zone_id    => $zone_id,
+    server_id  => $server_id,
+    server     => $server_name,
+    type       => $host_data{type},
+    ttl        => $host_data{ttl},
+    class      => $host_data{class},
+    grp        => $host_data{grp},
+    alias      => $host_data{alias},
+    cname_txt  => $host_data{cname_txt},
+    hinfo_hw   => $host_data{hinfo_hw},
+    hinfo_sw   => $host_data{hinfo_sw},
+    router     => $host_data{router},
+    ips        => \@ips,
+    ether      => $host_data{ether},
+    ether_alias => $host_data{ether_alias},
+    info       => $host_data{info},
+    location   => $host_data{location},
+    dept       => $host_data{dept},
+    huser      => $host_data{huser},
+    email      => $host_data{email},
+    model      => $host_data{model},
+    serial     => $host_data{serial},
+    misc       => $host_data{misc},
+    asset_id   => $host_data{asset_id},
+    dhcp_date  => $host_data{dhcp_date},
+    dhcp_info  => $host_data{dhcp_info},
+    comment    => $host_data{comment},
+    duid       => $host_data{duid},
+    iaid       => $host_data{iaid},
+    flags      => $host_data{flags},
+    cdate      => $host_data{cdate},
+    cuser      => $host_data{cuser},
+    mdate      => $host_data{mdate},
+    muser      => $host_data{muser},
+    expiration => $host_data{expiration}
   };
-  
+
   $self->render(openapi => $res);
 }
 
