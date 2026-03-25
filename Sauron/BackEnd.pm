@@ -54,6 +54,7 @@ $VERSION = '$Id:$ ';
 	     delete_server
 
 	     get_zone_id
+	     get_zone_id_by_name
 	     get_zone_list
 	     get_zone_list2
 	     get_zone
@@ -1478,6 +1479,16 @@ sub get_zone_id($$) {
   $zone = db_encode_str($zone);
   db_query("SELECT id FROM zones WHERE server=$serverid AND name=$zone",\@q);
   return ($q[0][0] > 0 ? $q[0][0] : -2);
+}
+
+sub get_zone_id_by_name($) {
+  my ($zone) = @_;
+  my (@q);
+
+  return -1 unless ($zone);
+  $zone = db_encode_str($zone);
+  db_query("SELECT id FROM zones WHERE name=$zone",\@q);
+  return ($q[0][0] > 0 ? $q[0][0] : -1);
 }
 
 sub get_zone_list($$$$) {

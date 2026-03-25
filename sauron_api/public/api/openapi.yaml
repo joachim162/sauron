@@ -99,6 +99,128 @@ paths:
                 $ref: '#/components/schemas/Error'
         '500':
           $ref: '#/components/responses/Error'
+    post:
+      summary: Create a new host
+      description: Creates a new host record identified by its FQDN.
+      operationId: add_host
+      x-mojo-name: add_host
+      x-mojo-to: "Host#add_host"
+      parameters:
+        - name: host
+          in: path
+          required: true
+          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: host.example.com
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewHost'
+      responses:
+        '201':
+          description: Host created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Host'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Zone not found for the given FQDN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Host already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Update an existing host
+      description: Updates an existing host record identified by its FQDN.
+      operationId: update_host
+      x-mojo-name: update_host
+      x-mojo-to: "Host#update_host"
+      parameters:
+        - name: host
+          in: path
+          required: true
+          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: host.example.com
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateHost'
+      responses:
+        '200':
+          description: Host updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Host'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Host not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    delete:
+      summary: Delete a host
+      description: Deletes a host record by its FQDN.
+      operationId: delete_host
+      x-mojo-name: delete_host
+      x-mojo-to: "Host#delete_host"
+      parameters:
+        - name: host
+          in: path
+          required: true
+          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: host.example.com
+      responses:
+        '204':
+          description: Host deleted successfully
+        '400':
+          description: Invalid FQDN format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Host not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
 
   /servers/{server}/zones:
     post:
@@ -411,6 +533,365 @@ components:
           type: integer
           nullable: true
           description: Host expiration timestamp (Unix epoch, 0 if no expiry)
+
+    NewHost:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: integer
+          description: >
+            Host type:
+            0=misc, 1=host, 2=subdomain (delegation), 3=mx entry,
+            4=alias (cname), 5=printer, 6=glue record, 7=alias (arec),
+            8=srv entry, 9=dhcp only, 10=zone, 11=sshfp entry,
+            12=tlsa entry, 13=txt entry, 14=naptr entry, 101=host reservation
+          example: 1
+        comment:
+          type: string
+          nullable: true
+          example: "Web server"
+
+    UpdateHost:
+      type: object
+      description: Schema for updating an existing host. Fields marked as read-only are ignored.
+      properties:
+        # type:
+        #   type: integer
+        #   description: >
+        #     Host type:
+        #     0=misc, 1=host, 2=subdomain (delegation), 3=mx entry,
+        #     4=alias (cname), 5=printer, 6=glue record, 7=alias (arec),
+        #     8=srv entry, 9=dhcp only, 10=zone, 11=sshfp entry,
+        #     12=tlsa entry, 13=txt entry, 14=naptr entry, 101=host reservation
+        #   example: 1
+        ttl:
+          type: integer
+          nullable: true
+          description: TTL for host records (default if null)
+          example: 3600
+        class:
+          type: string
+          nullable: true
+          description: DNS class
+          example: IN
+        grp:
+          type: integer
+          nullable: true
+          description: Group ID (-1 if none)
+          example: -1
+        alias:
+          type: integer
+          nullable: true
+          description: Pointer to host record for CNAME alias (-1 if none)
+          example: -1
+        cname_txt:
+          type: string
+          nullable: true
+          description: CNAME value for out-of-zone alias
+          example: external.example.net.
+        hinfo_hw:
+          type: string
+          nullable: true
+          description: HINFO hardware
+          example: x86_64
+        hinfo_sw:
+          type: string
+          nullable: true
+          description: HINFO software
+          example: Linux
+        router:
+          type: integer
+          nullable: true
+          description: Router flag and priority (0=not a router, 1=highest priority)
+          example: 0
+        ips:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: IP addresses assigned to this host
+          example: ["192.168.1.100", "2001:db8::1"]
+        ether:
+          type: string
+          nullable: true
+          description: Ethernet MAC address
+          example: "00:11:22:33:44:55"
+        ether_alias:
+          type: integer
+          nullable: true
+          description: Pointer to host record for ETHER address alias (-1 if none)
+          example: -1
+        info:
+          type: string
+          nullable: true
+          description: Host info (appears as TXT record)
+        location:
+          type: string
+          nullable: true
+          description: Physical location
+          example: "Building A, Room 101"
+        dept:
+          type: string
+          nullable: true
+          description: Department name
+          example: IT
+        huser:
+          type: string
+          nullable: true
+          description: User associated with host
+        email:
+          type: string
+          nullable: true
+          description: User email address
+        model:
+          type: string
+          nullable: true
+          description: Host model info
+          example: Dell PowerEdge R740
+        serial:
+          type: string
+          nullable: true
+          description: Serial number
+          example: "SN-12345678"
+        misc:
+          type: string
+          nullable: true
+          description: Miscellaneous info
+        asset_id:
+          type: string
+          nullable: true
+          description: Asset ID
+          example: "ASSET-12345"
+        comment:
+          type: string
+          nullable: true
+          example: "Web server"
+        duid:
+          type: string
+          nullable: true
+          description: DHCPv6 DUID
+        iaid:
+          type: integer
+          nullable: true
+          description: DHCPv6 IAID
+        flags:
+          type: integer
+          nullable: true
+          description: Reserved flags
+          example: 0
+        expiration:
+          type: integer
+          nullable: true
+          description: Host expiration timestamp (Unix epoch, 0 if no expiry)
+        ns_l:
+          type: array
+          description: NS records for delegated subdomains (replaces all existing)
+          items:
+            type: object
+            required:
+              - ns
+            properties:
+              ns:
+                type: string
+                description: Value of NS record (FQDN)
+              comment:
+                type: string
+                nullable: true
+        ds_l:
+          type: array
+          description: DS records for DNSSEC (replaces all existing)
+          items:
+            type: object
+            required:
+              - key_tag
+              - algorithm
+              - digest_type
+              - digest
+            properties:
+              key_tag:
+                type: integer
+              algorithm:
+                type: integer
+              digest_type:
+                type: integer
+              digest:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        wks_l:
+          type: array
+          description: WKS records (replaces all existing)
+          items:
+            type: object
+            required:
+              - proto
+              - services
+            properties:
+              proto:
+                type: string
+              services:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        mx_l:
+          type: array
+          description: MX records (replaces all existing)
+          items:
+            type: object
+            required:
+              - pri
+              - mx
+            properties:
+              pri:
+                type: integer
+              mx:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        dhcp_l:
+          type: array
+          description: DHCP reservations (replaces all existing)
+          items:
+            type: object
+            required:
+              - dhcp
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        printer_l:
+          type: array
+          description: Printer records (replaces all existing)
+          items:
+            type: object
+            required:
+              - printer
+            properties:
+              printer:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        srv_l:
+          type: array
+          description: SRV records (replaces all existing)
+          items:
+            type: object
+            required:
+              - pri
+              - weight
+              - port
+              - target
+            properties:
+              pri:
+                type: integer
+              weight:
+                type: integer
+              port:
+                type: integer
+              target:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        sshfp_l:
+          type: array
+          description: SSHFP records (replaces all existing)
+          items:
+            type: object
+            required:
+              - algorithm
+              - hashtype
+              - fingerprint
+            properties:
+              algorithm:
+                type: integer
+                enum:  [0, 1, 2, 3, 4, 6]
+                description: 0=Reserved, 1=RSA, 2=DSA, 3=ECDSA, 4=Ed25519, 6=Ed448
+              hashtype:
+                type: integer
+                enum:  [0, 1, 2]
+                description: 0=Reserved, 1=SHA-1, 2=SHA-256
+              fingerprint:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        tlsa_l:
+          type: array
+          description: TLSA records (replaces all existing)
+          items:
+            type: object
+            required:
+              - usage
+              - selector
+              - matching_type
+              - association_data
+            properties:
+              usage:
+                type: integer
+              selector:
+                type: integer
+              matching_type:
+                type: integer
+              association_data:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        txt_l:
+          type: array
+          description: TXT records (replaces all existing)
+          items:
+            type: object
+            required:
+              - txt
+            properties:
+              txt:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        alias_a:
+          type: array
+          description: Address records for type 7 alias arec (replaces all existing)
+          items:
+            type: object
+            required:
+              - arec
+            properties:
+              arec:
+                type: string
+        subgroups:
+          type: array
+          description: Group memberships (replaces all existing)
+          items:
+            type: object
+            required:
+              - grp
+            properties:
+              grp:
+                type: integer
+        dhcp_l6:
+          type: array
+          description: DHCPv6 reservations (replaces all existing)
+          items:
+            type: object
+            required:
+              - dhcp
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
 
     Error:
       type: object
