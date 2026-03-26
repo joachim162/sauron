@@ -32,7 +32,181 @@ PERL5LIB=/srv/sauron:/srv/sauron/sauron_api/lib perl -wc Sauron/BackEnd.pm
 docker compose exec sauron_api bash -c "cd /srv/sauron && PERL5LIB=/srv/sauron:/srv/sauron/sauron_api/lib perl -wc sauron_api/lib/SauronAPI/Controller/Net.pm"
 ```
 
+<<<<<<< HEAD
 **API tests (inside container):**
+=======
+## Code Style Guidelines
+
+### Perl Conventions
+
+- **Shebang**: `#!/usr/bin/perl -I/usr/local/sauron` for main scripts
+- **Strict mode**: Always `use strict;` and `use warnings;`
+- **Package naming**: `Sauron::ModuleName` (CamelCase)
+- **Exports**: Use `@EXPORT` for common functions, document in comments
+- **Version**: Use `$VERSION = '$Id:$ ';` pattern
+
+### Formatting
+
+- Indentation: 2 spaces (no tabs)
+- Opening brace on same line: `sub foo {`
+- Variable naming: `$lowercase` for scalars, `@array`, `%hash`
+- Private functions: prefix with `_` (e.g., `_internal_func`)
+- Line length: Keep under 100 characters when possible
+
+### Imports
+
+```perl
+# Standard order:
+use strict;
+use warnings;
+use Sauron::Util;          # Core modules first
+use Sauron::DB;
+use Net::IP qw(:PROC);     # External modules after
+use open ':locale';        # Encoding last
+```
+
+### Database Access
+
+- Use `Sauron::DB` abstraction layer
+- Use `Sauron::BackEnd` for higher-level operations
+- SQL queries: use `db_query()` or `db_exec()` from Sauron::DB
+- Always sanitize inputs using parameterized queries
+
+### Error Handling
+
+```perl
+# Fatal errors
+fatal("Error message");  # From Sauron::Util
+
+# Return error codes
+return -1 if (some_error_condition());
+
+# Check database operations
+fatal("Database error: $DBI::errstr") unless ($res);
+```
+
+### API Development (Mojolicious)
+
+**Core Principles:**
+- **OpenAPI-First Development:** The `openapi.yaml` file is the source of truth. All implementation must be driven by the specification.
+- **API Versioning:** All endpoints must be versioned (e.g., `/api/v1/...`) to ensure backward compatibility.
+- **Separation of Concerns:**
+  - **Controllers:** Handle HTTP logic and request/response mapping.
+  - **Logic Layer:** Interface directly with `Sauron::BackEnd` and `Sauron::Util`.
+  - **Validation:** Delegated to the OpenAPI plugin to ensure strict schema compliance.
+- **Statelessness:** The API must remain stateless to facilitate scaling and production deployment.
+
+**Structure:**
+- Controllers in `sauron_api/lib/SauronAPI/Controller/`
+- Use helpers for common operations (see `SauronAPI.pm`)
+- API versioning: `/api/v1/`
+- Authentication: API keys via `X-API-KEY` header
+
+### Security Mandates (Priority 1)
+
+- **Authentication:** 
+  - Implement database-backed API key authentication.
+  - Keys must be manageable via the Sauron CGI (User self-service).
+  - Integrate with Sauron's existing user/password database logic found in `Sauron::BackEnd`.
+- **Authorization:**
+  - Map API requests to Sauron's internal privilege levels (`ALEVEL_*`) based on the user identified by the API key.
+  - Enforce "Least Privilege" access control.
+- **Input Sanitization:** 
+  - Rely on OpenAPI schema validation for type checking.
+  - Further sanitize inputs before passing them to `Sauron::BackEnd` to prevent SQL injection or command injection.
+- **Error Handling:** 
+  - Never leak stack traces or internal database errors to the client.
+  - Use standardized RFC 7807 (Problem Details for HTTP APIs) or consistent JSON error structures.
+- **TLS/SSL:** Production deployment must be strictly HTTPS.
+
+### Extensibility & Future-Proofing
+
+- **Modular Controllers:** Organize controllers by Sauron domain (e.g., `ZoneController`, `HostController`, `UserController`).
+- **Pluggable Auth:** Design the authentication layer to be swapped or extended (e.g., adding LDAP/OIDC support later).
+- **Sauron Core Integration:** Always prefer utilizing existing functions in `Sauron/*.pm` over rewriting database queries to maintain consistency with the CGI interface.
+
+### Development Workflow
+
+1. **Define:** Update the OpenAPI specification for new endpoints.
+2. **Mock:** Use Mojolicious to serve mock responses for frontend/client testing.
+3. **Implement:** Code the controller and bridge it to the Sauron backend.
+4. **Validate:** Run automated tests against the OpenAPI schema.
+
+## Project Structure
+
+```
+/home/jachym/Documents/sauron/
+├── Sauron/               # Core modules
+│   ├── Sauron.pm        # Config parsing
+│   ├── BackEnd.pm       # Main backend logic
+│   ├── Util.pm          # Utility functions
+│   ├── DB.pm            # Database interface (symlink)
+│   └── CGI/             # CGI-specific modules
+├── cgi/                 # Web interface
+│   ├── sauron.cgi
+│   └── browser.cgi
+├── sauron_api/          # REST API
+│   ├── lib/
+│   ├── script/
+│   ├── t/               # Tests
+│   └── public/api/
+├── sql/                 # Database schemas
+├── test/                # Demo/test data
+└── contrib/             # Helper scripts
+```
+
+## Environment & Paths
+
+- **Source:** `~/sauron` (repository root)
+- **API Root:** `~/sauron/sauron_api`
+- **Config:** `/usr/local/etc/sauron/config`
+- **Legacy Libraries:** Add `~/sauron` to `@INC` inside the Mojolicious app
+
+## Configuration
+
+- Main config: `/usr/local/etc/sauron/config`
+- Browser config: `/usr/local/etc/sauron/config-browser`
+- Template: `config.in` (gets processed during install)
+
+## Key Modules
+
+- `Sauron::BackEnd`: Core database operations
+- `Sauron::Util`: Validation, encoding, CIDR operations
+- `Sauron::DB`: Database abstraction (DBI/Pg)
+- `Sauron::Sauron`: Configuration loading
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/check_syntax.yml`):
+- Runs on push/PR
+- Tests on Debian stable with PostgreSQL 15
+- Performs syntax checks on all `.pl` and `.pm` files
+- Full installation and configuration test
+- Generates BIND/DHCP configs as artifacts
+
+## Security Notes
+
+- Never expose API keys or database credentials
+- Use `fatal()` for errors that shouldn't reach users
+- CGI scripts use `CGI::Carp 'fatalsToBrowser'` only for debug
+- API uses OpenAPI validation and API key authentication
+- All database access through abstraction layers
+
+## Knowledge Base (`knowledge/`)
+
+All new notes in `knowledge/` must follow the **Zettelkasten** note-taking technique:
+
+- **Atomic:** One idea per note. Keep notes focused and self-contained.
+- **Unique titles:** Use descriptive, kebab-case filenames (e.g., `Update-Host-Marker-Format.md`).
+- **Bidirectional links:** Reference related notes using markdown links (e.g., `[BackEnd overview](Sauron-Core-Integration.md)`).
+- **Own words:** Explain concepts in your own phrasing rather than just quoting source code.
+- **Context:** Include enough context so the note is understandable without reading other notes.
+- **Examples:** Include concrete examples, code snippets, or diagrams where they add clarity.
+- **Connection to code:** Reference specific file paths and line numbers (e.g., `BackEnd.pm:2135`) to link notes to the source.
+
+## Common Tasks
+
+>>>>>>> cc0b391 (Add note fo further explaination of udpating host, update AGENTS.md)
 ```bash
 docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/net.t"
 # Run multiple: prove -l t/net.t t/host.t t/authz.t
