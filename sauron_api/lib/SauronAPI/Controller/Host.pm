@@ -188,12 +188,49 @@ sub add_host ($self) {
     );
   }
 
+  my $type = $json->{type} // 1;
+
+  # Validate fields for this host type
+  if (my $err = _validate_type_fields($json, $type)) {
+    return $self->render(
+      openapi => { error => 'Bad Request', message => $err },
+      status  => 400
+    );
+  }
+
   my %rec = (
     zone   => $zone_id,
     domain => $domain,
-    type   => $json->{type} // 1
+    type   => $type,
   );
-  $rec{comment} = $json->{comment} if exists $json->{comment};
+
+  # Scalar fields writable during creation
+  # TODO: Repeated code
+  my @scalar_fields = qw(
+    ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
+    info location dept huser email model serial misc asset_id comment duid
+    iaid flags expiration prn wks mx rp_mbox rp_txt
+  );
+  for my $field (@scalar_fields) {
+    $rec{$field} = $json->{$field} if exists $json->{$field};
+  }
+
+  # Translate flat API format ["1.2.3.4"] → BackEnd ip array field
+  if (exists $json->{ips}) {
+    my @rows = (["IP", "reverse", "forward"]);
+    for my $ip (@{$json->{ips} // []}) {
+      push @rows, [0, $ip, 't', 't', 2];
+    }
+    $rec{ip} = \@rows;
+  }
+
+  # Build array fields from API input
+  my @array_fields = qw(ns_l ds_l wks_l mx_l dhcp_l dhcp_l6 printer_l srv_l sshfp_l tlsa_l txt_l subgroups alias_a);
+  for my $field (@array_fields) {
+    next unless exists $json->{$field};
+    my $data = _build_array_field($json->{$field}, $field);
+    $rec{$field} = $data if ref $data eq 'ARRAY';
+  }
 
   my $host_id = Sauron::BackEnd::add_host(\%rec);
   if ($host_id < 0) {
@@ -267,6 +304,43 @@ my %UPDATE_COUNT = (
   subgroups => 2,
 );
 
+# Type-specific field validation.
+# Maps each host type to the set of fields valid for that type.
+# Universal fields (type, comment, ttl, class, grp, expiration) are
+# always allowed and not listed here.
+my %TYPE_FIELDS = (
+  1   => [qw(ips ether hinfo_hw hinfo_sw mx_l wks_l sshfp_l srv_l txt_l
+             dhcp_l dhcp_l6 printer_l ns_l ds_l tlsa_l subgroups)],
+  2   => [qw(ns_l ds_l)],
+  3   => [qw(mx_l txt_l)],
+  4   => [qw(alias cname_txt)],
+  5   => [qw(printer_l dhcp_l dhcp_l6 subgroups)],
+  6   => [qw(ips)],
+  7   => [qw(ips mx_l txt_l alias_a)],
+  8   => [qw(srv_l)],
+  9   => [qw(ips ether duid iaid)],
+  11  => [qw(sshfp_l)],
+  12  => [qw(tlsa_l)],
+  13  => [qw(txt_l)],
+  101 => [qw(ips ether duid iaid)],
+);
+
+# Fields allowed for all host types.
+my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(type comment ttl class grp expiration);
+
+# Validate that all fields in $json are allowed for $type.
+# Returns error message string if invalid, undef if OK.
+sub _validate_type_fields {
+  my ($json, $type) = @_;
+
+  my %valid = map { $_ => 1 } @{$TYPE_FIELDS{$type} // []};
+  for my $field (keys %$json) {
+    next if $UNIVERSAL_FIELDS{$field};
+    return "Field '$field' is not valid for host type $type" unless $valid{$field};
+  }
+  return undef;
+}
+
 # PUT /hosts/{host}
 # Update an existing host by FQDN
 sub update_host ($self) {
@@ -295,6 +369,14 @@ sub update_host ($self) {
     return $self->render(
       openapi => { error => 'Internal Server Error', message => "Failed to retrieve host data" },
       status  => 500
+    );
+  }
+
+  # Validate fields against the host's existing type
+  if (my $err = _validate_type_fields($json, $host_data{type})) {
+    return $self->render(
+      openapi => { error => 'Bad Request', message => $err },
+      status  => 400
     );
   }
 
