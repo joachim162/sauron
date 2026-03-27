@@ -161,7 +161,7 @@ sub get_host ($self) {
   $self->render(openapi => _build_host_response($host_id, \%host_data, $zone_id));
 }
 
-# POST /servers/{server}/zones/{zone}/hosts/{hostname}
+# POST /servers/{server}/zones/{zone}/hosts
 # Create a new host in a specific zone on a specific server
 sub add_host ($self) {
   return unless $self->openapi->valid_input;
@@ -169,8 +169,14 @@ sub add_host ($self) {
   my ($server_id, $zone_id) = _resolve_server_zone($self);
   return unless $server_id;
 
-  my $hostname = $self->param("hostname");
   my $json = $self->req->json;
+  my $hostname = $json->{hostname};
+  unless ($hostname) {
+    return $self->render(
+      openapi => { error => 'Bad Request', message => "'hostname' is required in request body" },
+      status  => 400
+    );
+  }
 
   my $existing_id = Sauron::BackEnd::get_host_id($zone_id, $hostname);
   if ($existing_id > 0) {
@@ -207,77 +213,6 @@ sub add_host ($self) {
   }
 
   # Translate flat API format ["1.2.3.4"] -> BackEnd ip array field
-  if (exists $json->{ips}) {
-    my @rows = (["IP", "reverse", "forward"]);
-    for my $ip (@{$json->{ips} // []}) {
-      push @rows, [0, $ip, 't', 't', 2];
-    }
-    $rec{ip} = \@rows;
-  }
-
-  # Build array fields from API input
-  my @array_fields = qw(ns_l ds_l wks_l mx_l dhcp_l dhcp_l6 printer_l srv_l sshfp_l tlsa_l txt_l subgroups alias_a);
-  for my $field (@array_fields) {
-    next unless exists $json->{$field};
-    my $data = _build_array_field($json->{$field}, $field);
-    $rec{$field} = $data if ref $data eq 'ARRAY';
-  }
-
-  my $host_id = Sauron::BackEnd::add_host(\%rec);
-  if ($host_id < 0) {
-    return $self->render(
-      openapi => { error => 'Internal Server Error', message => "Failed to create host record (code: $host_id)" },
-      status  => 500
-    );
-  }
-
-  my %host_data;
-  if (Sauron::BackEnd::get_host($host_id, \%host_data) != 0) {
-    return $self->render(
-      openapi => { error => 'Internal Server Error', message => "Host created but failed to retrieve data" },
-      status  => 500
-    );
-  }
-
-  $self->render(openapi => _build_host_response($host_id, \%host_data, $zone_id), status => 201);
-}
-
-  my $existing_id = Sauron::BackEnd::get_host_id($zone_id, $hostname);
-  if ($existing_id > 0) {
-    return $self->render(
-      openapi => { error => 'Conflict', message => "Host '$hostname' already exists in this zone (id=$existing_id)" },
-      status  => 409
-    );
-  }
-
-  my $type = $json->{type} // 1;
-
-  # Validate fields for this host type
-  if (my $err = _validate_type_fields($json, $type)) {
-    return $self->render(
-      openapi => { error => 'Bad Request', message => $err },
-      status  => 400
-    );
-  }
-
-  my %rec = (
-    zone   => $zone_id,
-    domain => $domain,
-    type   => $type,
-  );
-
-  # Scalar fields writable during creation
-  # TODO: Repeated code
-  my @scalar_fields = qw(
-    ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
-    info location dept huser email model serial misc asset_id comment duid
-    iaid flags expiration prn wks mx rp_mbox rp_txt
-  );
-  for my $field (@scalar_fields) {
-    $rec{$field} = $json->{$field} if exists $json->{$field};
-  }
-
-  # Translate flat API format ["1.2.3.4"] → BackEnd ip array field
   if (exists $json->{ips}) {
     my @rows = (["IP", "reverse", "forward"]);
     for my $ip (@{$json->{ips} // []}) {
@@ -383,7 +318,7 @@ my %TYPE_FIELDS = (
 );
 
 # Fields allowed for all host types.
-my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(type comment ttl class grp expiration);
+my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(hostname type comment ttl class grp expiration);
 
 # Validate that all fields in $json are allowed for $type.
 # Returns error message string if invalid, undef if OK.

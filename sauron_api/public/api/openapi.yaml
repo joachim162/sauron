@@ -809,11 +809,16 @@ components:
         - $ref: '#/components/schemas/HostFields'
         - type: object
           required:
+            - hostname
             - type
           description: >
             Schema for creating a new host. The server validates that only fields
             valid for the given host type are accepted; invalid fields trigger 400.
           properties:
+            hostname:
+              type: string
+              description: Hostname within the zone (e.g., www, db01)
+              example: www
             type:
               type: integer
               description: >
