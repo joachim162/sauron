@@ -7,7 +7,9 @@
 #
 # Default: http://localhost:3000/api/v1
 
-BASE="http://sulis33.zcu.cz:8080/api/v1"
+BASE="http://localhost:3000/api/v1"
+SERVER="middle-earth"
+ZONE="middle.earth"
 
 # Server endpoints
 # --------------------------------------------------
@@ -16,32 +18,32 @@ BASE="http://sulis33.zcu.cz:8080/api/v1"
 curl -s "$BASE/servers" | jq .
 
 # Get server by name
-curl -s "$BASE/servers/middle-earth" | jq .
+curl -s "$BASE/servers/$SERVER" | jq .
 
 # Zone endpoints
 # --------------------------------------------------
 
 # Create a zone
-curl -s -X POST "$BASE/servers/middle-earth/zones" \
+curl -s -X POST "$BASE/servers/$SERVER/zones" \
   -H "Content-Type: application/json" \
   -d '{"name": "test.example.com", "type": "Master", "reverse": false}' | jq .
 
 # Delete a zone
-curl -s -X DELETE "$BASE/servers/middle-earth/zones/test.example.com" | jq .
+curl -s -X DELETE "$BASE/servers/$SERVER/zones/test.example.com" | jq .
 
-# Host endpoints
+# Host endpoints (server + zone + hostname)
 # --------------------------------------------------
 
-# Get host by FQDN
-curl -s "$BASE/hosts/ws1.middle.earth" | jq .
+# Get host by hostname
+curl -s "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" | jq .
 
 # Create a host
-curl -s -X POST "$BASE/hosts/ws1.middle.earth" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{"type": 1, "comment": "Test host"}' | jq .
 
 # Update a host (scalar fields only)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "ttl": 3600,
@@ -53,7 +55,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add SSHFP records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "sshfp_l": [
@@ -73,7 +75,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add NS records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "ns_l": [
@@ -83,7 +85,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add MX records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "mx_l": [
@@ -93,7 +95,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add SRV records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "srv_l": [
@@ -102,7 +104,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add TXT records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "txt_l": [
@@ -111,7 +113,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add DS records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "ds_l": [
@@ -120,7 +122,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add WKS records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "wks_l": [
@@ -129,7 +131,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add TLSA records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "tlsa_l": [
@@ -138,7 +140,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add DHCP reservations)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "dhcp_l": [
@@ -147,7 +149,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (DHCPv6 reservations)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "dhcp_l6": [
@@ -156,7 +158,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add printer records)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "printer_l": [
@@ -165,7 +167,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (add subgroups)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "subgroups": [
@@ -174,7 +176,7 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Update a host (combined scalar + array fields)
-curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{
     "ttl": 7200,
@@ -191,27 +193,27 @@ curl -s -X PUT "$BASE/hosts/ws1.middle.earth" \
   }' | jq .
 
 # Delete a host
-curl -s -X DELETE "$BASE/hosts/ws1.middle.earth" | jq .
+curl -s -X DELETE "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" | jq .
 
 # Error cases
 # --------------------------------------------------
 
 # Get non-existent host
-curl -s "$BASE/hosts/nonexistent.test.example.com" | jq .
+curl -s "$BASE/servers/$SERVER/zones/test.example.com/hosts/nonexistent" | jq .
 
 # Invalid FQDN
 curl -s "$BASE/hosts/notanfqdn" | jq .
 
 # Create duplicate host
-curl -s -X POST "$BASE/hosts/ws1.middle.earth" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{"type": 1}' | jq .
-curl -s -X POST "$BASE/hosts/ws1.middle.earth" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1" \
   -H "Content-Type: application/json" \
   -d '{"type": 1}' | jq .
 
 # Update non-existent host
-curl -s -X PUT "$BASE/hosts/gone.test.example.com" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/test.example.com/hosts/gone" \
   -H "Content-Type: application/json" \
   -d '{"ttl": 600}' | jq .
 
@@ -219,42 +221,42 @@ curl -s -X PUT "$BASE/hosts/gone.test.example.com" \
 # --------------------------------------------------
 
 # Create a printer type (type=5) - should reject sshfp_l
-curl -s -X POST "$BASE/hosts/printer1.test.example.com" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/test.example.com/hosts/printer1" \
   -H "Content-Type: application/json" \
   -d '{"type": 5, "sshfp_l": [{"algorithm": 1, "hashtype": 1, "fingerprint": "aabb"}]}' | jq .
 
 # Create a host type (type=1) with sshfp - should succeed
-curl -s -X POST "$BASE/hosts/ssh-host.test.example.com" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/test.example.com/hosts/ssh-host" \
   -H "Content-Type: application/json" \
   -d '{"type": 1, "sshfp_l": [{"algorithm": 4, "hashtype": 2, "fingerprint": "aabb"}]}' | jq .
 
 # Update a host type with invalid printer_l - should fail (type=1 doesn't allow printer_l)
-curl -s -X PUT "$BASE/hosts/ssh-host.test.example.com" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/test.example.com/hosts/ssh-host" \
   -H "Content-Type: application/json" \
   -d '{"printer_l": [{"printer": "HP"}]}' | jq .
 
 # Create a delegation type (type=2) with ns - should succeed
-curl -s -X POST "$BASE/hosts/delegation.test.example.com" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/test.example.com/hosts/delegation" \
   -H "Content-Type: application/json" \
   -d '{"type": 2, "ns_l": [{"ns": "ns1.example.com"}]}' | jq .
 
 # Update delegation with invalid sshfp_l - should fail (type=2 doesn't allow sshfp_l)
-curl -s -X PUT "$BASE/hosts/delegation.test.example.com" \
+curl -s -X PUT "$BASE/servers/$SERVER/zones/test.example.com/hosts/delegation" \
   -H "Content-Type: application/json" \
   -d '{"sshfp_l": [{"algorithm": 1, "hashtype": 1, "fingerprint": "aabb"}]}' | jq .
 
 # Create an SRV type (type=8) - should succeed
-curl -s -X POST "$BASE/hosts/_sip._tcp.test.example.com" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/test.example.com/hosts/_sip._tcp" \
   -H "Content-Type: application/json" \
   -d '{"type": 8, "srv_l": [{"pri": 10, "weight": 60, "port": 5060, "target": "sip.example.com"}]}' | jq .
 
 # Create a TXT type (type=13) - should succeed
-curl -s -X POST "$BASE/hosts/txtrec.test.example.com" \
+curl -s -X POST "$BASE/servers/$SERVER/zones/test.example.com/hosts/txtrec" \
   -H "Content-Type: application/json" \
   -d '{"type": 13, "txt_l": [{"txt": "v=spf1 mx -all"}]}' | jq .
 
 # Cleanup
 # --------------------------------------------------
 # Delete test host and zone:
-# curl -s -X DELETE "$BASE/hosts/ws1.middle.earth"
+# curl -s -X DELETE "$BASE/servers/$SERVER/zones/$ZONE/hosts/ws1"
 # curl -s -X DELETE "$BASE/servers/middle-earth/zones/test.example.com"
