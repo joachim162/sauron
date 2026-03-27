@@ -62,22 +62,39 @@ paths:
         '500':
           $ref: '#/components/responses/Error'
 
-  /hosts/{host}:
+  /servers/{server}/zones/{zone}/hosts/{hostname}:
     get:
-      summary: Get host by FQDN
-      description: Returns detailed information about a specific host by its FQDN.
+      summary: Get host by hostname
+      description: >
+        Returns detailed information about a specific host within a zone.
+        The hostname is the domain part relative to the zone (e.g., "ws1"
+        for ws1.example.com in the example.com zone).
       operationId: get_host
       x-mojo-name: get_host
       x-mojo-to: "Host#get_host"
       parameters:
-        - name: host
+        - name: server
           in: path
           required: true
-          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
+          description: Unique name of the server
           x-mojo-placeholder: '#'
           schema:
             type: string
-            example: host.example.com
+        - name: zone
+          in: path
+          required: true
+          description: Unique name of the zone
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+        - name: hostname
+          in: path
+          required: true
+          description: Hostname relative to the zone (e.g., "ws1" for ws1.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: ws1
       responses:
         '200':
           description: Host details
@@ -86,13 +103,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Host'
         '400':
-          description: Invalid FQDN format
+          description: Invalid hostname format
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: Host not found
+          description: Server, zone, or host not found
           content:
             application/json:
               schema:
@@ -101,19 +118,37 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       summary: Create a new host
-      description: Creates a new host record identified by its FQDN.
+      description: >
+        Creates a new host record within a zone on a specific server.
+        The hostname is the domain part relative to the zone.
+        The server validates that only fields valid for the given host
+        type are accepted; invalid fields trigger 400.
       operationId: add_host
       x-mojo-name: add_host
       x-mojo-to: "Host#add_host"
       parameters:
-        - name: host
+        - name: server
           in: path
           required: true
-          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
+          description: Unique name of the server
           x-mojo-placeholder: '#'
           schema:
             type: string
-            example: host.example.com
+        - name: zone
+          in: path
+          required: true
+          description: Unique name of the zone
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+        - name: hostname
+          in: path
+          required: true
+          description: Hostname relative to the zone (e.g., "ws1" for ws1.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: ws1
       requestBody:
         required: true
         content:
@@ -134,13 +169,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: Zone not found for the given FQDN
+          description: Server or zone not found
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: Host already exists
+          description: Host already exists in this zone
           content:
             application/json:
               schema:
@@ -149,19 +184,36 @@ paths:
           $ref: '#/components/responses/Error'
     put:
       summary: Update an existing host
-      description: Updates an existing host record identified by its FQDN.
+      description: >
+        Updates an existing host record within a zone on a specific server.
+        The server validates that only fields valid for the host's type
+        are accepted; invalid fields trigger 400.
       operationId: update_host
       x-mojo-name: update_host
       x-mojo-to: "Host#update_host"
       parameters:
-        - name: host
+        - name: server
           in: path
           required: true
-          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
+          description: Unique name of the server
           x-mojo-placeholder: '#'
           schema:
             type: string
-            example: host.example.com
+        - name: zone
+          in: path
+          required: true
+          description: Unique name of the zone
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+        - name: hostname
+          in: path
+          required: true
+          description: Hostname relative to the zone (e.g., "ws1" for ws1.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: ws1
       requestBody:
         required: true
         content:
@@ -182,7 +234,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: Host not found
+          description: Server, zone, or host not found
           content:
             application/json:
               schema:
@@ -191,30 +243,44 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       summary: Delete a host
-      description: Deletes a host record by its FQDN.
+      description: Deletes a host record from a zone on a specific server.
       operationId: delete_host
       x-mojo-name: delete_host
       x-mojo-to: "Host#delete_host"
       parameters:
-        - name: host
+        - name: server
           in: path
           required: true
-          description: Fully Qualified Domain Name of the host (e.g., host.example.com)
+          description: Unique name of the server
           x-mojo-placeholder: '#'
           schema:
             type: string
-            example: host.example.com
+        - name: zone
+          in: path
+          required: true
+          description: Unique name of the zone
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+        - name: hostname
+          in: path
+          required: true
+          description: Hostname relative to the zone (e.g., "ws1" for ws1.example.com)
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+            example: ws1
       responses:
         '204':
           description: Host deleted successfully
         '400':
-          description: Invalid FQDN format
+          description: Invalid hostname format
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: Host not found
+          description: Server, zone, or host not found
           content:
             application/json:
               schema:
@@ -222,7 +288,7 @@ paths:
         '500':
           $ref: '#/components/responses/Error'
 
-  /servers/{server}/zones:
+  /servers/{server}/zones/{zone}:
     post:
       summary: Create a new zone
       description: Adds a new DNS zone to a specific server.
