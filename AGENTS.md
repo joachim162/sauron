@@ -96,6 +96,51 @@ fatal("Database error: $DBI::errstr") unless ($res);
   - **Validation:** Delegated to the OpenAPI plugin to ensure strict schema compliance.
 - **Statelessness:** The API must remain stateless to facilitate scaling and production deployment.
 
+**URL Structure:**
+- Resources are scoped under their parent hierarchy: `/servers/{server}/zones/{zone}/hosts/{hostname}`
+- Host endpoints require `server` and `zone` in the path — hostnames are not unique across zones
+- POST creates under a collection path (no resource name in path): `POST /servers/{server}/zones/{zone}/hosts` with `hostname` in request body
+- GET/PUT/DELETE use the full resource path: `/servers/{server}/zones/{zone}/hosts/{hostname}`
+
+**Schema Composition:**
+- Use `allOf` to eliminate duplication. `HostFields` contains all writable scalar + array fields shared between `NewHost` and `UpdateHost`.
+- `Host` (response): `allOf: [HostFields, {id, domain, fqdn, zone_id, ...}]`
+- `NewHost` (create): `allOf: [HostFields, {hostname, type}]`
+- `UpdateHost` (update): `allOf: [HostFields, {description}]`
+
+**BackEnd Schema Completeness:**
+- When a BackEnd `get_*` function calls `get_array_field` or `get_aml_field`, the returned array fields MUST be included in the corresponding OpenAPI response schema.
+- `get_array_field` returns marker-format arrays: `[[header_row], [id, field1, field2, ..., 0]]` — the schema must reflect the actual field structure (e.g., `{ip, comment}` for forwarders, `{txt, comment}` for logging).
+- `get_aml_field` returns ACL-like arrays: `[['aml', serverid], [id, mode, ip, acl, tkey, op, comment, ...]]` — these must be exposed as object arrays with all relevant properties.
+- Always consult `BackEnd.pm` `get_*` functions (not just `sql/*.sql`) when defining response schemas. The SQL table only defines scalar columns; array fields are populated by `get_array_field`/`get_aml_field`/`get_field` calls.
+- The `@desc` parameter in `get_array_field` calls defines the human-readable column headers but does NOT change the database query — use the actual `$fields` parameter to determine which columns are returned.
+
+**Host Type Validation:**
+- Controller enforces per-type field validation using `%TYPE_FIELDS` map
+- Fields not in the type's allowed set trigger a 400 error
+- Universal fields (`hostname`, `type`, `comment`, `ttl`, `class`, `grp`, `expiration`) are allowed for all types
+
+**OpenAPI Response Schema Compliance (Critical):**
+- The Mojolicious OpenAPI plugin validates every response against the schema. Mismatches cause 500 errors.
+- **Nullability:** Any field that Sauron BackEnd returns as `undef` (common for optional string/text fields like `forward`, `recursion`, `dialup`, `comment`, `named_xfer`, etc.) MUST have `nullable: true` in the schema. Without this, `type: string` rejects null with `"Expected string - got null"`.
+- **Array item nullability:** Properties inside array `items` (e.g., `comment` in `allow_transfer` items) also need `nullable: true` if they can be null.
+- **Boolean serialization:** Perl's `\1`/`\0` references serialize as `{}` (empty objects) in Mojolicious JSON output. Use `JSON::PP::true`/`JSON::PP::false` (or `$JSON::PP::true`/`$JSON::PP::false`) for proper JSON boolean serialization. Add `use JSON::PP ();` to the controller.
+- **Boolean input:** BackEnd uses `'t'`/`'f'` strings for booleans (`fix_bools` in `BackEnd.pm`). Convert to JSON booleans when building responses, and convert from JSON booleans to `'t'`/`'f'` when building BackEnd requests.
+- **Debugging:** If the OpenAPI plugin rejects a response, add `print Dumper($response)` before `$self->render(openapi => $response)` to inspect the actual data. The plugin error messages include the path (e.g., `/body/allow_transfer/0/comment`) to locate the mismatched field.
+
+**BackEnd Array Field to API Object Translation:**
+- `get_aml_field` returns rows like `[id, mode, ip, acl, tkey, op, comment, marker, acl_name, key_name]` — data rows have extra join columns at the end. `get_array_field` returns `[id, data1, data2, ..., marker]` with a marker at index `$count`.
+- The first element of the array is a **BackEnd header row** (e.g., `['aml', $serverid]` or `['DHCP', 'Comments']`). This header is for BackEnd internal use (BackEnd context metadata, human-readable labels) — NOT for API column names.
+- **Do NOT use BackEnd header rows for API column mapping.** Instead, maintain a separate `%HEADERS` hash mapping field names to clean API property names (e.g., `allow_transfer => [qw(mode ip acl tkey op comment)]`).
+- `update_array_field` in BackEnd.pm reads the marker at index `$count`. The `$count` value differs per field: AML fields use `$count=7`, simple fields use `$count=3`. Map these in a `%UPDATE_COUNT` hash.
+- When building API responses, use `_strip_marker_format($data, $api_header)` where `$api_header` comes from `%HEADERS` (API column names), not from `$data->[0]` (BackEnd internal header).
+
+**Dispatch Table Pattern for Array Fields:**
+- Use `%BACKEND_HEADERS` (BackEnd internal header), `%HEADERS` (API column names), `%BUILDERS` (record builder functions), and `%UPDATE_COUNT` (marker position) as separate dispatch tables.
+- `_build_array_field($api_data, $field_name)` converts API input to BackEnd format using `%BACKEND_HEADERS` and `%BUILDERS`.
+- `_strip_marker_format($data, $api_header)` converts BackEnd output to API format using `%HEADERS`.
+- This separation prevents the API output format from being coupled to BackEnd internal format.
+
 **Structure:**
 - Controllers in `sauron_api/lib/SauronAPI/Controller/`
 - Use helpers for common operations (see `SauronAPI.pm`)

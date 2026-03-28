@@ -15,8 +15,6 @@ paths:
       operationId: list_servers
       x-mojo-name: list_servers
       x-mojo-to: "Server#list_servers"
-      security:
-        - ApiKeyAuth: ['admin']
       responses:
         '200':
           description: A list of servers
@@ -28,6 +26,39 @@ paths:
                   $ref: '#/components/schemas/Server'
         '500':
           $ref: '#/components/responses/Error'
+    post:
+      summary: Create a new server
+      description: Adds a new DNS/DHCP server to the system.
+      operationId: add_server
+      x-mojo-name: add_server
+      x-mojo-to: "Server#add_server"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewServer'
+      responses:
+        '201':
+          description: Server created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Server already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
 
   /servers/{server}:
     get:
@@ -36,8 +67,6 @@ paths:
       operationId: get_server
       x-mojo-name: get_server
       x-mojo-to: "Server#get_server"
-      security:
-        - ApiKeyAuth: ['superadmin']
       parameters:
         - name: server
           in: path
@@ -53,6 +82,74 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Server'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Update an existing server
+      description: Updates an existing server configuration.
+      operationId: update_server
+      x-mojo-name: update_server
+      x-mojo-to: "Server#update_server"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServer'
+      responses:
+        '200':
+          description: Server updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    delete:
+      summary: Delete a server
+      description: >
+        Deletes a server and all associated zones, hosts, and related data.
+        This operation is irreversible.
+      operationId: delete_server
+      x-mojo-name: delete_server
+      x-mojo-to: "Server#delete_server"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Server deleted successfully
         '404':
           description: Server not found
           content:
@@ -353,21 +450,533 @@ paths:
 
 components:
   schemas:
-    Server:
+    ServerFields:
       type: object
-      required:
-        - id
-        - name
+      description: >
+        Shared writable fields for server records. All properties are optional
+        when updating; only 'name' is required when creating.
       properties:
-        id:
-          type: integer
-          example: 1
         name:
           type: string
+          description: Unique server name
           example: middle-earth
         comment:
           type: string
+          nullable: true
+          description: Server description
           example: Primary DNS for Middle Earth
+        directory:
+          type: string
+          description: Base directory for named
+          example: /var/named
+        version:
+          type: string
+          nullable: true
+          description: Version string to display
+          example: "9.18"
+        hostname:
+          type: string
+          nullable: true
+          description: Primary servername for sibling zone SOAs
+          example: ns1.example.com
+        hostaddr:
+          type: string
+          nullable: true
+          description: Primary server IP address
+          example: 192.168.1.1
+        hostmaster:
+          type: string
+          description: Hostmaster name for sibling zone SOAs
+          example: admin.example.com
+        pzone_path:
+          type: string
+          description: Relative path for master zone files
+        szone_path:
+          type: string
+          description: Relative path for slave zone files
+        named_ca:
+          type: string
+          description: Root servers filename
+          default: named.ca
+        pid_file:
+          type: string
+          nullable: true
+          description: pid-file pathname
+        dump_file:
+          type: string
+          nullable: true
+          description: dump-file pathname
+        named_xfer:
+          type: string
+          nullable: true
+          description: named-xfer pathname
+        stats_file:
+          type: string
+          nullable: true
+          description: statistics-file pathname
+        memstats_file:
+          type: string
+          nullable: true
+          description: memstatistics-file pathname
+        ttl:
+          type: integer
+          description: Default TTL for RR records
+          example: 86400
+        refresh:
+          type: integer
+          description: Default SOA refresh
+          example: 43200
+        retry:
+          type: integer
+          description: Default SOA retry
+          example: 3600
+        expire:
+          type: integer
+          description: Default SOA expire
+          example: 2419200
+        minimum:
+          type: integer
+          description: Default SOA minimum (negative caching TTL)
+          example: 86400
+        forward:
+          type: string
+          nullable: true
+          description: "Forward setting: D=default, O=only, F=first"
+          example: D
+        recursion:
+          type: string
+          nullable: true
+          description: "Recursion: D=default, Y=yes, N=no"
+          example: D
+        nnotify:
+          type: string
+          nullable: true
+          description: "Notify: D=default, Y=yes, N=no"
+          example: D
+        dialup:
+          type: string
+          nullable: true
+          description: "Dialup: D=default, Y=yes, N=no"
+        multiple_cnames:
+          type: string
+          nullable: true
+          description: "Multiple CNAMEs: D=default, Y=yes, N=no"
+        rfc2308_type1:
+          type: string
+          nullable: true
+          description: "RFC2308-type1: D=default, Y=yes, N=no"
+        authnxdomain:
+          type: string
+          nullable: true
+          description: "Auth NXDomain: D=default, Y=yes, N=no"
+        checknames_m:
+          type: string
+          nullable: true
+          description: "Check-names master: D=default, W=warn, F=fail, I=ignore"
+        checknames_s:
+          type: string
+          nullable: true
+          description: "Check-names slave: D=default, W=warn, F=fail, I=ignore"
+        checknames_r:
+          type: string
+          nullable: true
+          description: "Check-names response: D=default, W=warn, F=fail, I=ignore"
+        query_src_ip:
+          type: string
+          nullable: true
+          description: Query source IP (ip or '*')
+        query_src_port:
+          type: string
+          nullable: true
+          description: Query source port (port or '*')
+        listen_on_port:
+          type: string
+          nullable: true
+          description: Listen on port
+        transfer_source:
+          type: string
+          nullable: true
+          description: Transfer-source IP
+        query_src_ip_v6:
+          type: string
+          nullable: true
+          description: Query source IPv6 (ip or '*')
+        query_src_port_v6:
+          type: string
+          nullable: true
+          description: Query source port for IPv6 (port or '*')
+        listen_on_port_v6:
+          type: string
+          nullable: true
+          description: Listen on port for IPv6
+        transfer_source_v6:
+          type: string
+          nullable: true
+          description: Transfer-source IPv6
+        zones_only:
+          type: boolean
+          description: If true, generate named.zones file; otherwise generate complete named.conf
+          example: false
+        no_roots:
+          type: boolean
+          description: If true, no root server (hint) zone entry is generated
+          example: false
+        masterserver:
+          type: integer
+          description: Master server ID for dynamic slave zones (-1 if none)
+          example: -1
+        df_port:
+          type: integer
+          description: DHCP failover listen port
+          example: 519
+        df_max_delay:
+          type: integer
+          description: DHCP failover max-response-delay
+          example: 60
+        df_max_uupdates:
+          type: integer
+          description: DHCP failover max-unacked-updates
+          example: 10
+        df_mclt:
+          type: integer
+          description: DHCP failover mclt
+          example: 3600
+        df_split:
+          type: integer
+          description: DHCP failover split
+          example: 128
+        df_loadbalmax:
+          type: integer
+          description: DHCP failover load balance max seconds
+          example: 3
+        df_port6:
+          type: integer
+          description: DHCPv6 failover listen port
+          example: 520
+        df_max_delay6:
+          type: integer
+          description: DHCPv6 failover max-response-delay
+          example: 60
+        df_max_uupdates6:
+          type: integer
+          description: DHCPv6 failover max-unacked-updates
+          example: 10
+        df_mclt6:
+          type: integer
+          description: DHCPv6 failover mclt
+          example: 3600
+        df_split6:
+          type: integer
+          description: DHCPv6 failover split
+          example: 128
+        df_loadbalmax6:
+          type: integer
+          description: DHCPv6 failover load balance max seconds
+          example: 3
+        allow_transfer:
+          type: array
+          description: ACL for zone transfers (cidr_entries type=1)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        allow_query:
+          type: array
+          description: ACL for queries (cidr_entries type=7)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        allow_recursion:
+          type: array
+          description: ACL for recursion (cidr_entries type=8)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        blackhole:
+          type: array
+          description: Blacklist (cidr_entries type=9)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        listen_on:
+          type: array
+          description: Listen-on ACL (cidr_entries type=10)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        listen_on_v6:
+          type: array
+          description: Listen-on ACL for IPv6 (cidr_entries type=16)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        allow_query_cache:
+          type: array
+          description: ACL for query cache (cidr_entries type=14)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        allow_notify:
+          type: array
+          description: ACL for notify (cidr_entries type=15)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        forwarders:
+          type: array
+          description: DNS forwarders (cidr_entries type=11)
+          items:
+            type: object
+            properties:
+              ip:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        dhcp_l:
+          type: array
+          description: DHCP entries (dhcp_entries type=7)
+          items:
+            type: object
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        dhcp:
+          type: array
+          description: DHCP entries (dhcp_entries type=1)
+          items:
+            type: object
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        txt:
+          type: array
+          description: TXT entries (txt_entries type=3)
+          items:
+            type: object
+            properties:
+              txt:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        logging:
+          type: array
+          description: Logging options (txt_entries type=10)
+          items:
+            type: object
+            properties:
+              txt:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        custom_opts:
+          type: array
+          description: Custom BIND options (txt_entries type=11)
+          items:
+            type: object
+            properties:
+              txt:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        bind_globals:
+          type: array
+          description: BIND globals (txt_entries type=13)
+          items:
+            type: object
+            properties:
+              txt:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        dhcp6_l:
+          type: array
+          description: DHCPv6 entries (dhcp_entries type=17)
+          items:
+            type: object
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        dhcp6:
+          type: array
+          description: DHCPv6 entries (dhcp_entries type=11)
+          items:
+            type: object
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+
+    Server:
+      allOf:
+        - $ref: '#/components/schemas/ServerFields'
+        - type: object
+          properties:
+            id:
+              type: integer
+              example: 1
+            lastrun:
+              type: integer
+              description: Last time server (DNS) configuration was generated
+              example: 1711500000
+            server_type:
+              type: string
+              description: Computed server role (Master or Slave for <name>)
+              example: Master
+            cdate:
+              type: integer
+              nullable: true
+              description: Creation timestamp (Unix epoch)
+            cuser:
+              type: string
+              nullable: true
+              description: Created by user
+            mdate:
+              type: integer
+              nullable: true
+              description: Last modification timestamp (Unix epoch)
+            muser:
+              type: string
+              nullable: true
+              description: Last modified by user
+
+    NewServer:
+      allOf:
+        - $ref: '#/components/schemas/ServerFields'
+        - type: object
+          required:
+            - name
+            - hostname
+            - hostaddr
+            - hostmaster
+            - directory
+          description: Schema for creating a new server.
+
+    UpdateServer:
+      allOf:
+        - $ref: '#/components/schemas/ServerFields'
+        - type: object
+          description: >
+            Schema for updating an existing server. All fields are optional;
+            only provided fields are updated.
 
     NewZone:
       type: object
