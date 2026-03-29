@@ -7,10 +7,19 @@ servers:
   - url: /api/v1
     description: v1 API root
 
+tags:
+  - name: servers
+    description: API Endpoints for Servers
+  - name: hosts
+    description: API Endpoints for Hosts
+  - name: zones
+    description: API Endpoints for Zones
+
 paths:
   /servers:
     get:
       summary: List all servers
+      tags: [ servers ]
       description: Returns a list of all DNS/DHCP servers managed by Sauron.
       operationId: list_servers
       x-mojo-name: list_servers
@@ -28,6 +37,7 @@ paths:
           $ref: '#/components/responses/Error'
     post:
       summary: Create a new server
+      tags: [ servers ]
       description: Adds a new DNS/DHCP server to the system.
       operationId: add_server
       x-mojo-name: add_server
@@ -63,6 +73,7 @@ paths:
   /servers/{server}:
     get:
       summary: Get server details
+      tags: [ servers ]
       description: Returns detailed information about a specific DNS/DHCP server.
       operationId: get_server
       x-mojo-name: get_server
@@ -92,6 +103,7 @@ paths:
           $ref: '#/components/responses/Error'
     put:
       summary: Update an existing server
+      tags: [ servers ]
       description: Updates an existing server configuration.
       operationId: update_server
       x-mojo-name: update_server
@@ -133,6 +145,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       summary: Delete a server
+      tags: [ servers ]
       description: >
         Deletes a server and all associated zones, hosts, and related data.
         This operation is irreversible.
@@ -162,6 +175,7 @@ paths:
   /servers/{server}/zones/{zone}/hosts:
     post:
       summary: Create a new host
+      tags: [ hosts ]
       description: Creates a new host record in the specified zone on the specified server.
       operationId: add_host
       x-mojo-name: add_host
@@ -220,6 +234,7 @@ paths:
   /servers/{server}/zones/{zone}/hosts/{hostname}:
     get:
       summary: Get host by hostname
+      tags: [ hosts ]
       description: Returns detailed information about a specific host in the specified zone.
       operationId: get_host
       x-mojo-name: get_host
@@ -266,6 +281,7 @@ paths:
           $ref: '#/components/responses/Error'
     put:
       summary: Update an existing host
+      tags: [ hosts ]
       description: Updates an existing host record in the specified zone.
       operationId: update_host
       x-mojo-name: update_host
@@ -324,6 +340,7 @@ paths:
           $ref: '#/components/responses/Error'
     delete:
       summary: Delete a host
+      tags: [ hosts ]
       description: Deletes a host record from the specified zone.
       operationId: delete_host
       x-mojo-name: delete_host
@@ -368,6 +385,7 @@ paths:
   /servers/{server}/zones:
     post:
       summary: Create a new zone
+      tags: [ zones ]
       description: Adds a new DNS zone to a specific server.
       operationId: create_zone
       x-mojo-name: create_zone
@@ -417,6 +435,7 @@ paths:
   /servers/{server}/zones/{zone}:
     delete:
       summary: Delete a zone
+      tags: [ zones ]
       description: Removes a DNS zone from a specific server.
       operationId: delete_zone
       x-mojo-name: delete_zone
