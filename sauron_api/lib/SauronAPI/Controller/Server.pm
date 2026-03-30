@@ -125,6 +125,7 @@ my %UPDATE_COUNT = (
 
 # Resolve server name to ID, rendering 404 if not found.
 # Returns server_id on success, undef on failure (response already rendered).
+# TODO: Use helper instead
 sub _resolve_server {
   my ($self) = @_;
 
@@ -321,7 +322,7 @@ sub get_server ($self) {
 
 # POST /servers
 # Create a new server
-sub create_server ($self) {
+sub add_server ($self) {
   return unless $self->openapi->valid_input;
 
   my $json = $self->req->json;

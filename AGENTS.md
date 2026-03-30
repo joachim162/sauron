@@ -28,6 +28,7 @@ docker compose ps                      # List running containers
 
 **Perl syntax checks** require Sauron modules on path. Mojolicious is not installed on the host — check API files inside Docker or skip:
 ```bash
+<<<<<<< HEAD
 PERL5LIB=/srv/sauron:/srv/sauron/sauron_api/lib perl -wc Sauron/BackEnd.pm
 docker compose exec sauron_api bash -c "cd /srv/sauron && PERL5LIB=/srv/sauron:/srv/sauron/sauron_api/lib perl -wc sauron_api/lib/SauronAPI/Controller/Net.pm"
 ```
@@ -35,6 +36,28 @@ docker compose exec sauron_api bash -c "cd /srv/sauron && PERL5LIB=/srv/sauron:/
 <<<<<<< HEAD
 **API tests (inside container):**
 =======
+=======
+# Development server (morbo)
+cd sauron_api
+morbo -l http://localhost:3000 script/sauron_api
+
+# Production (hypnotoad)
+perl script/sauron_api prefork
+
+# Test specific endpoint
+curl http://localhost:3000/api/v1/servers
+
+# Run all API test commands
+source sauron_api/test_api.sh
+```
+
+### Swagger UI
+
+Interactive API documentation is available at `/api` (e.g., `http://localhost:3000/api`).
+It fetches the OpenAPI spec from `/api/v1` and provides a live testing interface.
+See `knowledge/Swagger-UI-Access.md` for troubleshooting.
+
+>>>>>>> 38ebf0e (Implement Zone CRUD endpoints in REST API)
 ## Code Style Guidelines
 
 ### Perl Conventions

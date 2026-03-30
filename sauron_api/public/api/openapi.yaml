@@ -383,6 +383,38 @@ paths:
           $ref: '#/components/responses/Error'
 
   /servers/{server}/zones:
+    get:
+      summary: List zones for a server
+      tags: [ zones ]
+      description: Returns all zones managed by a specific DNS server.
+      operationId: list_zones
+      x-mojo-name: list_zones
+      x-mojo-to: "Zone#list_zones"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A list of zones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Zone'
+        '404':
+          description: Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
     post:
       summary: Create a new zone
       tags: [ zones ]
@@ -433,6 +465,92 @@ paths:
           $ref: '#/components/responses/Error'
 
   /servers/{server}/zones/{zone}:
+    get:
+      summary: Get zone details
+      tags: [ zones ]
+      description: Returns detailed information about a specific DNS zone.
+      operationId: get_zone
+      x-mojo-name: get_zone
+      x-mojo-to: "Zone#get_zone"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+        - name: zone
+          in: path
+          required: true
+          description: Unique name of the zone
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Zone details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '404':
+          description: Server or zone not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+    put:
+      summary: Update an existing zone
+      tags: [ zones ]
+      description: Updates an existing zone configuration.
+      operationId: update_zone
+      x-mojo-name: update_zone
+      x-mojo-to: "Zone#update_zone"
+      parameters:
+        - name: server
+          in: path
+          required: true
+          description: Unique name of the server
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+        - name: zone
+          in: path
+          required: true
+          description: Unique name of the zone
+          x-mojo-placeholder: '#'
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateZone'
+      responses:
+        '200':
+          description: Zone updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Zone'
+        '400':
+          description: Invalid request data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Server or zone not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
     delete:
       summary: Delete a zone
       tags: [ zones ]
@@ -997,45 +1115,345 @@ components:
             Schema for updating an existing server. All fields are optional;
             only provided fields are updated.
 
-    NewZone:
+    ZoneFields:
       type: object
-      required:
-        - name
+      description: >
+        Shared writable fields for zone records. All properties are optional
+        when updating; only 'name' is required when creating.
       properties:
         name:
+          type: string
           description: Zone name or CIDR for reverse zones
-          type: string
           example: example.com
         type:
           type: string
-          enum: [Master, Forward, Hint, Slave]
-          default: Master
-        reverse:
-          type: boolean
-          default: false
-
-    Zone:
-      type: object
-      required:
-        - id
-        - name
-        - server_id
-      properties:
-        id:
-          type: integer
-          example: 10
-        name:
-          type: string
-          example: example.com
-        server_id:
-          type: integer
-          example: 1
-        type:
-          type: string
+          description: >
+            Zone type: H=hint, M=master, S=slave, F=forward.
+            Immutable after creation.
           example: M
+          readOnly: true
         reverse:
           type: boolean
+          description: >
+            If true, this is a reverse (arpa) zone.
+            Immutable after creation.
           example: false
+          readOnly: true
+        active:
+          type: boolean
+          description: Only active zones are included in named configuration
+          example: true
+        class:
+          type: string
+          nullable: true
+          description: DNS class (IN)
+          example: IN
+        comment:
+          type: string
+          nullable: true
+          description: Zone description
+        hostmaster:
+          type: string
+          nullable: true
+          description: Hostmaster email (optional; server value used if not set)
+          example: admin.example.com
+        ttl:
+          type: integer
+          nullable: true
+          description: Default TTL for RRs in this zone (server value used if not set)
+          example: 86400
+        refresh:
+          type: integer
+          nullable: true
+          description: SOA refresh time
+          example: 43200
+        retry:
+          type: integer
+          nullable: true
+          description: SOA retry time
+          example: 3600
+        expire:
+          type: integer
+          nullable: true
+          description: SOA expire time
+          example: 2419200
+        minimum:
+          type: integer
+          nullable: true
+          description: SOA minimum (negative caching TTL)
+          example: 86400
+        forward:
+          type: string
+          nullable: true
+          description: "Forward: D=default, O=only, F=first"
+          example: D
+        nnotify:
+          type: string
+          nullable: true
+          description: "Notify: D=default, Y=yes, N=no"
+          example: D
+        chknames:
+          type: string
+          nullable: true
+          description: "Check-names: D=default, W=warn, F=fail, I=ignore"
+          example: D
+        transfer_source:
+          type: string
+          nullable: true
+          description: Transfer-source IP
+        transfer_source_v6:
+          type: string
+          nullable: true
+          description: Transfer-source IPv6
+        expiration:
+          type: integer
+          nullable: true
+          description: Zone expiration timestamp (Unix epoch, 0 if no expiry)
+        allow_update:
+          type: array
+          description: ACL for dynamic updates (cidr_entries type=2)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        allow_query:
+          type: array
+          description: ACL for queries (cidr_entries type=4)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        allow_transfer:
+          type: array
+          description: ACL for zone transfers (cidr_entries type=5)
+          items:
+            type: object
+            properties:
+              mode:
+                type: integer
+              ip:
+                type: string
+              acl:
+                type: integer
+              tkey:
+                type: integer
+              op:
+                type: integer
+              comment:
+                type: string
+                nullable: true
+        masters:
+          type: array
+          description: List of master servers (cidr_entries type=3)
+          items:
+            type: object
+            properties:
+              ip:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        also_notify:
+          type: array
+          description: Additional servers to notify (cidr_entries type=6)
+          items:
+            type: object
+            properties:
+              ip:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        forwarders:
+          type: array
+          description: DNS forwarders (cidr_entries type=12)
+          items:
+            type: object
+            properties:
+              ip:
+                type: string
+              port:
+                type: string
+                nullable: true
+              comment:
+                type: string
+                nullable: true
+        dhcp:
+          type: array
+          description: DHCP entries (cidr_entries type=2)
+          items:
+            type: object
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        ns:
+          type: array
+          description: NS records for the zone apex (Master zones only)
+          items:
+            type: object
+            required:
+              - ns
+            properties:
+              ns:
+                type: string
+                description: NS record value (FQDN)
+              comment:
+                type: string
+                nullable: true
+        mx:
+          type: array
+          description: MX records for the zone apex (Master zones only)
+          items:
+            type: object
+            required:
+              - pri
+              - mx
+            properties:
+              pri:
+                type: integer
+              mx:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        txt:
+          type: array
+          description: TXT records for the zone apex (Master zones only)
+          items:
+            type: object
+            required:
+              - txt
+            properties:
+              txt:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        zentries_ta:
+          type: array
+          description: Zone entries (current format, txt_entries type=4)
+          items:
+            type: object
+            required:
+              - txt
+            properties:
+              txt:
+                type: string
+        zentries:
+          type: array
+          description: Zone entries (deprecated format, txt_entries type=12)
+          items:
+            type: object
+            required:
+              - txt
+            properties:
+              txt:
+                type: string
+              comment:
+                type: string
+                nullable: true
+
+    # TODO: Add enums where needed
+    Zone:
+      allOf:
+        - $ref: '#/components/schemas/ZoneFields'
+        - type: object
+          required:
+            - id
+            - name
+            - server_id
+          properties:
+            id:
+              type: integer
+              example: 10
+            server_id:
+              type: integer
+              example: 1
+            serial:
+              type: string
+              nullable: true
+              description: Zone serial number (auto-updated)
+              example: "1999123001"
+            serial_date:
+              type: integer
+              nullable: true
+              description: Last serial update timestamp
+            reversenet:
+              type: string
+              nullable: true
+              description: CIDR of the reverse zone (if applicable)
+            dummy:
+              type: boolean
+              description: Dummy zone flag
+            flags:
+              type: integer
+              description: Zone option flags (bitfield)
+            rdate:
+              type: integer
+              description: Last host removal date
+            cdate:
+              type: integer
+              nullable: true
+              description: Creation timestamp (Unix epoch)
+            cuser:
+              type: string
+              nullable: true
+              description: Created by user
+            mdate:
+              type: integer
+              nullable: true
+              description: Last modification timestamp (Unix epoch)
+            muser:
+              type: string
+              nullable: true
+              description: Last modified by user
+
+    NewZone:
+      allOf:
+        - $ref: '#/components/schemas/ZoneFields'
+        - type: object
+          required:
+            - name
+          description: >
+            Schema for creating a new zone. Server ID is taken from the URL path.
+            If type is omitted, defaults to M (master).
+
+    UpdateZone:
+      allOf:
+        - $ref: '#/components/schemas/ZoneFields'
+        - type: object
+          description: >
+            Schema for updating an existing zone. All writable fields are optional;
+            only provided fields are updated. The 'type' field is technically required
+            by the backend but is automatically populated from the existing zone value
+            to maintain immutability semantics.
 
     HostFields:
       type: object
