@@ -18,6 +18,8 @@ tags:
 paths:
   /servers:
     get:
+      security:
+        - BearerAuth: []
       summary: List all servers
       tags: [ servers ]
       description: Returns a list of all DNS/DHCP servers managed by Sauron.
@@ -1935,11 +1937,11 @@ components:
       description: Access token is missing or invalid
 
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
 
-security:
-  - bearerAuth: []
+# security:
+#   - bearerAuth: []
 

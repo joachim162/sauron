@@ -43,9 +43,13 @@
 
 ## autentizace / autorizace
 
-- [ ] udelat research na optimalni metodu autentizace/autorizace
+- [x] udelat research na optimalni metodu autentizace/autorizace
 
 ## logovani udalosti
 
 - [ ] zjistit jake jsou moznosti
 
+## sql
+
+- [ ] vytvorit sql script pro aktualizaci schematu databaze
+  - [ ] `personal_access_tokens.sql`

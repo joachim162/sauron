@@ -14,6 +14,7 @@ use Sauron::SetupIO;
 use Sys::Syslog qw(:DEFAULT setlogsock);
 eval { local $SIG{__WARN__} = sub {}; Sys::Syslog::setlogsock('unix') };
 use Net::IP qw (:PROC);
+use Digest::SHA qw(sha256_hex);
 
 use strict;
 use vars qw($VERSION @ISA @EXPORT);
@@ -191,6 +192,13 @@ $VERSION = '$Id:$ ';
 	     add_catalog_composition
 	     remove_catalog_composition
 	     update_catalog_compositions
+
+	     create_pat
+	     verify_pat
+	     revoke_pat
+	     get_pats
+	     update_pat_last_used
+
 	     write2log
 	    );
 
@@ -5663,5 +5671,92 @@ sub update_catalog_compositions($$$) {
   return 0;
 }
 
+############################################################################
+# Personal Access Token functions
+
+sub generate_pat_token() {
+  my $bytes;
+  open(my $fh, '<:raw', '/dev/urandom') or die "Cannot open /dev/urandom: $!";
+  read($fh, $bytes, 32);
+  close($fh);
+  return 'sauron_sk_' . unpack('H*', $bytes);
+}
+
+sub create_pat($$$) {
+  my($user_id, $name, $rec) = @_;
+
+  return -1 unless ($user_id > 0);
+  return -2 unless ($name);
+
+  my $plain_token = generate_pat_token();
+  my $hash = sha256_hex($plain_token);
+  my $now = time;
+
+  my $res = db_exec("INSERT INTO personal_access_tokens (user_id, token_hash, name, created_at) " .
+                    "VALUES ($user_id, '$hash', " . db_encode_str($name) . ", $now)");
+  return -10 if ($res < 0);
+
+  $rec->{plain_token} = $plain_token;
+  return 0;
+}
+
+# TODO: Test
+sub verify_pat($) {
+  my($token) = @_;
+
+  return undef unless ($token && $token =~ /^sauron_sk_[0-9a-f]{64}$/);
+
+  my $hash = sha256_hex($token);
+  my @q;
+
+  db_query("SELECT user_id FROM personal_access_tokens " .
+           "WHERE token_hash = '$hash' " .
+           "AND (expires_at = 0 OR expires_at > " . time() . ")", \@q);
+
+  return undef unless (@q > 0);
+
+  # Update last_used
+  # TODO: Check functionality
+  my $ip = $ENV{'REMOTE_ADDR'} || '';
+  update_pat_last_used($q[0][0], $ip);
+
+  return $q[0][0];
+}
+
+sub revoke_pat($$) {
+  my($token_id, $user_id) = @_;
+
+  return -1 unless ($token_id > 0);
+  return -2 unless ($user_id > 0);
+
+  my $res = db_exec("DELETE FROM personal_access_tokens " .
+                    "WHERE id = $token_id AND user_id = $user_id");
+  return -10 if ($res < 0);
+  return 0;
+}
+
+sub get_pats($$) {
+  my($user_id, $list) = @_;
+
+  return -1 unless ($user_id > 0);
+
+  db_query("SELECT id, name, created_at, expires_at, last_used, last_ip " .
+           "FROM personal_access_tokens WHERE user_id = $user_id " .
+           "ORDER BY created_at DESC", $list);
+  return 0;
+}
+
+sub update_pat_last_used($$) {
+  my($token_id, $ip) = @_;
+
+  return -1 unless ($token_id > 0);
+
+  db_exec("UPDATE personal_access_tokens SET last_used=" . time() .
+          ", last_ip=" . db_encode_str($ip) . " WHERE id = $token_id");
+  return 0;
+}
+
+
 1;
 # eof
+

@@ -26,26 +26,31 @@ sub startup {
     route => $self->routes->any('/api/v1'),
     schema => 'v3',
     skip_validating_specification => 1,
-    # security => {
-    #   ApiKeyAuth => sub ($c, $definition, $scopes, $cb) {
-    #     my $provided_key = $c->req->headers->header('X-API-KEY');
-    #     if ($provided_key && exists $config->{api_keys}->{$provided_key}) {
-    #       my $key_data = $config->{api_keys}->{$provided_key};
-    #       my $user_role = $key_data->{role};
-    #       print "user role from config: '$user_role'\n";
-    #       print "user role from HTTP: '@$scopes'\n";
-    #       my $is_authorized = grep { $_ eq $user_role } @$scopes;
-    #       return $c->$cb("Forbidden: You do not have permissions to perform this action") unless $is_authorized;
-    #       $c->stash(
-    #         api_user => $key_data->{owner},
-    #         api_role => $key_data->{role}
-    #       );
-    #
-    #       return $c->$cb();
-    #     }
-    #     return $c->$cb("Invalid or missing API key");
-    #   }
-    # }
+    security => {
+      # security handler 'BearerAuth' has to match with the security schema defined in openapi.yaml
+      BearerAuth => sub ($c, $definition, $scopes, $cb) {
+        my $auth = $c->req->headers->authorization;
+        print "Auth header value: '$auth'\n";
+        return $c->$cb('Authorization header not present') unless $auth;
+
+        my ($token) = $auth =~ /^Bearer\s+(.+)$/;
+        print "Token value: '$token'\n";
+        return $c->$cb('Invalid Authorization format') unless $token;
+
+        my $user_id = Sauron::BackEnd::verify_pat($token);
+        return $c->$cb('Invalid or expired token') unless $user_id;
+
+        my %perms;
+        Sauron::BackEnd::get_permissions($user_id, \%perms);
+
+        $c->stash(
+          api_user_id => $user_id,
+          api_perms   => \%perms,
+        );
+
+        return $c->$cb();
+      }
+    }
   });
 
   $self->plugin(SwaggerUI => {
