@@ -126,6 +126,7 @@ paths:
     get:
       security:
         - BearerAuth: []
+        - CookieAuth: []
       summary: List all servers
       tags: [ servers ]
       description: Returns a list of all DNS/DHCP servers managed by Sauron.
