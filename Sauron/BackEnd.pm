@@ -5757,6 +5757,135 @@ sub update_pat_last_used($$) {
 }
 
 
+############################################################################
+# BFF Session functions
+
+sub generate_session_token() {
+  my $bytes;
+  open(my $fh, '<:raw', '/dev/urandom') or die "Cannot open /dev/urandom: $!";
+  read($fh, $bytes, 32);
+  close($fh);
+  return unpack('H*', $bytes);
+}
+
+sub create_session($$$$) {
+  my($user_id, $auth_method, $ip, $ttl) = @_;
+
+  return -1 unless ($user_id > 0);
+  return -2 unless ($auth_method eq 'password' || $auth_method eq 'oidc');
+
+  $ttl //= 86400;
+  my $plain_token = generate_session_token();
+  my $hash = sha256_hex($plain_token);
+  my $now = time;
+
+  my $res = db_exec("INSERT INTO bff_sessions (user_id, token_hash, auth_method, created_at, last_used, last_ip, expires_at) " .
+                    "VALUES ($user_id, '$hash', " . db_encode_str($auth_method) . ", $now, $now, " . db_encode_str($ip) . ", " . ($now + $ttl) . ")");
+  return -10 if ($res < 0);
+
+  return $plain_token;
+}
+
+sub verify_session($) {
+  my($token) = @_;
+
+  return undef unless ($token && length($token) == 64);
+
+  my $hash = sha256_hex($token);
+  my @q;
+
+  db_query("SELECT user_id FROM bff_sessions " .
+           "WHERE token_hash = '$hash' AND expires_at > " . time(), \@q);
+
+  return undef unless (@q > 0);
+
+  my $user_id = $q[0][0];
+  my $ip = $ENV{'REMOTE_ADDR'} || '';
+
+  db_exec("UPDATE bff_sessions SET last_used=" . time() .
+          ", last_ip=" . db_encode_str($ip) . " WHERE token_hash = '$hash'");
+
+  return $user_id;
+}
+
+sub delete_session($) {
+  my($token) = @_;
+
+  return -1 unless ($token && length($token) == 64);
+
+  my $hash = sha256_hex($token);
+  my $res = db_exec("DELETE FROM bff_sessions WHERE token_hash = '$hash'");
+  return -10 if ($res < 0);
+  return 0;
+}
+
+sub delete_user_sessions($) {
+  my($user_id) = @_;
+
+  return -1 unless ($user_id > 0);
+
+  my $res = db_exec("DELETE FROM bff_sessions WHERE user_id = $user_id");
+  return -10 if ($res < 0);
+  return 0;
+}
+
+sub cleanup_expired_sessions() {
+  my $now = time;
+  my $res = db_exec("DELETE FROM bff_sessions WHERE expires_at < $now");
+  return $res;
+}
+
+sub get_user_by_email($$) {
+  my($email, $rec) = @_;
+
+  return -1 unless ($email && $email =~ /^[^\s@]+@[^\s@]+\.[^\s@]+$/);
+
+  my @q;
+  db_query("SELECT id,username,password,name,superuser,server,zone,comment," .
+           "email,flags,expiration,last,last_pwd,cdate,cuser,mdate,muser " .
+           "FROM users WHERE email=" . db_encode_str($email), \@q);
+
+  return -1 unless (@q > 0);
+
+  my @fields = qw(id username password name superuser server zone comment
+                  email flags expiration last last_pwd cdate cuser mdate muser);
+  for my $i (0 .. $#fields) {
+    $rec->{$fields[$i]} = $q[0][$i];
+  }
+
+  fix_bools($rec, "superuser");
+  $rec->{email_notify} = ($rec->{flags} & 0x01 ? 1 : 0);
+  add_std_fields($rec);
+
+  return 0;
+}
+
+sub get_user_by_id($$) {
+  my($id, $rec) = @_;
+
+  return -1 unless ($id && $id > 0);
+
+  my @q;
+  db_query("SELECT id,username,password,name,superuser,server,zone,comment," .
+           "email,flags,expiration,last,last_pwd,cdate,cuser,mdate,muser " .
+           "FROM users WHERE id=$id", \@q);
+
+  return -1 unless (@q > 0);
+
+  my @fields = qw(id username password name superuser server zone comment
+                  email flags expiration last last_pwd cdate cuser mdate muser);
+  for my $i (0 .. $#fields) {
+    $rec->{$fields[$i]} = $q[0][$i];
+  }
+
+  fix_bools($rec, "superuser");
+  $rec->{email_notify} = ($rec->{flags} & 0x01 ? 1 : 0);
+  add_std_fields($rec);
+
+  return 0;
+}
+
+
 1;
 # eof
 

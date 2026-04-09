@@ -14,8 +14,114 @@ tags:
     description: API Endpoints for Hosts
   - name: zones
     description: API Endpoints for Zones
+  - name: auth
+    description: Authentication endpoints
 
 paths:
+  /auth/login:
+    post:
+      summary: Authenticate with email and password
+      tags: [ auth ]
+      description: >
+        Authenticates a user with email and password. On successful authentication,
+        a session cookie is set. The session expires after the configured TTL.
+      operationId: auth_login
+      x-mojo-name: auth_login
+      x-mojo-to: "Auth#login"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Session cookie (HttpOnly)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid request (missing or malformed email/password)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account expired or locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/logout:
+    post:
+      summary: End the current session
+      tags: [ auth ]
+      description: >
+        Destroys the current session and clears the session cookie.
+      operationId: auth_logout
+      x-mojo-name: auth_logout
+      x-mojo-to: "Auth#logout"
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Logged out
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/me:
+    get:
+      summary: Get current authenticated user
+      tags: [ auth ]
+      description: >
+        Returns information about the currently authenticated user.
+        Requires a valid session cookie.
+      operationId: auth_me
+      x-mojo-name: auth_me
+      x-mojo-to: "Auth#me"
+      responses:
+        '200':
+          description: Current user information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account expired or locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /servers:
     get:
       security:
@@ -1914,6 +2020,64 @@ components:
             only provided fields are updated. Array fields use replace-all
             semantics (all existing records of the same type are replaced).
 
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: admin@example.com
+        password:
+          type: string
+          format: password
+          description: User's password
+          example: secretpassword
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: User ID
+          example: 1
+        username:
+          type: string
+          description: Username
+          example: admin
+        name:
+          type: string
+          nullable: true
+          description: Full name
+          example: Admin User
+        email:
+          type: string
+          nullable: true
+          format: email
+          description: Email address
+          example: admin@example.com
+        superuser:
+          type: boolean
+          description: Whether user is a superuser
+          example: false
+        alevel:
+          type: integer
+          description: Authorization level
+          example: 5
+        auth_method:
+          type: string
+          enum: [password, oidc, pat]
+          description: Authentication method used
+
+    UserResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+
     Error:
       type: object
       required:
@@ -1940,7 +2104,11 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: bff_session
+      description: Session cookie for browser-based authentication
 
 # security:
 #   - bearerAuth: []

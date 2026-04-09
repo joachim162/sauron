@@ -20,6 +20,18 @@ sub startup {
   load_config();
   db_connect();
 
+  # Shared logic: load permissions and stash user context
+  my $load_user_context = sub ($c, $user_id, $auth_method) {
+    my %perms;
+    Sauron::BackEnd::get_permissions($user_id, \%perms);
+    $c->stash(
+      api_user_id     => $user_id,
+      api_perms       => \%perms,
+      api_auth_method => $auth_method,
+    );
+    return 1;
+  };
+
   # OpenAPI Plugin Setup
   $self->plugin(OpenAPI => {
     url => $self->home->child('public', 'api', 'openapi.yaml'),
@@ -27,29 +39,36 @@ sub startup {
     schema => 'v3',
     skip_validating_specification => 1,
     security => {
-      # security handler 'BearerAuth' has to match with the security schema defined in openapi.yaml
       BearerAuth => sub ($c, $definition, $scopes, $cb) {
         my $auth = $c->req->headers->authorization;
-        print "Auth header value: '$auth'\n";
-        return $c->$cb('Authorization header not present') unless $auth;
+        return $c->$cb('Authorization header not present') unless ($auth);
 
         my ($token) = $auth =~ /^Bearer\s+(.+)$/;
-        print "Token value: '$token'\n";
-        return $c->$cb('Invalid Authorization format') unless $token;
+        return $c->$cb('Invalid Authorization format') unless ($token);
 
         my $user_id = Sauron::BackEnd::verify_pat($token);
-        return $c->$cb('Invalid or expired token') unless $user_id;
+        return $c->$cb('Invalid or expired token') unless ($user_id);
 
-        my %perms;
-        Sauron::BackEnd::get_permissions($user_id, \%perms);
-
-        $c->stash(
-          api_user_id => $user_id,
-          api_perms   => \%perms,
-        );
-
+        $load_user_context->($c, $user_id, 'pat');
         return $c->$cb();
-      }
+      },
+      CookieAuth => sub ($c, $definition, $scopes, $cb) {
+        my $cookie_name = $config->{session}->{cookie_name} // 'bff_session';
+        my $token = $c->cookie($cookie_name);
+        return $c->$cb('No session cookie') unless ($token);
+
+        my $user_id = Sauron::BackEnd::verify_session($token);
+        return $c->$cb('Invalid or expired session') unless ($user_id);
+
+        my $status = Sauron::BackEnd::get_user_status($user_id);
+        if (!defined $status || $status =~ /[EL]/) {
+          Sauron::BackEnd::delete_session($token);
+          return $c->$cb('Account is no longer active');
+        }
+
+        $load_user_context->($c, $user_id, 'session');
+        return $c->$cb();
+      },
     }
   });
 
@@ -61,6 +80,12 @@ sub startup {
 
   # Router
   my $r = $self->routes;
+
+  # Auth routes (outside OpenAPI - these handle login/logout, not resource CRUD)
+  my $auth = $r->any('/auth')->to(controller => 'Auth');
+  $auth->post('/login')->to(action => 'login');
+  $auth->post('/logout')->to(action => 'logout');
+  $auth->get('/me')->to(action => 'me');
 
   # Helpers
   $self->helper(get_server_id_or_404 => sub ($c, $name) {
