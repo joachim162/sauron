@@ -81,6 +81,9 @@ sub startup {
   # Router
   my $r = $self->routes;
 
+  # Root route - serve static index.html
+  $r->get('/')->to('Root#index');
+
   # Auth routes (outside OpenAPI - these handle login/logout, not resource CRUD)
   my $auth = $r->any('/auth')->to(controller => 'Auth');
   $auth->post('/login')->to(action => 'login');
