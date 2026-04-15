@@ -27,12 +27,32 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       PERL5LIB: /srv/sauron
-    ports:
-      - "3000:3000"
+      # Trusted IPs for proxy auth: localhost (for direct testing) + Docker network (for Apache)
+      PROXY_AUTH_TRUSTED_IPS: "127.0.0.1,::1,172.0.0.0/8"
+    expose:
+      - "3000"
     volumes:
       - ./sauron_api/sauron_a_p_i.yml:/srv/sauron/sauron_api/sauron_a_p_i.yml:ro
       - ./test:/srv/sauron/test:ro
     working_dir: /srv/sauron
+
+  apache:
+    build:
+      context: .
+      dockerfile: apache/Dockerfile
+    depends_on:
+      - sauron_api
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      OIDC_ISSUER: "https://authentik.local.holecek.party/application/o/sauron-web-ui/"
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
+      OIDC_CRYPTO_PASSPHRASE: "${OIDC_CRYPTO_PASSPHRASE:-changeme}"
+      API_BACKEND: "http://sauron_api:3000"
+    volumes:
+      - ./apache/tls:/etc/apache2/tls:ro
 
 volumes:
   postgres_data:

@@ -39,3 +39,7 @@ sauron_api/sauron_a_p_i.yml
 
 # eof
 .env
+
+# keys
+*.key
+*.crt

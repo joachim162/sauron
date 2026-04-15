@@ -8,6 +8,7 @@ use lib "$FindBin::Bin/../.."; # Path to Sauron legacy modules
 use Sauron::Sauron;
 use Sauron::DB;
 use Sauron::BackEnd;
+use Net::IP qw(ip_is_innet);
 
 # This method will run once at server start
 sub startup {
@@ -16,6 +17,12 @@ sub startup {
   # Load configuration from Mojolicious config file
   my $config = $self->plugin('NotYAMLConfig');
   $self->secrets($config->{secrets});
+
+  if ($ENV{PROXY_AUTH_TRUSTED_IPS}) {
+    my @ips = split(/,/, $ENV{PROXY_AUTH_TRUSTED_IPS});
+    $config->{proxy_auth} //= {};
+    $config->{proxy_auth}{trusted_ips} = \@ips;
+  }
 
   load_config();
   db_connect();
@@ -69,6 +76,58 @@ sub startup {
         $load_user_context->($c, $user_id, 'session');
         return $c->$cb();
       },
+      ProxyAuth => sub ($c, $definition, $scopes, $cb) {
+        my $proxy = $config->{proxy_auth} // {};
+        my $header = $proxy->{header} // 'X-Remote-User';
+        my $match  = $proxy->{match}  // 'email';
+        my @trusted = @{$proxy->{trusted_ips} // ['127.0.0.1', '::1']};
+
+        my $remote_ip = $c->tx->remote_address;
+
+        my $trusted = 0;
+        for my $entry (@trusted) {
+          if ($entry eq $remote_ip) {
+            $trusted = 1;
+            last;
+          }
+          if ($entry =~ m{^([\d.:a-fA-F]+)/(\d+)$}) {
+            my ($net, $bits) = ($1, $2);
+            if (Net::IP::ip_is_innet($remote_ip, $net, $bits)) {
+              $trusted = 1;
+              last;
+            }
+          }
+        }
+
+        unless ($trusted) {
+          return $c->$cb('Untrusted proxy');
+        }
+
+        my $remote_user = $c->req->headers->header($header);
+        unless ($remote_user) {
+          return $c->$cb('No proxy auth header');
+        }
+
+        my %user;
+        my $found;
+        if ($match eq 'email') {
+          $found = (Sauron::BackEnd::get_user_by_email($remote_user, \%user) == 0);
+        }
+        else {
+          $found = (Sauron::BackEnd::get_user($remote_user, \%user) == 0);
+        }
+        unless ($found) {
+          return $c->$cb('User not found');
+        }
+
+        my $status = Sauron::BackEnd::get_user_status($user{id});
+        if (!defined $status || $status =~ /[EL]/) {
+          return $c->$cb('Account is no longer active');
+        }
+
+        $load_user_context->($c, $user{id}, 'proxy');
+        return $c->$cb();
+      },
     }
   });
 
@@ -89,6 +148,7 @@ sub startup {
   $auth->post('/login')->to(action => 'login');
   $auth->post('/logout')->to(action => 'logout');
   $auth->get('/me')->to(action => 'me');
+  $auth->get('/proxy-login')->to(action => 'proxy_login');
 
   # Helpers
   $self->helper(get_server_id_or_404 => sub ($c, $name) {

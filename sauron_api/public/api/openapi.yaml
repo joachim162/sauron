@@ -127,6 +127,7 @@ paths:
       security:
         - BearerAuth: []
         - CookieAuth: []
+        - ProxyAuth: []
       summary: List all servers
       tags: [ servers ]
       description: Returns a list of all DNS/DHCP servers managed by Sauron.
@@ -2110,6 +2111,14 @@ components:
       in: cookie
       name: bff_session
       description: Session cookie for browser-based authentication
+    # ProxyAuth:
+    #   type: apiKey
+    #   in: header
+    #   name: X-Remote-User
+    #   description: >
+    #     Trusted header authentication via reverse proxy (e.g. Apache mod_auth_openidc).
+    #     The proxy authenticates the user via OIDC and sets this header.
+    #     Only accepted from trusted proxy IPs configured in proxy_auth.trusted_ips.
 
 # security:
 #   - bearerAuth: []
