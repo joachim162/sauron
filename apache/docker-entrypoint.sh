@@ -13,55 +13,45 @@ generate_config() {
         exit 1
     fi
 
-    # Build the OIDC configuration file
+    # Build the Apache config file
     cat > /usr/local/apache2/conf/extra/httpd-oidc.conf << 'APACHE_EOF'
 # Apache OIDC Reverse Proxy Configuration for Sauron API
 # Generated from environment variables at startup
 
-# SSL Configuration
-SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
-SSLCipherSuite HIGH:!aNULL:!MD5
-SSLCertificateFile /etc/apache2/tls/server.crt
-SSLCertificateKeyFile /etc/apache2/tls/server.key
+ServerName localhost
 
-# OIDC Configuration
-OIDCProviderMetadataURL OIDC_ISSUER_PLACEHOLDER/.well-known/openid-configuration
-OIDCClientID OIDC_CLIENT_ID_PLACEHOLDER
-OIDCClientSecret OIDC_CLIENT_SECRET_PLACEHOLDER
-OIDCCryptoPassphrase OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER
-OIDCScope "openid profile email"
-OIDCRemoteUserClaim email
-OIDCDiscoveryTimeout 30
-OIDCSessionInactivityTimeout 3600
-OIDCSessionMaxDuration 86400
-OIDCCacheType session
-OIDCSessionType server
+# Explicitly listen on port 443 for HTTPS
+Listen 443
 
-APACHE_EOF
-
-    # Replace placeholders with actual values
-    sed -i "s|OIDC_ISSUER_PLACEHOLDER|${oidc_issuer}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
-    sed -i "s|OIDC_CLIENT_ID_PLACEHOLDER|${oidc_client_id}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
-    sed -i "s|OIDC_CLIENT_SECRET_PLACEHOLDER|${oidc_client_secret}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
-    sed -i "s|OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER|${oidc_crypto_passphrase}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
-
-    # Now add the VirtualHost configuration
-    cat >> /usr/local/apache2/conf/extra/httpd-oidc.conf << 'VHOST_EOF'
-
+# HTTP to HTTPS redirect
 <VirtualHost *:80>
     ServerName localhost
     Redirect permanent / https://localhost/
 </VirtualHost>
 
+# HTTPS VirtualHost with OIDC authentication
 <VirtualHost *:443>
     ServerName localhost
-    DocumentRoot /var/www/html
 
+    # SSL Configuration
     SSLEngine on
+    SSLCertificateFile /etc/apache2/tls/server.crt
+    SSLCertificateKeyFile /etc/apache2/tls/server.key
+    SSLProtocol all -SSLv3
+    SSLCipherSuite ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+    SSLHonorCipherOrder on
 
-    # Enable headers for proxying
-    RequestHeader set X-Forwarded-Proto "https"
-    RequestHeader set X-Forwarded-Port "443"
+    # Disable SSL compression to prevent CRIME attacks
+    SSLCompression off
+
+    # OIDC Configuration
+    OIDCProviderMetadataURL OIDC_ISSUER_PLACEHOLDER/.well-known/openid-configuration
+    OIDCClientID OIDC_CLIENT_ID_PLACEHOLDER
+    OIDCClientSecret OIDC_CLIENT_SECRET_PLACEHOLDER
+    OIDCCryptoPassphrase OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER
+    OIDCRedirectURI https://localhost/callback
+    OIDCScope "openid profile email"
+    OIDCRemoteUserClaim email
 
     # =====================================================================
     # Protected API paths - require OIDC authentication
@@ -79,6 +69,15 @@ APACHE_EOF
         ProxyPreserveHost On
         ProxyPass http://sauron_api:3000/api/v1
         ProxyPassReverse http://sauron_api:3000/api/v1
+    </Location>
+
+    # =====================================================================
+    # OIDC callback - handled by mod_auth_openidc, must not be proxied
+    # =====================================================================
+
+    <Location /callback>
+        AuthType openid-connect
+        Require valid-user
     </Location>
 
     # =====================================================================
@@ -138,7 +137,15 @@ APACHE_EOF
     ErrorLog /proc/self/fd/2
     CustomLog /proc/self/fd/1 common
 </VirtualHost>
-VHOST_EOF
+APACHE_EOF
+
+    # Replace placeholders with actual values
+    # Strip trailing slash from issuer URL to avoid double-slash in well-known path
+    local oidc_issuer_clean="${oidc_issuer%/}"
+    sed -i "s|OIDC_ISSUER_PLACEHOLDER|${oidc_issuer_clean}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
+    sed -i "s|OIDC_CLIENT_ID_PLACEHOLDER|${oidc_client_id}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
+    sed -i "s|OIDC_CLIENT_SECRET_PLACEHOLDER|${oidc_client_secret}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
+    sed -i "s|OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER|${oidc_crypto_passphrase}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
 
     echo "Apache config generated successfully"
 }

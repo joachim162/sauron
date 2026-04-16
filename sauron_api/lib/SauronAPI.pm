@@ -8,7 +8,7 @@ use lib "$FindBin::Bin/../.."; # Path to Sauron legacy modules
 use Sauron::Sauron;
 use Sauron::DB;
 use Sauron::BackEnd;
-use Net::IP qw(ip_is_innet);
+use Net::Netmask;
 
 # This method will run once at server start
 sub startup {
@@ -92,10 +92,13 @@ sub startup {
           }
           if ($entry =~ m{^([\d.:a-fA-F]+)/(\d+)$}) {
             my ($net, $bits) = ($1, $2);
-            if (Net::IP::ip_is_innet($remote_ip, $net, $bits)) {
-              $trusted = 1;
-              last;
-            }
+            eval {
+              my $block = Net::Netmask->new("$net/$bits");
+              if ($block->match($remote_ip)) {
+                $trusted = 1;
+              }
+            };
+            last if $trusted;
           }
         }
 
@@ -117,7 +120,7 @@ sub startup {
           $found = (Sauron::BackEnd::get_user($remote_user, \%user) == 0);
         }
         unless ($found) {
-          return $c->$cb('User not found');
+          return $c->$cb("User '$remote_user' not found");
         }
 
         my $status = Sauron::BackEnd::get_user_status($user{id});

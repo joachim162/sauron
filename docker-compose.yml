@@ -51,6 +51,8 @@ services:
       OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
       OIDC_CRYPTO_PASSPHRASE: "${OIDC_CRYPTO_PASSPHRASE:-changeme}"
       API_BACKEND: "http://sauron_api:3000"
+    env_file:
+      - .env
     volumes:
       - ./apache/tls:/etc/apache2/tls:ro
 

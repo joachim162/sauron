@@ -1,7 +1,7 @@
 package SauronAPI::Controller::Auth;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
-use Net::IP qw(ip_is_innet);
+use Net::Netmask;
 use Sauron::BackEnd ();
 use Sauron::Util ();
 use JSON::PP ();
@@ -11,7 +11,9 @@ sub _check_trusted_ip($remote_ip, $trusted_ips) {
     return 1 if $entry eq $remote_ip;
     if ($entry =~ m{^([\d.:a-fA-F]+)/(\d+)$}) {
       my ($net, $bits) = ($1, $2);
-      return 1 if Net::IP::ip_is_innet($remote_ip, $net, $bits);
+      my $block;
+      eval { $block = Net::Netmask->new("$net/$bits"); };
+      return 1 if $block && $block->match($remote_ip);
     }
   }
   return 0;
