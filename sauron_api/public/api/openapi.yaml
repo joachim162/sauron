@@ -127,41 +127,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /auth/proxy-login:
-    get:
-      security: []
-      summary: Authenticate via reverse proxy (OIDC/SSO)
-      tags: [ auth ]
-      description: >
-        Entry point for proxy-authenticated users. A reverse proxy (e.g. Apache
-        with mod_auth_openidc) authenticates the user via OIDC and sets the
-        X-Remote-User header. This endpoint returns user info if the header is
-        present and the request originates from a trusted proxy IP.
-        This endpoint does not accept BearerAuth or CookieAuth - it only
-        processes the trusted proxy header.
-      operationId: auth_proxy_login
-      x-mojo-name: proxy_login
-      x-mojo-to: "Auth#proxy_login"
-      responses:
-        '200':
-          description: User information from proxy authentication
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserResponse'
-        '401':
-          description: No proxy auth header or untrusted proxy
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '403':
-          description: Account expired or locked
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-
   /servers:
     get:
       security:

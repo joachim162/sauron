@@ -107,10 +107,6 @@ The `ProxyAuth` handler in the OpenAPI security configuration:
 4. Looks up the user by email (or username, depending on `proxy_auth.match` config)
 5. Stashes user context for controllers
 
-### Proxy Login Endpoint (`Auth.pm:proxy_login`)
-
-`GET /api/v1/auth/proxy-login` is a dedicated endpoint for proxy-authenticated requests. It uses the same trusted-IP logic but returns user info directly (`security: []` in OpenAPI — no BearerAuth/CookieAuth required).
-
 ### Me Endpoint (`Auth.pm:me`)
 
 `GET /api/v1/auth/me` supports all three auth methods: BearerAuth, CookieAuth, and ProxyAuth. In the OpenAPI spec, all three are listed as alternatives. The controller checks the proxy header first (if from trusted IP), then falls back to `bff_session` cookie.
@@ -178,13 +174,13 @@ Each OpenAPI endpoint can require one or more of these via security definitions.
 - `apache/tls/generate-dev-cert.sh` — Self-signed TLS certificate generation
 - `docker-compose.yml` — Multi-service Docker setup
 - `sauron_api/lib/SauronAPI.pm:79-133` — ProxyAuth security handler
-- `sauron_api/lib/SauronAPI/Controller/Auth.pm:164-237` — `me()` and `proxy_login()`
+- `sauron_api/lib/SauronAPI/Controller/Auth.pm` — `me()`, `login()`, `logout()` controllers
 - `sauron_api/sauron_a_p_i.yml` — Proxy auth configuration
 
 ## TODO
 
 - [ ] **Remove ProxyAuth from OpenAPI spec** — `ProxyAuth` is documented as a `type: apiKey` security scheme in `openapi.yaml`, but clients should never send this header directly. It should be removed from the spec since only Apache sets it. The Mojolicious handler should remain as a route-level check.
-- [ ] **Update frontend** — Add an SSO login button to `index.html` that redirects to an OIDC-protected endpoint (e.g., `/api/v1/auth/proxy-login`). Detect auth state via `/api/v1/auth/me`.
+- [ ] **Update frontend** — Add an SSO login button to `index.html` that redirects to an OIDC-protected endpoint. Detect auth state via `/api/v1/auth/me`.
 - [ ] **Narrow PROXY_AUTH_TRUSTED_IPS** — Currently `172.0.0.0/8` covers all Docker `172.x.x.x` networks. Should be narrowed to the actual Docker bridge subnet (e.g., `172.19.0.0/16`) for production.
 - [ ] **Add SSLSessionCache** — Apache logs `AH01873: Session Cache is not configured`. Add `SSLSessionCache shmcb:/var/run/ssl_scache(512000)` to the config for production readiness.
 - [ ] **OIDC logout** — Logging out of the Sauron session does not end the Authentik session. Consider adding an OIDC end-session redirect.

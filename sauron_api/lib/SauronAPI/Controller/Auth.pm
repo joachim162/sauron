@@ -175,19 +175,4 @@ sub me ($self) {
   );
 }
 
-# GET /auth/proxy-login
-# Entry point for proxy-authenticated users.
-# Apache sets X-Remote-User after OIDC authentication.
-# This endpoint returns user info if the header is valid.
-sub proxy_login ($self) {
-  my $result = $self->resolve_proxy_user;
-  if ($result->{error}) {
-    return $self->render(
-      json   => { error => $result->{error}, message => $result->{message} },
-      status => $result->{status}
-    );
-  }
-  _render_user_response($self, $result->{user_id}, $result->{username}, 'proxy');
-}
-
 1;

@@ -241,7 +241,7 @@ Browser → Apache (HTTPS :443, mod_auth_openidc)
 
 **Key entry points:**
 - `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, security handlers, `before_dispatch` hook
-- `sauron_api/lib/SauronAPI/Controller/Auth.pm` — Login/logout/me/proxy-login controllers
+- `sauron_api/lib/SauronAPI/Controller/Auth.pm` — Login/logout/me controllers
 - `Sauron/BackEnd.pm` — 4500+ lines, all database operations. Always use this instead of raw SQL.
 - `sauron_api/public/api/openapi.yaml` — Source of truth for API contracts
 
@@ -266,7 +266,7 @@ Browser → Apache (HTTPS :443, mod_auth_openidc)
 - **Array fields:** BackEnd returns marker-format arrays. Use `_strip_marker_format($data, $api_header)` with `%HEADERS` dispatch, NOT the BackEnd header row (`$data->[0]`).
 - **Auth method enum:** Use `proxy` (not `oidc`) — the OpenAPI enum is `[password, proxy, pat]`.
 - **ProxyAuth in spec:** Listed as `type: apiKey` with `x-auth-type: proxy` and description marking it as internal-only. Clients should never send `X-Remote-User` directly.
-- **`security: []`** on `/auth/proxy-login` means no client auth required — the proxy sets the header.
+- **`security: []`** on `/auth/login` and `/auth/logout` means no client auth required for those endpoints.
 
 ## Docker/Auth Architecture
 
