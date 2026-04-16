@@ -43,3 +43,6 @@ sauron_api/sauron_a_p_i.yml
 # keys
 *.key
 *.crt
+
+# openssl config for dev cert generation
+server.cnf

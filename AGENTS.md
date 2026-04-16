@@ -2,6 +2,7 @@
 
 Guidelines for agentic coding agents working on the Sauron codebase.
 
+<<<<<<< HEAD
 ## Git & Remotes
 
 - **`origin`** — `https://github.com/joachim162/sauron.git` (default, push here). Branches under `origin/` belong to this forked repo and are used to implement the new REST API and frontend.
@@ -9,23 +10,44 @@ Guidelines for agentic coding agents working on the Sauron codebase.
 - **Create issues on:** `joachim162/sauron` (`gh issue create --repo joachim162/sauron --label <label>`)
 - **Commit message format:** `type(scope): description` (e.g. `fix(ui): align nets list with hosts`, `feat(api): add vlan enrichment`, `docs: ...`)
 
+=======
+>>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
 ## Build & Run
 
 ```bash
 ./configure && make          # Configure and build
 make check                   # Syntax-check all Perl files
+<<<<<<< HEAD
+=======
+make docs                    # Generate HTML docs from SQL schemas
+make install                 # Install (requires root)
+>>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
 make clean                   # Clean build artifacts
 ```
 
 **Docker (full stack):**
 ```bash
+<<<<<<< HEAD
 docker compose up -d                   # Start postgres + API + frontend + Apache
 docker compose up -d sauron_api        # Restart API only
 docker compose restart sauron_api      # Restart API (picks up code changes from bind mount)
 docker compose logs sauron_api --tail  # View API logs
 docker compose ps                      # List running containers
+=======
+docker-compose up -d                # Start postgres + API + Apache
+docker-compose up -d sauron_api     # Restart API only
+docker-compose build apache          # Rebuild Apache after config changes
+docker-compose logs sauron_api-1     # View API logs
 ```
 
+**Perl syntax checks require Sauron modules on path:**
+```bash
+PERL5LIB=/home/jachym/Documents/sauron perl -wc Sauron/BackEnd.pm
+>>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
+```
+Mojolicious modules are not installed on the host — syntax-check API files inside Docker or skip them.
+
+<<<<<<< HEAD
 **Perl syntax checks** require Sauron modules on path. Mojolicious is not installed on the host — check API files inside Docker or skip:
 ```bash
 <<<<<<< HEAD
@@ -38,21 +60,19 @@ docker compose exec sauron_api bash -c "cd /srv/sauron && PERL5LIB=/srv/sauron:/
 =======
 =======
 # Development server (morbo)
+=======
+**API tests:**
+```bash
+>>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
 cd sauron_api
-morbo -l http://localhost:3000 script/sauron_api
-
-# Production (hypnotoad)
-perl script/sauron_api prefork
-
-# Test specific endpoint
-curl http://localhost:3000/api/v1/servers
-
-# Run all API test commands
-source sauron_api/test_api.sh
+prove -l t/                    # All tests (minimal — only basic.t)
+prove -l t/basic.t             # Single test
+source sauron_api/test_api.sh  # Curl-based integration tests (requires running API + DB)
 ```
 
-### Swagger UI
+## Architecture
 
+<<<<<<< HEAD
 Interactive API documentation is available at `/api` (e.g., `http://localhost:3000/api`).
 It fetches the OpenAPI spec from `/api/v1` and provides a live testing interface.
 See `knowledge/Swagger-UI-Access.md` for troubleshooting.
@@ -201,79 +221,72 @@ fatal("Database error: $DBI::errstr") unless ($res);
 4. **Validate:** Run automated tests against the OpenAPI schema.
 
 ## Project Structure
+=======
+Sauron is Perl DNS/DHCP management with a Mojolicious REST API and Apache reverse proxy for OIDC.
+>>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
 
 ```
-/home/jachym/Documents/sauron/
-├── Sauron/               # Core modules
-│   ├── Sauron.pm        # Config parsing
-│   ├── BackEnd.pm       # Main backend logic
-│   ├── Util.pm          # Utility functions
-│   ├── DB.pm            # Database interface (symlink)
-│   └── CGI/             # CGI-specific modules
-├── cgi/                 # Web interface
-│   ├── sauron.cgi
-│   └── browser.cgi
-├── sauron_api/          # REST API
-│   ├── lib/
-│   ├── script/
-│   ├── t/               # Tests
-│   └── public/api/
-├── sql/                 # Database schemas
-├── test/                # Demo/test data
-└── contrib/             # Helper scripts
+Browser → Apache (HTTPS :443, mod_auth_openidc)
+              ↓ Sets X-Remote-User after OIDC auth
+              ↓ Proxies to API with trusted header
+          Sauron API (HTTP :3000, Mojolicious)
+              ↓
+          PostgreSQL (database)
 ```
 
-## Environment & Paths
+**Auth flows (3 methods, coexist):**
+- **BearerAuth**: Personal access tokens (`Authorization: Bearer sau_...`)
+- **CookieAuth**: Session cookies (`bff_session`) from `POST /auth/login`
+- **ProxyAuth**: Trusted reverse proxy sets `X-Remote-User` header (not client-facing)
 
-- **Source:** `~/sauron` (repository root)
-- **API Root:** `~/sauron/sauron_api`
-- **Config:** `/usr/local/etc/sauron/config`
-- **Legacy Libraries:** Add `~/sauron` to `@INC` inside the Mojolicious app
+**Key entry points:**
+- `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, security handlers, `before_dispatch` hook
+- `sauron_api/lib/SauronAPI/Controller/Auth.pm` — Login/logout/me/proxy-login controllers
+- `Sauron/BackEnd.pm` — 4500+ lines, all database operations. Always use this instead of raw SQL.
+- `sauron_api/public/api/openapi.yaml` — Source of truth for API contracts
 
-## Configuration
+**OpenAPI spec ↔ code binding:** Routes use `x-mojo-to: "Controller#action"` to map spec operations to Perl methods. The OpenAPI plugin at `/api/v1` automatically routes based on these annotations.
 
-- Main config: `/usr/local/etc/sauron/config`
-- Browser config: `/usr/local/etc/sauron/config-browser`
-- Template: `config.in` (gets processed during install)
+**`before_dispatch` hook:** Adjusts `url->base` from `X-Forwarded-Proto`/`Host` headers so the OpenAPI spec returns correct `https://` URLs when behind Apache. Without this, Swagger UI sends requests to `http://sauron_api:3000`.
 
-## Key Modules
+## Code Style
 
-- `Sauron::BackEnd`: Core database operations
-- `Sauron::Util`: Validation, encoding, CIDR operations
-- `Sauron::DB`: Database abstraction (DBI/Pg)
-- `Sauron::Sauron`: Configuration loading
+- **Indentation:** 2 spaces, no tabs
+- **Braces:** Same line: `sub foo {`
+- **Variables:** `$lowercase` scalars, `@array`, `%hash`
+- **Private functions:** Prefix with `_`
+- **No comments unless requested**
+- **Imports order:** `use strict; use warnings;` then Sauron modules, then external modules
+- **Boolean serialization:** Use `JSON::PP::true`/`JSON::PP::false`, never `\1`/`\0` (those become `{}`)
+- **BackEnd booleans:** Stored as `'t'`/`'f'` strings — convert when building API responses
 
-## CI/CD
+## OpenAPI/Common Pitfalls
 
-GitHub Actions (`.github/workflows/check_syntax.yml`):
-- Runs on push/PR
-- Tests on Debian stable with PostgreSQL 15
-- Performs syntax checks on all `.pl` and `.pm` files
-- Full installation and configuration test
-- Generates BIND/DHCP configs as artifacts
+- **Nullability:** Any BackEnd field that can return `undef` MUST have `nullable: true` in the schema. Without it, `type: string` rejects null with 500 errors.
+- **Array fields:** BackEnd returns marker-format arrays. Use `_strip_marker_format($data, $api_header)` with `%HEADERS` dispatch, NOT the BackEnd header row (`$data->[0]`).
+- **Auth method enum:** Use `proxy` (not `oidc`) — the OpenAPI enum is `[password, proxy, pat]`.
+- **ProxyAuth in spec:** Listed as `type: apiKey` with `x-auth-type: proxy` and description marking it as internal-only. Clients should never send `X-Remote-User` directly.
+- **`security: []`** on `/auth/proxy-login` means no client auth required — the proxy sets the header.
 
-## Security Notes
+## Docker/Auth Architecture
 
-- Never expose API keys or database credentials
-- Use `fatal()` for errors that shouldn't reach users
-- CGI scripts use `CGI::Carp 'fatalsToBrowser'` only for debug
-- API uses OpenAPI validation and API key authentication
-- All database access through abstraction layers
+**Apache config** is generated at container startup by `apache/docker-entrypoint.sh` from environment variables. Key behaviors:
+- `/api/v1/auth/login` and `/auth/logout` are public (`AuthType None`) — API handles its own auth
+- `/api/v1/*` (everything else) requires OIDC auth, which sets `X-Remote-User`
+- `RequestHeader unset X-Remote-User` before `RequestHeader set` prevents header spoofing
+- `Listen 443` must be explicit — not in default `httpd.conf`
+- `PROXY_AUTH_TRUSTED_IPS` env var overrides config file, supports CIDR notation (parsed via `Net::Netmask`)
+- Use `Net::Netmask`, not `Net::IP::ip_is_innet` (latter doesn't exist in installed version)
 
-## Knowledge Base (`knowledge/`)
+## Knowledge Base
 
-All new notes in `knowledge/` must follow the **Zettelkasten** note-taking technique:
+Notes in `knowledge/` follow Zettelkasten: atomic, kebab-case filenames, bidirectional links, reference specific file paths and line numbers.
 
-- **Atomic:** One idea per note. Keep notes focused and self-contained.
-- **Unique titles:** Use descriptive, kebab-case filenames (e.g., `Update-Host-Marker-Format.md`).
-- **Bidirectional links:** Reference related notes using markdown links (e.g., `[BackEnd overview](Sauron-Core-Integration.md)`).
-- **Own words:** Explain concepts in your own phrasing rather than just quoting source code.
-- **Context:** Include enough context so the note is understandable without reading other notes.
-- **Examples:** Include concrete examples, code snippets, or diagrams where they add clarity.
-- **Connection to code:** Reference specific file paths and line numbers (e.g., `BackEnd.pm:2135`) to link notes to the source.
+Key notes: [Architecture-Overview.md](knowledge/Architecture-Overview.md), [Apache-Reverse-Proxy-OIDC-Auth.md](knowledge/Apache-Reverse-Proxy-OIDC-Auth.md), [Browser-Session-Cookie-Auth-Flow.md](knowledge/Browser-Session-Cookie-Auth-Flow.md), [BackEnd Schema Completeness](knowledge/Sauron-Core-Integration.md)
 
-## Common Tasks
+## Gitignored Secrets
 
+<<<<<<< HEAD
 >>>>>>> cc0b391 (Add note fo further explaination of udpating host, update AGENTS.md)
 ```bash
 docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/net.t"
@@ -424,3 +437,6 @@ Rules:
 ## Gitignored Secrets
 
 `sauron_api/sauron_a_p_i.yml`, `.env`, `*.key`, `*.crt`, `server.cnf` — must be created locally.
+=======
+`sauron_api/sauron_a_p_i.yml`, `.env`, `*.key`, `*.crt`, `server.cnf` are gitignored — they contain credentials and must be created locally for development.
+>>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)

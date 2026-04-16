@@ -1,28 +1,12 @@
 package SauronAPI::Controller::Auth;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
-use Net::Netmask;
 use Sauron::BackEnd ();
 use Sauron::Util ();
 use JSON::PP ();
 
-sub _check_trusted_ip($remote_ip, $trusted_ips) {
-  for my $entry (@$trusted_ips) {
-    return 1 if $entry eq $remote_ip;
-    if ($entry =~ m{^([\d.:a-fA-F]+)/(\d+)$}) {
-      my ($net, $bits) = ($1, $2);
-      my $block;
-      eval { $block = Net::Netmask->new("$net/$bits"); };
-      return 1 if $block && $block->match($remote_ip);
-    }
-  }
-  return 0;
-}
-
-# TODO: Check if needed
-# not used right now, but could be useful for helpers
-sub _load_user_context {
-  my ($c, $user_id, $auth_method) = @_;
+sub _render_user_response {
+  my ($c, $user_id, $username, $auth_method) = @_;
   my %perms;
   Sauron::BackEnd::get_permissions($user_id, \%perms);
   $c->stash(
@@ -30,13 +14,6 @@ sub _load_user_context {
     api_perms       => \%perms,
     api_auth_method => $auth_method,
   );
-  return 1;
-}
-
-sub _render_user_response {
-  my ($c, $user_id, $username, $auth_method) = @_;
-  my %perms;
-  Sauron::BackEnd::get_permissions($user_id, \%perms);
   my %user;
   my $email = '';
   my $name = '';
@@ -134,7 +111,6 @@ sub login ($self) {
     max_age  => $ttl,
   });
 
-  _load_user_context($self, $user{id}, 'password');
   _render_user_response($self, $user{id}, $user{username}, 'password');
 }
 
@@ -159,81 +135,44 @@ sub logout ($self) {
 
 # GET /auth/me
 # Return current authenticated user info.
-# Checks proxy auth header first (from reverse proxy OIDC),
-# then falls back to bff_session cookie.
+# If called through OpenAPI security (BearerAuth/CookieAuth), the user
+# context is already stashed. Otherwise, check proxy header and session cookie.
 sub me ($self) {
-  my $proxy = $self->app->config->{proxy_auth} // {};
-  my $header = $proxy->{header} // 'X-Remote-User';
-  my $match  = $proxy->{match}  // 'email';
-  my @trusted = @{$proxy->{trusted_ips} // ['127.0.0.1', '::1']};
-
-  my $remote_ip = $self->tx->remote_address;
-  my $remote_user = $self->req->headers->header($header);
-
-  if ($remote_user && _check_trusted_ip($remote_ip, \@trusted)) {
+  if (my $uid = $self->stash('api_user_id')) {
+    my $method = $self->stash('api_auth_method') // 'pat';
     my %user;
-    my $found;
-    if ($match eq 'email') {
-      $found = (Sauron::BackEnd::get_user_by_email($remote_user, \%user) == 0);
-    }
-    else {
-      $found = (Sauron::BackEnd::get_user($remote_user, \%user) == 0);
-    }
-
-    if ($found) {
-      my $status = Sauron::BackEnd::get_user_status($user{id});
-      if (!defined $status || $status =~ /[EL]/) {
-        return $self->render(
-          json   => { error => 'Forbidden', message => 'Account is no longer active' },
-          status => 403
-        );
-      }
-      _load_user_context($self, $user{id}, 'proxy');
-      _render_user_response($self, $user{id}, $user{username}, 'proxy');
+    if (Sauron::BackEnd::get_user_by_id($uid, \%user) == 0) {
+      _render_user_response($self, $uid, $user{username}, $method);
       return;
     }
   }
 
-  my $cookie_name = $self->app->config->{session}->{cookie_name} // 'bff_session';
-  my $token = $self->cookie($cookie_name);
-
-  unless ($token) {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'Not authenticated' },
-      status => 401
-    );
+  my $proxy = $self->app->config->{proxy_auth} // {};
+  my $header = $proxy->{header} // 'X-Remote-User';
+  if ($self->req->headers->header($header)) {
+    my $result = $self->resolve_proxy_user;
+    if ($result->{user_id}) {
+      _render_user_response($self, $result->{user_id}, $result->{username}, 'proxy');
+      return;
+    }
+    if ($result->{status} == 403) {
+      return $self->render(
+        json   => { error => $result->{error}, message => $result->{message} },
+        status => $result->{status}
+      );
+    }
   }
 
-  my $user_id = Sauron::BackEnd::verify_session($token);
-  unless ($user_id) {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'Session expired or invalid' },
-      status => 401
-    );
+  my $result = $self->resolve_session_user;
+  if ($result->{user_id}) {
+    _render_user_response($self, $result->{user_id}, $result->{username}, 'password');
+    return;
   }
 
-  my %user;
-  my $username;
-  if (Sauron::BackEnd::get_user_by_id($user_id, \%user) == 0) {
-    $username = $user{username};
-  } else {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'User not found' },
-      status => 401
-    );
-  }
-
-  my $status = Sauron::BackEnd::get_user_status($user_id);
-  if (!defined $status || $status =~ /[EL]/) {
-    Sauron::BackEnd::delete_session($token);
-    return $self->render(
-      json   => { error => 'Forbidden', message => 'Account is no longer active' },
-      status => 403
-    );
-  }
-
-  _load_user_context($self, $user_id, 'password');
-  _render_user_response($self, $user_id, $username, 'password');
+  $self->render(
+    json   => { error => 'Unauthorized', message => 'Not authenticated' },
+    status => 401
+  );
 }
 
 # GET /auth/proxy-login
@@ -241,54 +180,14 @@ sub me ($self) {
 # Apache sets X-Remote-User after OIDC authentication.
 # This endpoint returns user info if the header is valid.
 sub proxy_login ($self) {
-  my $proxy = $self->app->config->{proxy_auth} // {};
-  my $header = $proxy->{header} // 'X-Remote-User';
-  my $match  = $proxy->{match}  // 'email';
-  my @trusted = @{$proxy->{trusted_ips} // ['127.0.0.1', '::1']};
-
-  my $remote_ip = $self->tx->remote_address;
-  my $remote_user = $self->req->headers->header($header);
-
-  unless ($remote_user) {
+  my $result = $self->resolve_proxy_user;
+  if ($result->{error}) {
     return $self->render(
-      json   => { error => 'Unauthorized', message => 'No proxy auth header' },
-      status => 401
+      json   => { error => $result->{error}, message => $result->{message} },
+      status => $result->{status}
     );
   }
-
-  unless (_check_trusted_ip($remote_ip, \@trusted)) {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'Untrusted proxy' },
-      status => 401
-    );
-  }
-
-  my %user;
-  my $found;
-  if ($match eq 'email') {
-    $found = (Sauron::BackEnd::get_user_by_email($remote_user, \%user) == 0);
-  }
-  else {
-    $found = (Sauron::BackEnd::get_user($remote_user, \%user) == 0);
-  }
-
-  unless ($found) {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'User not found in system' },
-      status => 401
-    );
-  }
-
-  my $status = Sauron::BackEnd::get_user_status($user{id});
-  if (!defined $status || $status =~ /[EL]/) {
-    return $self->render(
-      json   => { error => 'Forbidden', message => 'Account is no longer active' },
-      status => 403
-    );
-  }
-
-  _load_user_context($self, $user{id}, 'proxy');
-  _render_user_response($self, $user{id}, $user{username}, 'proxy');
+  _render_user_response($self, $result->{user_id}, $result->{username}, 'proxy');
 }
 
 1;

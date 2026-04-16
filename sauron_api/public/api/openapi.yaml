@@ -94,11 +94,16 @@ paths:
 
   /auth/me:
     get:
+      security:
+        - BearerAuth: []
+        - CookieAuth: []
+        - ProxyAuth: []
       summary: Get current authenticated user
       tags: [ auth ]
       description: >
         Returns information about the currently authenticated user.
-        Requires a valid session cookie.
+        Supports session cookies (CookieAuth), personal access tokens (BearerAuth),
+        or proxy authentication headers set by a trusted reverse proxy (ProxyAuth).
       operationId: auth_me
       x-mojo-name: auth_me
       x-mojo-to: "Auth#me"
@@ -111,6 +116,41 @@ paths:
                 $ref: '#/components/schemas/UserResponse'
         '401':
           description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Account expired or locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/proxy-login:
+    get:
+      security: []
+      summary: Authenticate via reverse proxy (OIDC/SSO)
+      tags: [ auth ]
+      description: >
+        Entry point for proxy-authenticated users. A reverse proxy (e.g. Apache
+        with mod_auth_openidc) authenticates the user via OIDC and sets the
+        X-Remote-User header. This endpoint returns user info if the header is
+        present and the request originates from a trusted proxy IP.
+        This endpoint does not accept BearerAuth or CookieAuth - it only
+        processes the trusted proxy header.
+      operationId: auth_proxy_login
+      x-mojo-name: proxy_login
+      x-mojo-to: "Auth#proxy_login"
+      responses:
+        '200':
+          description: User information from proxy authentication
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: No proxy auth header or untrusted proxy
           content:
             application/json:
               schema:
@@ -2071,7 +2111,7 @@ components:
           example: 5
         auth_method:
           type: string
-          enum: [password, oidc, pat]
+          enum: [password, proxy, pat]
           description: Authentication method used
 
     UserResponse:
@@ -2111,14 +2151,18 @@ components:
       in: cookie
       name: bff_session
       description: Session cookie for browser-based authentication
-    # ProxyAuth:
-    #   type: apiKey
-    #   in: header
-    #   name: X-Remote-User
-    #   description: >
-    #     Trusted header authentication via reverse proxy (e.g. Apache mod_auth_openidc).
-    #     The proxy authenticates the user via OIDC and sets this header.
-    #     Only accepted from trusted proxy IPs configured in proxy_auth.trusted_ips.
+    ProxyAuth:
+      type: apiKey
+      in: header
+      name: X-Remote-User
+      x-auth-type: proxy
+      description: >
+        INTERNAL — Do not use as a client. This scheme authenticates requests
+        that arrive via a trusted reverse proxy (e.g. Apache with mod_auth_openidc).
+        The proxy validates the user's identity (OIDC, etc.) and sets the
+        X-Remote-User header. The API only accepts this header from IP addresses
+        listed in proxy_auth.trusted_ips. Sending this header directly as a
+        client has no effect.
 
 # security:
 #   - bearerAuth: []

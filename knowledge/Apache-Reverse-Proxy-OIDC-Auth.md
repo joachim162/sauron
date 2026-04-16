@@ -72,9 +72,18 @@ OIDCRemoteUserClaim email
 </Location>
 
 # Public paths — no OIDC, API handles its own auth
-<Location /auth/login>
-    ProxyPass http://sauron_api:3000/auth/login
-    ProxyPassReverse http://sauron_api:3000/auth/login
+<Location /api/v1/auth/login>
+    AuthType None
+    Require all granted
+    ProxyPass http://sauron_api:3000/api/v1/auth/login
+    ProxyPassReverse http://sauron_api:3000/api/v1/auth/login
+</Location>
+
+<Location /api/v1/auth/logout>
+    AuthType None
+    Require all granted
+    ProxyPass http://sauron_api:3000/api/v1/auth/logout
+    ProxyPassReverse http://sauron_api:3000/api/v1/auth/logout
 </Location>
 ```
 
@@ -100,11 +109,11 @@ The `ProxyAuth` handler in the OpenAPI security configuration:
 
 ### Proxy Login Endpoint (`Auth.pm:proxy_login`)
 
-`GET /auth/proxy-login` is a dedicated endpoint for proxy-authenticated requests. It uses the same trusted-IP logic but returns user info directly (no OpenAPI validation).
+`GET /api/v1/auth/proxy-login` is a dedicated endpoint for proxy-authenticated requests. It uses the same trusted-IP logic but returns user info directly (`security: []` in OpenAPI — no BearerAuth/CookieAuth required).
 
 ### Me Endpoint (`Auth.pm:me`)
 
-`GET /auth/me` checks proxy auth header first (if from trusted IP), then falls back to `bff_session` cookie. This lets the frontend detect both auth states.
+`GET /api/v1/auth/me` supports all three auth methods: BearerAuth, CookieAuth, and ProxyAuth. In the OpenAPI spec, all three are listed as alternatives. The controller checks the proxy header first (if from trusted IP), then falls back to `bff_session` cookie.
 
 ## Configuration
 
@@ -146,7 +155,7 @@ The API supports three authentication methods that work simultaneously:
 2. **CookieAuth** — Browser session cookies (`bff_session`)
 3. **ProxyAuth** — Trusted reverse proxy header (`X-Remote-User`)
 
-Each OpenAPI endpoint can require one or more of these via security definitions. The [[Browser-Session-Cookie-Auth-Flow|session cookie flow]] is unaffected by the proxy setup — `/auth/login` and `/auth/logout` are public paths proxied without OIDC.
+Each OpenAPI endpoint can require one or more of these via security definitions. The [[Browser-Session-Cookie-Auth-Flow|session cookie flow]] is unaffected by the proxy setup — `/api/v1/auth/login` and `/api/v1/auth/logout` are public paths proxied without OIDC.
 
 ## Common Pitfalls
 
@@ -175,7 +184,7 @@ Each OpenAPI endpoint can require one or more of these via security definitions.
 ## TODO
 
 - [ ] **Remove ProxyAuth from OpenAPI spec** — `ProxyAuth` is documented as a `type: apiKey` security scheme in `openapi.yaml`, but clients should never send this header directly. It should be removed from the spec since only Apache sets it. The Mojolicious handler should remain as a route-level check.
-- [ ] **Update frontend** — Add an SSO login button to `index.html` that redirects to an OIDC-protected endpoint (e.g., `/auth/proxy-login`). Detect auth state via `/auth/me`.
+- [ ] **Update frontend** — Add an SSO login button to `index.html` that redirects to an OIDC-protected endpoint (e.g., `/api/v1/auth/proxy-login`). Detect auth state via `/api/v1/auth/me`.
 - [ ] **Narrow PROXY_AUTH_TRUSTED_IPS** — Currently `172.0.0.0/8` covers all Docker `172.x.x.x` networks. Should be narrowed to the actual Docker bridge subnet (e.g., `172.19.0.0/16`) for production.
 - [ ] **Add SSLSessionCache** — Apache logs `AH01873: Session Cache is not configured`. Add `SSLSessionCache shmcb:/var/run/ssl_scache(512000)` to the config for production readiness.
 - [ ] **OIDC logout** — Logging out of the Sauron session does not end the Authentik session. Consider adding an OIDC end-session redirect.

@@ -44,6 +44,10 @@ Listen 443
     # Disable SSL compression to prevent CRIME attacks
     SSLCompression off
 
+    # Tell backend that requests come via HTTPS
+    RequestHeader set X-Forwarded-Proto "https"
+    RequestHeader set X-Forwarded-Port "443"
+
     # OIDC Configuration
     OIDCProviderMetadataURL OIDC_ISSUER_PLACEHOLDER/.well-known/openid-configuration
     OIDCClientID OIDC_CLIENT_ID_PLACEHOLDER
@@ -81,47 +85,25 @@ Listen 443
     </Location>
 
     # =====================================================================
-    # Protected auth paths - require OIDC authentication
-    # =====================================================================
-
-    <Location /auth/proxy-login>
-        AuthType openid-connect
-        Require valid-user
-
-        RequestHeader unset X-Remote-User
-        RequestHeader set X-Remote-User "%{OIDC_CLAIM_EMAIL}e"
-
-        ProxyPreserveHost On
-        ProxyPass http://sauron_api:3000/auth/proxy-login
-        ProxyPassReverse http://sauron_api:3000/auth/proxy-login
-    </Location>
-
-    <Location /auth/me>
-        AuthType openid-connect
-        Require valid-user
-
-        RequestHeader unset X-Remote-User
-        RequestHeader set X-Remote-User "%{OIDC_CLAIM_EMAIL}e"
-
-        ProxyPreserveHost On
-        ProxyPass http://sauron_api:3000/auth/me
-        ProxyPassReverse http://sauron_api:3000/auth/me
-    </Location>
-
-    # =====================================================================
     # Public auth paths - no OIDC required (API handles its own auth)
     # =====================================================================
 
-    <Location /auth/login>
+    <Location /api/v1/auth/login>
+        AuthType None
+        Require all granted
+
         ProxyPreserveHost On
-        ProxyPass http://sauron_api:3000/auth/login
-        ProxyPassReverse http://sauron_api:3000/auth/login
+        ProxyPass http://sauron_api:3000/api/v1/auth/login
+        ProxyPassReverse http://sauron_api:3000/api/v1/auth/login
     </Location>
 
-    <Location /auth/logout>
+    <Location /api/v1/auth/logout>
+        AuthType None
+        Require all granted
+
         ProxyPreserveHost On
-        ProxyPass http://sauron_api:3000/auth/logout
-        ProxyPassReverse http://sauron_api:3000/auth/logout
+        ProxyPass http://sauron_api:3000/api/v1/auth/logout
+        ProxyPassReverse http://sauron_api:3000/api/v1/auth/logout
     </Location>
 
     # =====================================================================
