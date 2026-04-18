@@ -235,9 +235,9 @@ Browser → Apache (HTTPS :443, mod_auth_openidc)
 ```
 
 **Auth flows (3 methods, coexist):**
-- **BearerAuth**: Personal access tokens (`Authorization: Bearer sau_...`)
-- **CookieAuth**: Session cookies (`bff_session`) from `POST /auth/login`
-- **ProxyAuth**: Trusted reverse proxy sets `X-Remote-User` header (not client-facing)
+- **BearerAuth**: Personal access tokens (`Authorization: Bearer sau_...`) — validated by OpenAPI security
+- **Session cookie**: `bff_session` from `POST /api/v1/auth/login` — validated by `before_dispatch` hook
+- **Proxy auth**: `X-Remote-User` header from trusted Apache — validated by `before_dispatch` hook
 
 **Key entry points:**
 - `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, security handlers, `before_dispatch` hook
@@ -247,7 +247,7 @@ Browser → Apache (HTTPS :443, mod_auth_openidc)
 
 **OpenAPI spec ↔ code binding:** Routes use `x-mojo-to: "Controller#action"` to map spec operations to Perl methods. The OpenAPI plugin at `/api/v1` automatically routes based on these annotations.
 
-**`before_dispatch` hook:** Adjusts `url->base` from `X-Forwarded-Proto`/`Host` headers so the OpenAPI spec returns correct `https://` URLs when behind Apache. Without this, Swagger UI sends requests to `http://sauron_api:3000`.
+**`before_dispatch` hook:** Two responsibilities — (1) adjusts `url->base` from `X-Forwarded-Proto`/`Host` headers so the OpenAPI spec returns correct `https://` URLs when behind Apache; (2) resolves proxy auth and session cookie auth, populating the per-request stash with `api_user_id`, `api_perms`, and `api_auth_method`. This hook runs for every request before routing, so all controllers have user context available.
 
 ## Code Style
 
@@ -265,8 +265,8 @@ Browser → Apache (HTTPS :443, mod_auth_openidc)
 - **Nullability:** Any BackEnd field that can return `undef` MUST have `nullable: true` in the schema. Without it, `type: string` rejects null with 500 errors.
 - **Array fields:** BackEnd returns marker-format arrays. Use `_strip_marker_format($data, $api_header)` with `%HEADERS` dispatch, NOT the BackEnd header row (`$data->[0]`).
 - **Auth method enum:** Use `proxy` (not `oidc`) — the OpenAPI enum is `[password, proxy, pat]`.
-- **ProxyAuth in spec:** Listed as `type: apiKey` with `x-auth-type: proxy` and description marking it as internal-only. Clients should never send `X-Remote-User` directly.
-- **`security: []`** on `/auth/login` and `/auth/logout` means no client auth required for those endpoints.
+- **`security: []`** on endpoints means no OpenAPI security validation — `before_dispatch` still runs and may have set `api_user_id` in the stash.
+- **OpenAPI security** only declares `BearerAuth` — proxy and session auth are handled procedurally in `before_dispatch`, not declaratively in the spec.
 
 ## Docker/Auth Architecture
 

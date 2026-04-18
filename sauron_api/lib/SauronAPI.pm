@@ -36,6 +36,26 @@ sub startup {
     } else {
       $c->req->url->base->port(undef);
     }
+
+    # Proxy auth: trusted reverse proxy sets X-Remote-User after OIDC
+    # Runs first — takes priority over session cookie
+    my $proxy_cfg = $config->{proxy_auth} // {};
+    my $header = $proxy_cfg->{header} // 'X-Remote-User';
+    my $remote_user = $c->req->headers->header($header);
+    if ($remote_user) {
+      my $result = $c->resolve_proxy_user;
+      if ($result->{user_id}) {
+        $c->load_user_context($result->{user_id}, 'proxy');
+      }
+      return; # proxy header present — don't check session cookie
+    }
+
+    # Session cookie auth (browser login)
+    # Only runs if no proxy auth header
+    my $result = $c->resolve_session_user;
+    if ($result->{user_id}) {
+      $c->load_user_context($result->{user_id}, 'password');
+    }
   });
 
   if ($ENV{PROXY_AUTH_TRUSTED_IPS}) {
@@ -47,8 +67,7 @@ sub startup {
   load_config();
   db_connect();
 
-  # Shared logic: load permissions and stash user context
-  my $load_user_context = sub ($c, $user_id, $auth_method) {
+  $self->helper(load_user_context => sub ($c, $user_id, $auth_method) {
     my %perms;
     Sauron::BackEnd::get_permissions($user_id, \%perms);
     $c->stash(
@@ -57,7 +76,15 @@ sub startup {
       api_auth_method => $auth_method,
     );
     return 1;
-  };
+  });
+
+  $self->helper(require_auth => sub ($c) {
+    unless ($c->stash('api_user_id')) {
+      $c->render(json => { error => 'Unauthorized', message => 'Not authenticated' }, status => 401);
+      return 0;
+    }
+    return 1;
+  });
 
   $self->helper(resolve_proxy_user => sub ($c) {
     my $proxy = $config->{proxy_auth} // {};
@@ -143,23 +170,7 @@ sub startup {
         my $user_id = Sauron::BackEnd::verify_pat($token);
         return $c->$cb('Invalid or expired token') unless ($user_id);
 
-        $load_user_context->($c, $user_id, 'pat');
-        return $c->$cb();
-      },
-      CookieAuth => sub ($c, $definition, $scopes, $cb) {
-        my $result = $c->resolve_session_user;
-        if ($result->{error}) {
-          return $c->$cb($result->{message});
-        }
-        $load_user_context->($c, $result->{user_id}, 'session');
-        return $c->$cb();
-      },
-      ProxyAuth => sub ($c, $definition, $scopes, $cb) {
-        my $result = $c->resolve_proxy_user;
-        if ($result->{error}) {
-          return $c->$cb($result->{message});
-        }
-        $load_user_context->($c, $result->{user_id}, 'proxy');
+        $c->load_user_context($user_id, 'pat');
         return $c->$cb();
       },
     }

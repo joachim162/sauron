@@ -135,42 +135,27 @@ sub logout ($self) {
 
 # GET /auth/me
 # Return current authenticated user info.
-# If called through OpenAPI security (BearerAuth/CookieAuth), the user
-# context is already stashed. Otherwise, check proxy header and session cookie.
+# Auth is handled by before_dispatch hook: proxy auth or session cookie
+# populates the stash. We just read it here.
 sub me ($self) {
-  if (my $uid = $self->stash('api_user_id')) {
-    my $method = $self->stash('api_auth_method') // 'pat';
-    my %user;
-    if (Sauron::BackEnd::get_user_by_id($uid, \%user) == 0) {
-      _render_user_response($self, $uid, $user{username}, $method);
-      return;
-    }
+  my $uid = $self->stash('api_user_id');
+  my $method = $self->stash('api_auth_method') // 'pat';
+
+  unless ($uid) {
+    return $self->render(
+      json   => { error => 'Unauthorized', message => 'Not authenticated' },
+      status => 401
+    );
   }
 
-  my $proxy = $self->app->config->{proxy_auth} // {};
-  my $header = $proxy->{header} // 'X-Remote-User';
-  if ($self->req->headers->header($header)) {
-    my $result = $self->resolve_proxy_user;
-    if ($result->{user_id}) {
-      _render_user_response($self, $result->{user_id}, $result->{username}, 'proxy');
-      return;
-    }
-    if ($result->{status} == 403) {
-      return $self->render(
-        json   => { error => $result->{error}, message => $result->{message} },
-        status => $result->{status}
-      );
-    }
-  }
-
-  my $result = $self->resolve_session_user;
-  if ($result->{user_id}) {
-    _render_user_response($self, $result->{user_id}, $result->{username}, 'password');
+  my %user;
+  if (Sauron::BackEnd::get_user_by_id($uid, \%user) == 0) {
+    _render_user_response($self, $uid, $user{username}, $method);
     return;
   }
 
   $self->render(
-    json   => { error => 'Unauthorized', message => 'Not authenticated' },
+    json   => { error => 'Unauthorized', message => 'User not found' },
     status => 401
   );
 }

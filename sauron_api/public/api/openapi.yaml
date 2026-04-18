@@ -94,16 +94,13 @@ paths:
 
   /auth/me:
     get:
-      security:
-        - BearerAuth: []
-        - CookieAuth: []
-        - ProxyAuth: []
+      security: []
       summary: Get current authenticated user
       tags: [ auth ]
       description: >
         Returns information about the currently authenticated user.
-        Supports session cookies (CookieAuth), personal access tokens (BearerAuth),
-        or proxy authentication headers set by a trusted reverse proxy (ProxyAuth).
+        Auth is handled before routing: proxy auth (X-Remote-User header from trusted
+        reverse proxy) or session cookie. Returns 401 if not authenticated.
       operationId: auth_me
       x-mojo-name: auth_me
       x-mojo-to: "Auth#me"
@@ -131,8 +128,6 @@ paths:
     get:
       security:
         - BearerAuth: []
-        - CookieAuth: []
-        - ProxyAuth: []
       summary: List all servers
       tags: [ servers ]
       description: Returns a list of all DNS/DHCP servers managed by Sauron.
@@ -2111,23 +2106,6 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-    CookieAuth:
-      type: apiKey
-      in: cookie
-      name: bff_session
-      description: Session cookie for browser-based authentication
-    ProxyAuth:
-      type: apiKey
-      in: header
-      name: X-Remote-User
-      x-auth-type: proxy
-      description: >
-        INTERNAL — Do not use as a client. This scheme authenticates requests
-        that arrive via a trusted reverse proxy (e.g. Apache with mod_auth_openidc).
-        The proxy validates the user's identity (OIDC, etc.) and sets the
-        X-Remote-User header. The API only accepts this header from IP addresses
-        listed in proxy_auth.trusted_ips. Sending this header directly as a
-        client has no effect.
 
 # security:
 #   - bearerAuth: []
