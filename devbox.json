@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.1/.schema/devbox.schema.json",
+  "packages": [
+    "neovim@latest",
+    "git@latest",
+    "ripgrep@latest",
+    "perl@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "if [ ! -d \"$HOME/.dotfiles\" ]; then git clone git@gitlab.com:backup3450309/dotfiles.git \"$HOME/.dotfiles\"; fi",
+      "ln -sfn \"$HOME/.dotfiles/.config/nvim\" \"$HOME/.config/nvim\""
+    ]
+  }
+}

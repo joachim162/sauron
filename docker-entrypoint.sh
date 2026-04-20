@@ -3,6 +3,17 @@ set -e
 
 echo "=== Sauron Docker Startup ==="
 
+cd /srv/sauron
+
+if [ ! -L Sauron/DB.pm ]; then
+    ln -sf DB-DBI.pm Sauron/DB.pm
+fi
+
+if grep -q '__CONF_FILE_PATH__' Sauron/Sauron.pm 2>/dev/null; then
+    echo "=== Patching source tree for bind mount ==="
+    ./configure && make install
+fi
+
 echo "Waiting for PostgreSQL..."
 for i in {1..30}; do
     if pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
