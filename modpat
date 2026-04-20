@@ -1,0 +1,171 @@
+#!/usr/bin/perl -I/usr/local/sauron
+#
+# modpat - utility to manage Personal Access Tokens (PAT)
+#
+require 5;
+use Getopt::Long;
+use Text::Table;
+use Sauron::DB;
+use Sauron::BackEnd;
+use Sauron::Sauron;
+
+my ($PG_DIR,$PG_NAME) = ($0 =~ /^(.*\/)(.*)$/);
+$0 = $PG_NAME;
+
+set_encoding();
+load_config();
+
+GetOptions("help|h","list:s","create:s","revoke=s","user=s","expires=s","all!");
+
+my $opt_user = $opt_user || $ARGV[0];
+
+if ($opt_help || (!$opt_user && !defined $opt_list)) {
+  print "syntax: $0 <username> [options]\n\n",
+        " Manage Personal Access Tokens for API authentication.\n\n",
+        " Options:\n",
+        "   --list                           list tokens for user\n",
+        "   --list=all                       list tokens for all users\n",
+        "   --create=<name>                  create a new token\n",
+        "   --revoke=<id>                    revoke (delete) a token by id\n",
+        "   --expires=<days>                 set expiration (days from now, 0=never)\n",
+        "   --all                            revoke all tokens for user\n",
+        "   --user=<username>                specify username (alternative to arg)\n",
+        "   --help                           show this help\n\n",
+        " Examples:\n",
+        "   $0 admin --create=\"SaltStack Automation\"\n",
+        "   $0 admin --list\n",
+        "   $0 admin --revoke=5\n",
+        "   $0 admin --revoke=5 --expires=90\n",
+        "   $0 admin --all --revoke\n",
+        "   $0 --list=all\n";
+  exit(0);
+}
+
+db_connect();
+db_debug(0);
+
+if (defined $opt_list && $opt_list eq 'all') {
+  my @tokens;
+  db_query("SELECT p.id, u.username, p.name, p.created_at, p.expires_at, " .
+           "p.last_used, p.last_ip " .
+           "FROM personal_access_tokens p " .
+           "JOIN users u ON p.user_id = u.id " .
+           "ORDER BY u.username, p.created_at DESC", \@tokens);
+
+  my $tb = Text::Table->new("ID", "User", "Name", "Created", "Expires",
+                             "Last Used", "Last IP");
+  for my $i (0..$#tokens) {
+    $tb->add(
+      $tokens[$i][0],
+      $tokens[$i][1],
+      $tokens[$i][2],
+      _fmt_time($tokens[$i][3]),
+      _fmt_time($tokens[$i][4]),
+      _fmt_time($tokens[$i][5]),
+      $tokens[$i][6] || ''
+    );
+  }
+  print $tb->title();
+  print $tb->body_rule('-');
+  print $tb->body();
+  exit 0;
+}
+
+fatal("Invalid username '$opt_user'!") unless ($opt_user =~ /^\S+$/);
+
+my %user;
+fatal("Cannot find user '$opt_user'!") if (Sauron::BackEnd::get_user($opt_user, \%user));
+
+my $user_id = $user{id};
+
+if (defined $opt_list) {
+  my @tokens;
+  Sauron::BackEnd::get_pats($user_id, \@tokens);
+
+  unless (@tokens) {
+    print "No personal access tokens for user '$opt_user'.\n";
+    exit 0;
+  }
+
+  my $tb = Text::Table->new("ID", "Name", "Created", "Expires",
+                             "Last Used", "Last IP");
+  for my $i (0..$#tokens) {
+    $tb->add(
+      $tokens[$i][0],
+      $tokens[$i][1],
+      _fmt_time($tokens[$i][2]),
+      _fmt_time($tokens[$i][3]),
+      _fmt_time($tokens[$i][4]),
+      $tokens[$i][5] || ''
+    );
+  }
+
+  print "\nPersonal access tokens for '$opt_user':\n\n";
+  print $tb->title();
+  print $tb->body_rule('-');
+  print $tb->body();
+  print "\n";
+  exit 0;
+}
+
+if (defined $opt_create) {
+  my $name = $opt_create;
+  fatal("Token name cannot be empty!") unless ($name =~ /\S/);
+
+  my %rec;
+  my $expires = _parse_expires($opt_expires);
+
+  my $res = Sauron::BackEnd::create_pat($user_id, $name, \%rec);
+  fatal("Failed to create token!") if ($res < 0);
+
+  if ($expires > 0) {
+    db_exec("UPDATE personal_access_tokens SET expires_at = $expires " .
+            "WHERE token_hash = '" . sha256_hex($rec{plain_token}) . "'");
+  }
+
+  print "\nToken created successfully for user '$opt_user':\n\n",
+        "  Name:     $name\n",
+        "  Token:    $rec{plain_token}\n",
+        "  Expires:  ", ($expires > 0 ? localtime($expires) : 'never'), "\n\n",
+        "  WARNING: Save this token now. It will NOT be shown again.\n\n";
+  exit 0;
+}
+
+if ($opt_all && defined $opt_revoke) {
+  db_begin();
+  my $res = db_exec("DELETE FROM personal_access_tokens WHERE user_id = $user_id");
+  fatal("Failed to revoke tokens!") if ($res < 0);
+  fatal("Commit failed!") if (db_commit() < 0);
+  print "All tokens for user '$opt_user' revoked ($res deleted).\n";
+  exit 0;
+}
+
+if (defined $opt_revoke) {
+  fatal("Invalid token id '$opt_revoke'!") unless ($opt_revoke =~ /^\d+$/);
+  my $token_id = $opt_revoke;
+
+  my $res = Sauron::BackEnd::revoke_pat($token_id, $user_id);
+  fatal("Failed to revoke token (id=$token_id)! " .
+        "Check that the token id exists and belongs to this user.") if ($res < 0);
+
+  print "Token (id=$token_id) revoked for user '$opt_user'.\n";
+  exit 0;
+}
+
+fatal("No action specified. Use --list, --create, or --revoke.");
+
+sub _fmt_time {
+  my ($t) = @_;
+  return '' unless ($t && $t =~ /^\d+$/ && $t > 0);
+  my @parts = localtime($t);
+  return sprintf("%04d-%02d-%02d %02d:%02d",
+    $parts[5]+1900, $parts[4]+1, $parts[3], $parts[2], $parts[1]);
+}
+
+sub _parse_expires {
+  my ($str) = @_;
+  return 0 unless (defined $str && $str =~ /^\d+$/ && $str > 0);
+  return time() + ($str * 86400);
+}
+
+exit;
