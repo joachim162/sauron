@@ -2,6 +2,7 @@ package SauronAPI::Controller::Zone;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
+use SauronAPI::AuthZ qw(check_perms filter_zones);
 use JSON::PP ();
 
 # --- Dispatch tables (array field handling) ---
@@ -253,6 +254,7 @@ sub _build_zone_response {
 # List all zones for a server
 sub list_zones ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
 
@@ -270,6 +272,10 @@ sub list_zones ($self) {
     };
   }
 
+  my $perms = $self->stash('api_perms');
+  my $superuser = $self->stash('api_superuser') // 0;
+  filter_zones($perms, $superuser, $server_id, \@zones);
+
   $self->render(openapi => \@zones);
 }
 
@@ -277,6 +283,7 @@ sub list_zones ($self) {
 # Get zone details
 sub get_zone ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
 
@@ -288,6 +295,8 @@ sub get_zone ($self) {
       status  => 404
     );
   }
+
+  return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
 
   my %zone_data;
   if (Sauron::BackEnd::get_zone($zone_id, \%zone_data) != 0) {
@@ -303,9 +312,11 @@ sub get_zone ($self) {
 # Create a new zone
 sub create_zone ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my $json = $self->req->json;
   my $server_id = $self->_resolve_server or return;
+  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'RW');
 
   my $zone_name = $json->{name};
   unless ($zone_name) {
@@ -375,6 +386,7 @@ sub create_zone ($self) {
 # Update an existing zone
 sub update_zone ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
   my $json = $self->req->json;
@@ -387,6 +399,8 @@ sub update_zone ($self) {
       status  => 404
     );
   }
+
+  return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'RW');
 
   # Reject immutable fields
   for my $field (qw(type reverse serial)) {
@@ -448,8 +462,10 @@ sub update_zone ($self) {
 # Delete a zone and all associated data
 sub delete_zone ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
+  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'RWS');
 
   my $zone_name = $self->param("zone");
   my $zone_id = Sauron::BackEnd::get_zone_id($zone_name, $server_id);

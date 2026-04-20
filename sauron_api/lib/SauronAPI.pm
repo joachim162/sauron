@@ -70,10 +70,16 @@ sub startup {
   $self->helper(load_user_context => sub ($c, $user_id, $auth_method) {
     my %perms;
     Sauron::BackEnd::get_permissions($user_id, \%perms);
+    my %user;
+    my $superuser = 0;
+    if (Sauron::BackEnd::get_user_by_id($user_id, \%user) == 0) {
+      $superuser = $user{superuser} ? 1 : 0;
+    }
     $c->stash(
       api_user_id     => $user_id,
       api_perms       => \%perms,
       api_auth_method => $auth_method,
+      api_superuser   => $superuser,
     );
     return 1;
   });

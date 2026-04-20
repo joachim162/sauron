@@ -3,6 +3,7 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 use Data::Dumper;
 
 use Sauron::BackEnd ();
+use SauronAPI::AuthZ qw(check_perms filter_servers);
 use JSON::PP ();
 
 # TODO: Test all endpoints
@@ -278,6 +279,7 @@ sub _strip_marker_format {
 # List all servers managed by Sauron
 sub list_servers ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my @ids;
   my %descriptions;
@@ -298,6 +300,10 @@ sub list_servers ($self) {
     }
   }
 
+  my $perms = $self->stash('api_perms');
+  my $superuser = $self->stash('api_superuser') // 0;
+  filter_servers($perms, $superuser, \@servers);
+
   $self->render(openapi => \@servers);
 }
 
@@ -305,8 +311,10 @@ sub list_servers ($self) {
 # Get server by name
 sub get_server ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
+  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'R');
 
   my %server_data;
   if (Sauron::BackEnd::get_server($server_id, \%server_data) != 0) {
@@ -324,6 +332,8 @@ sub get_server ($self) {
 # Create a new server
 sub add_server ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
+  return unless check_perms($self, type => 'superuser');
 
   my $json = $self->req->json;
 
@@ -377,8 +387,10 @@ sub add_server ($self) {
 # Update an existing server
 sub update_server ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
+  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'RW');
   my $json = $self->req->json;
 
   # Get existing server data
@@ -429,6 +441,8 @@ sub update_server ($self) {
 # Delete a server and all associated data
 sub delete_server ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
+  return unless check_perms($self, type => 'superuser');
 
   my $server_id = $self->_resolve_server or return;
 

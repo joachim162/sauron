@@ -145,9 +145,13 @@ paths:
                   $ref: '#/components/schemas/Server'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     post:
+      security:
+        - BearerAuth: []
       summary: Create a new server
       tags: [ servers ]
       description: Adds a new DNS/DHCP server to the system.
@@ -181,11 +185,15 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
 
   /servers/{server}:
     get:
+      security:
+        - BearerAuth: []
       summary: Get server details
       tags: [ servers ]
       description: Returns detailed information about a specific DNS/DHCP server.
@@ -215,9 +223,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     put:
+      security:
+        - BearerAuth: []
       summary: Update an existing server
       tags: [ servers ]
       description: Updates an existing server configuration.
@@ -259,9 +271,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     delete:
+      security:
+        - BearerAuth: []
       summary: Delete a server
       tags: [ servers ]
       description: >
@@ -289,11 +305,15 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
 
   /servers/{server}/zones/{zone}/hosts:
     post:
+      security:
+        - BearerAuth: []
       summary: Create a new host
       tags: [ hosts ]
       description: Creates a new host record in the specified zone on the specified server.
@@ -350,11 +370,15 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
 
   /servers/{server}/zones/{zone}/hosts/{hostname}:
     get:
+      security:
+        - BearerAuth: []
       summary: Get host by hostname
       tags: [ hosts ]
       description: Returns detailed information about a specific host in the specified zone.
@@ -401,9 +425,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     put:
+      security:
+        - BearerAuth: []
       summary: Update an existing host
       tags: [ hosts ]
       description: Updates an existing host record in the specified zone.
@@ -462,9 +490,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     delete:
+      security:
+        - BearerAuth: []
       summary: Delete a host
       tags: [ hosts ]
       description: Deletes a host record from the specified zone.
@@ -507,11 +539,15 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
 
   /servers/{server}/zones:
     get:
+      security:
+        - BearerAuth: []
       summary: List zones for a server
       tags: [ zones ]
       description: Returns all zones managed by a specific DNS server.
@@ -543,9 +579,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     post:
+      security:
+        - BearerAuth: []
       summary: Create a new zone
       tags: [ zones ]
       description: Adds a new DNS zone to a specific server.
@@ -593,11 +633,15 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
 
   /servers/{server}/zones/{zone}:
     get:
+      security:
+        - BearerAuth: []
       summary: Get zone details
       tags: [ zones ]
       description: Returns detailed information about a specific DNS zone.
@@ -634,9 +678,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     put:
+      security:
+        - BearerAuth: []
       summary: Update an existing zone
       tags: [ zones ]
       description: Updates an existing zone configuration.
@@ -685,9 +733,13 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
     delete:
+      security:
+        - BearerAuth: []
       summary: Delete a zone
       tags: [ zones ]
       description: Removes a DNS zone from a specific server.
@@ -720,6 +772,8 @@ paths:
                 $ref: '#/components/schemas/Error'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '500':
           $ref: '#/components/responses/Error'
 
@@ -2101,6 +2155,12 @@ components:
             $ref: '#/components/schemas/Error'
     UnauthorizedError:
       description: Access token is missing or invalid
+    ForbiddenError:
+      description: Insufficient permissions to perform this action
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
 
   securitySchemes:
     BearerAuth:

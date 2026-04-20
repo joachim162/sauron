@@ -2,6 +2,7 @@ package SauronAPI::Controller::Host;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
+use SauronAPI::AuthZ qw(check_perms);
 
 # Resolve server name and zone name to their numeric IDs.
 # Returns ($server_id, $zone_id) or renders a 404 error and returns empty list.
@@ -137,9 +138,11 @@ sub _build_host_response {
 # Get host by server, zone, and hostname
 sub get_host ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my ($server_id, $zone_id) = _resolve_server_zone($self);
   return unless $server_id;
+  return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
 
   my $hostname = $self->param("hostname");
   my $host_id = Sauron::BackEnd::get_host_id($zone_id, $hostname);
@@ -165,9 +168,11 @@ sub get_host ($self) {
 # Create a new host in a specific zone on a specific server
 sub add_host ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my ($server_id, $zone_id) = _resolve_server_zone($self);
   return unless $server_id;
+  return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'RW');
 
   my $json = $self->req->json;
   my $hostname = $json->{hostname};
@@ -252,11 +257,14 @@ sub add_host ($self) {
 # Delete a host from a specific zone on a specific server
 sub delete_host ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my ($server_id, $zone_id) = _resolve_server_zone($self);
   return unless $server_id;
 
   my $hostname = $self->param("hostname");
+  return unless check_perms($self, type => 'delhost', hostname => $hostname, zone_id => $zone_id, server_id => $server_id);
+
   my $host_id = Sauron::BackEnd::get_host_id($zone_id, $hostname);
   if ($host_id <= 0) {
     return $self->render(
@@ -337,12 +345,15 @@ sub _validate_type_fields {
 # Update an existing host in a specific zone on a specific server
 sub update_host ($self) {
   return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
 
   my ($server_id, $zone_id) = _resolve_server_zone($self);
   return unless $server_id;
 
   my $hostname = $self->param("hostname");
   my $json = $self->req->json;
+
+  return unless check_perms($self, type => 'host', hostname => $hostname, zone_id => $zone_id, server_id => $server_id);
 
   my $host_id = Sauron::BackEnd::get_host_id($zone_id, $hostname);
   if ($host_id <= 0) {
