@@ -8,6 +8,8 @@ use Text::Table;
 use Sauron::DB;
 use Sauron::BackEnd;
 use Sauron::Sauron;
+use Sauron::Util;
+use Sauron::SetupIO;
 
 my ($PG_DIR,$PG_NAME) = ($0 =~ /^(.*\/)(.*)$/);
 $0 = $PG_NAME;
