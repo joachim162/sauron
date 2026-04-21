@@ -17,6 +17,7 @@ use Sauron::SetupIO;
 set_encoding();
 load_config();
 
+# TODO: Add final versions of `sql/bff_sessions.sql` and `sql/personal_access_tokens.sql` and create sql script to update database shema
 @TABLES  =  qw@ sql/common.sql
 		sql/servers.sql
 		sql/zones.sql

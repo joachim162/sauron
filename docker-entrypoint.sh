@@ -53,7 +53,10 @@ if [ "$DB_TABLES" -eq 0 ] || [ -z "$DB_TABLES" ]; then
     echo y | /srv/sauron/createtables
 
     echo "=== Creating bff_sessions table ==="
-    psql -f /srv/sauron/sql/bff_sessions.sql
+    psql -f /srv/sauron/sql/bff_sessions.sql || true
+
+    echo "=== Creating personal_access_tokens table ==="
+    psql -f /srv/sauron/sql/personal_access_tokens.sql || true
 
     echo "=== Downloading root hints ==="
     if [ ! -s /srv/sauron/named.root ]; then

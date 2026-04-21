@@ -44,7 +44,7 @@ services:
       - "8181:80"
       - "4343:443"
     environment:
-      OIDC_ISSUER: "https://authentik.local.holecek.party/application/o/sauron-web-ui/"
+      OIDC_ISSUER: "${OIDC_ISSUER:-}"
       OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
       OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
       OIDC_CRYPTO_PASSPHRASE: "${OIDC_CRYPTO_PASSPHRASE:-changeme}"
