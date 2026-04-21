@@ -1,6 +1,48 @@
 #!/bin/bash
 set -e
 
+# Generate a simple proxy-only config (no OIDC auth)
+generate_proxy_only_config() {
+    cat > /usr/local/apache2/conf/extra/httpd-oidc.conf << 'PROXY_EOF'
+# Apache Proxy-Only Configuration for Sauron API
+# No OIDC authentication configured
+
+ServerName localhost
+
+Listen 443
+
+<VirtualHost *:80>
+    ServerName localhost
+    Redirect permanent / https://localhost/
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName localhost
+
+    SSLEngine on
+    SSLCertificateFile /etc/apache2/tls/server.crt
+    SSLCertificateKeyFile /etc/apache2/tls/server.key
+    SSLProtocol all -SSLv3
+    SSLCipherSuite ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+    SSLHonorCipherOrder on
+    SSLCompression off
+
+    RequestHeader set X-Forwarded-Proto "https"
+    RequestHeader set X-Forwarded-Port "443"
+
+    # All paths proxied directly to API (no OIDC auth)
+    <Location />
+        ProxyPreserveHost On
+        ProxyPass http://sauron_api:3000/
+        ProxyPassReverse http://sauron_api:3000/
+    </Location>
+
+    ErrorLog /proc/self/fd/2
+    CustomLog /proc/self/fd/1 common
+</VirtualHost>
+PROXY_EOF
+}
+
 # Generate Apache config from template with actual values
 generate_config() {
     local oidc_issuer="${OIDC_ISSUER:-}"
@@ -9,8 +51,9 @@ generate_config() {
     local oidc_crypto_passphrase="${OIDC_CRYPTO_PASSPHRASE:-changeme}"
 
     if [[ -z "$oidc_issuer" ]] || [[ -z "$oidc_client_id" ]] || [[ -z "$oidc_client_secret" ]]; then
-        echo "ERROR: OIDC_ISSUER, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET must be set"
-        exit 1
+        echo "WARNING: OIDC environment variables not set. Starting as proxy-only (no OIDC authentication)."
+        generate_proxy_only_config
+        return
     fi
 
     # Build the Apache config file
