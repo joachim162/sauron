@@ -5,6 +5,11 @@ echo "=== Sauron Docker Startup ==="
 
 cd /srv/sauron
 
+if [ ! -f sauron_api/sauron_a_p_i.yml ] && [ -f sauron_api/sauron_a_p_i.yml.example ]; then
+    echo "=== Creating sauron_a_p_i.yml from example ==="
+    cp sauron_api/sauron_a_p_i.yml.example sauron_api/sauron_a_p_i.yml
+fi
+
 if [ ! -L Sauron/DB.pm ]; then
     ln -sf DB-DBI.pm Sauron/DB.pm
 fi

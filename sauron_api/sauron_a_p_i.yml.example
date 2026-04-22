@@ -1,0 +1,13 @@
+secrets:
+  - change-me-in-production
+
+proxy_auth:
+  header: X-Remote-User
+  trusted_ips:
+    - 127.0.0.1
+    - ::1
+
+session:
+  cookie_name: bff_session
+  ttl: 86400
+  secure: 0

@@ -177,6 +177,11 @@ APACHE_EOF
     echo "Apache config generated successfully"
 }
 
+if [ ! -f /etc/apache2/tls/server.crt ] || [ ! -f /etc/apache2/tls/server.key ]; then
+    echo "=== Generating self-signed TLS certificates ==="
+    bash /etc/apache2/tls/generate-dev-cert.sh
+fi
+
 generate_config
 
 echo "Starting Apache..."

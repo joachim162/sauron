@@ -53,7 +53,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./apache/tls:/etc/apache2/tls:ro
+      - ./apache/tls:/etc/apache2/tls
 
 volumes:
   postgres_data:
