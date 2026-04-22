@@ -48,6 +48,7 @@ services:
       OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
       OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
       OIDC_CRYPTO_PASSPHRASE: "${OIDC_CRYPTO_PASSPHRASE:-changeme}"
+      OIDC_REDIRECT_URI: "${OIDC_REDIRECT_URI:-https://localhost:4343/callback}"
       API_BACKEND: "http://sauron_api:3000"
     env_file:
       - .env

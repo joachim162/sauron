@@ -49,6 +49,7 @@ generate_config() {
     local oidc_client_id="${OIDC_CLIENT_ID:-}"
     local oidc_client_secret="${OIDC_CLIENT_SECRET:-}"
     local oidc_crypto_passphrase="${OIDC_CRYPTO_PASSPHRASE:-changeme}"
+    local oidc_redirect_uri="${OIDC_REDIRECT_URI:-https://localhost/callback}"
 
     if [[ -z "$oidc_issuer" ]] || [[ -z "$oidc_client_id" ]] || [[ -z "$oidc_client_secret" ]]; then
         echo "WARNING: OIDC environment variables not set. Starting as proxy-only (no OIDC authentication)."
@@ -96,7 +97,7 @@ Listen 443
     OIDCClientID OIDC_CLIENT_ID_PLACEHOLDER
     OIDCClientSecret OIDC_CLIENT_SECRET_PLACEHOLDER
     OIDCCryptoPassphrase OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER
-    OIDCRedirectURI https://localhost/callback
+    OIDCRedirectURI OIDC_REDIRECT_URI_PLACEHOLDER
     OIDCScope "openid profile email"
     OIDCRemoteUserClaim email
 
@@ -171,6 +172,7 @@ APACHE_EOF
     sed -i "s|OIDC_CLIENT_ID_PLACEHOLDER|${oidc_client_id}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_CLIENT_SECRET_PLACEHOLDER|${oidc_client_secret}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER|${oidc_crypto_passphrase}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
+    sed -i "s|OIDC_REDIRECT_URI_PLACEHOLDER|${oidc_redirect_uri}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
 
     echo "Apache config generated successfully"
 }
