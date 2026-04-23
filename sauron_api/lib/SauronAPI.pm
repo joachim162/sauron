@@ -20,6 +20,8 @@ sub startup {
 
   # Fix request base URL when behind a reverse proxy
   # so that OpenAPI spec and redirects use the correct scheme/host
+  # TODO: Check if this is Docker only problem
+  # or if it can be handled by Apache
   $self->hook(before_dispatch => sub ($c) {
     my $proto = $c->req->headers->header('X-Forwarded-Proto');
     my $host  = $c->req->headers->header('X-Forwarded-Host') // $c->req->headers->header('Host');
@@ -46,6 +48,8 @@ sub startup {
       my $result = $c->resolve_proxy_user;
       if ($result->{user_id}) {
         $c->load_user_context($result->{user_id}, 'proxy');
+      } else {
+        $c->render(json => { error => $result->{error}, message => $result->{message} }, status => $result->{status});
       }
       return; # proxy header present — don't check session cookie
     }
@@ -92,6 +96,7 @@ sub startup {
     return 1;
   });
 
+  # TODO: Test
   $self->helper(resolve_proxy_user => sub ($c) {
     my $proxy = $config->{proxy_auth} // {};
     my $header = $proxy->{header} // 'X-Remote-User';
@@ -100,6 +105,8 @@ sub startup {
 
     my $remote_ip = $c->tx->remote_address;
     my $remote_user = $c->req->headers->header($header);
+
+    warn "DEBUG resolve_proxy_user: remote_ip=$remote_ip header=$remote_user\n";
 
     return { error => 'Unauthorized', message => 'No proxy auth header', status => 401 } unless $remote_user;
 
@@ -119,6 +126,7 @@ sub startup {
         }
       }
     }
+    warn "DEBUG resolve_proxy_user: trusted=$trusted trusted_ips=" . join(',', @trusted) . "\n";
     return { error => 'Unauthorized', message => 'Untrusted proxy', status => 401 } unless $trusted;
 
     my %user;
@@ -128,9 +136,11 @@ sub startup {
     } else {
       $found = (Sauron::BackEnd::get_user($remote_user, \%user) == 0);
     }
+    warn "DEBUG resolve_proxy_user: match=$match found=$found user=" . ($user{id} // 'none') . "\n";
     return { error => 'Unauthorized', message => "User '$remote_user' not found", status => 401 } unless $found;
 
     my $ustatus = Sauron::BackEnd::get_user_status($user{id});
+    warn "DEBUG resolve_proxy_user: ustatus=" . ($ustatus // 'undef') . "\n";
     return { error => 'Forbidden', message => 'Account is no longer active', status => 403 } if (!defined $ustatus || $ustatus =~ /[EL]/);
 
     return { user_id => $user{id}, username => $user{username} };
