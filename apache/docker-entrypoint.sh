@@ -3,21 +3,22 @@ set -e
 
 # Generate a simple proxy-only config (no OIDC auth)
 generate_proxy_only_config() {
-    cat > /usr/local/apache2/conf/extra/httpd-oidc.conf << 'PROXY_EOF'
+    local server_name="${SERVER_NAME:-localhost}"
+    cat > /usr/local/apache2/conf/extra/httpd-oidc.conf << PROXY_EOF
 # Apache Proxy-Only Configuration for Sauron API
 # No OIDC authentication configured
 
-ServerName localhost
+ServerName ${server_name}
 
 Listen 443
 
 <VirtualHost *:80>
-    ServerName localhost
-    Redirect permanent / https://localhost/
+    ServerName ${server_name}
+    Redirect permanent / https://${server_name}/
 </VirtualHost>
 
 <VirtualHost *:443>
-    ServerName localhost
+    ServerName ${server_name}
 
     SSLEngine on
     SSLCertificateFile /etc/apache2/tls/server.crt
@@ -49,7 +50,8 @@ generate_config() {
     local oidc_client_id="${OIDC_CLIENT_ID:-}"
     local oidc_client_secret="${OIDC_CLIENT_SECRET:-}"
     local oidc_crypto_passphrase="${OIDC_CRYPTO_PASSPHRASE:-changeme}"
-    local oidc_redirect_uri="${OIDC_REDIRECT_URI:-https://localhost/callback}"
+    local server_name="${SERVER_NAME:-localhost}"
+    local oidc_redirect_uri="${OIDC_REDIRECT_URI:-https://${server_name}/callback}"
 
     if [[ -z "$oidc_issuer" ]] || [[ -z "$oidc_client_id" ]] || [[ -z "$oidc_client_secret" ]]; then
         echo "WARNING: OIDC environment variables not set. Starting as proxy-only (no OIDC authentication)."
@@ -58,24 +60,24 @@ generate_config() {
     fi
 
     # Build the Apache config file
-    cat > /usr/local/apache2/conf/extra/httpd-oidc.conf << 'APACHE_EOF'
+    cat > /usr/local/apache2/conf/extra/httpd-oidc.conf << APACHE_EOF
 # Apache OIDC Reverse Proxy Configuration for Sauron API
 # Generated from environment variables at startup
 
-ServerName localhost
+ServerName ${server_name}
 
 # Explicitly listen on port 443 for HTTPS
 Listen 443
 
 # HTTP to HTTPS redirect
 <VirtualHost *:80>
-    ServerName localhost
-    Redirect permanent / https://localhost/
+    ServerName ${server_name}
+    Redirect permanent / https://${server_name}/
 </VirtualHost>
 
 # HTTPS VirtualHost with OIDC authentication
 <VirtualHost *:443>
-    ServerName localhost
+    ServerName ${server_name}
 
     # SSL Configuration
     SSLEngine on
