@@ -167,6 +167,10 @@ sub startup {
     skip_validating_specification => 1,
     security => {
       BearerAuth => sub ($c, $definition, $scopes, $cb) {
+        if ($c->stash('api_user_id')) {
+          return $c->$cb();
+        }
+
         my $auth = $c->req->headers->authorization;
         return $c->$cb('Authorization header not present') unless ($auth);
 
