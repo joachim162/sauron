@@ -22,7 +22,7 @@ sub _render_user_response {
   if (Sauron::BackEnd::get_user($username, \%user) == 0) {
     $email = $user{email} // '';
     $name = $user{name} // '';
-    $superuser = $user{superuser} ? 1 : 0;
+    $superuser = ($user{superuser} && $user{superuser} eq 't') ? 1 : 0;
   }
 
   $c->render(json => {

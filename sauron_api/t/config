@@ -1,0 +1,18 @@
+# Test configuration for Sauron REST API
+# This config is loaded by tests via sauron_api/t/lib/SauronAPITest.pm
+
+$PROG_DIR = "/srv/sauron/";
+$LOG_DIR = "/tmp/sauron-logs/";
+$SERVER_ID = "testserver";
+
+# Database connection — uses environment variables set by Docker Compose
+$DB_DSN = $ENV{POSTGRES_DSN} // "dbi:Pg:dbname=saurondb;host=postgres;port=5432";
+$DB_USER = $ENV{POSTGRES_USER} // "sauronuser";
+$DB_PASSWORD = $ENV{POSTGRES_PASSWORD} // "sauronpass";
+
+# Minimal sane defaults for testing
+$SAURON_CHARSET = 'utf-8';
+$SAURON_PWD_MODE = 1;
+$SAURON_PRIVILEGE_MODE = 0;
+
+1;
