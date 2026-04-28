@@ -4,8 +4,81 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 use Sauron::BackEnd ();
 use SauronAPI::AuthZ qw(check_perms);
 
-# Resolve server name and zone name to their numeric IDs.
-# Returns ($server_id, $zone_id) or renders a 404 error and returns empty list.
+# --- Dispatch tables (array field handling) ---
+# Following the same pattern as Server.pm and Zone.pm
+
+my @ARRAY_FIELDS = qw(
+  ns_l ds_l wks_l mx_l dhcp_l dhcp_l6 printer_l srv_l sshfp_l tlsa_l txt_l
+  alias_a subgroups
+);
+
+my %BACKEND_HEADERS = (
+  ns_l      => ['NS', 'Comments'],
+  ds_l      => ['Key tag', 'Algorithm', 'Digest type', 'Digest', 'Comments'],
+  wks_l     => ['Proto', 'Services', 'Comments'],
+  mx_l      => ['Priority', 'MX', 'Comments'],
+  dhcp_l    => ['DHCP', 'Comments'],
+  dhcp_l6   => ['DHCP', 'Comments'],
+  printer_l => ['PRINTER', 'Comments'],
+  srv_l     => ['Priority', 'Weight', 'Port', 'Target', 'Comments'],
+  sshfp_l   => ['Algorithm', 'Type', 'Fingerprint', 'Comments'],
+  tlsa_l    => ['Usage', 'Selector', 'Matching Type', 'Asociation Data', 'Comments'],
+  txt_l     => ['Text', 'Comments'],
+  alias_a   => ['Domain'],
+  subgroups => ['SubGroup'],
+);
+
+my %HEADERS = (
+  ns_l      => [qw(ns comment)],
+  ds_l      => [qw(key_tag algorithm digest_type digest comment)],
+  wks_l     => [qw(proto services comment)],
+  mx_l      => [qw(pri mx comment)],
+  dhcp_l    => [qw(dhcp comment)],
+  dhcp_l6   => [qw(dhcp comment)],
+  printer_l => [qw(printer comment)],
+  srv_l     => [qw(pri weight port target comment)],
+  sshfp_l   => [qw(algorithm hashtype fingerprint comment)],
+  tlsa_l    => [qw(usage selector matching_type association_data comment)],
+  txt_l     => [qw(txt comment)],
+  alias_a   => [qw(arec)],
+  subgroups => [qw(grp)],
+);
+
+my %BUILDERS = (
+  ns_l      => \&_build_ns_record,
+  ds_l      => \&_build_ds_record,
+  wks_l     => \&_build_wks_record,
+  mx_l      => \&_build_mx_record,
+  dhcp_l    => \&_build_dhcp_record,
+  dhcp_l6   => \&_build_dhcp_record,
+  printer_l => \&_build_printer_record,
+  srv_l     => \&_build_srv_record,
+  sshfp_l   => \&_build_sshfp_record,
+  tlsa_l    => \&_build_tlsa_record,
+  txt_l     => \&_build_txt_record,
+  alias_a   => \&_build_alias_a_record,
+  subgroups => \&_build_subgroup_record,
+);
+
+my %UPDATE_COUNT = (
+  ip        => 4,
+  ns_l      => 3,
+  ds_l      => 6,
+  wks_l     => 4,
+  mx_l      => 4,
+  dhcp_l    => 3,
+  dhcp_l6   => 3,
+  printer_l => 3,
+  srv_l     => 6,
+  sshfp_l   => 5,
+  tlsa_l    => 6,
+  txt_l     => 3,
+  alias_a   => 2,
+  subgroups => 2,
+);
+
+# --- Helper functions ---
+
 sub _resolve_server_zone {
   my ($self) = @_;
 
@@ -31,6 +104,70 @@ sub _resolve_server_zone {
   }
 
   return ($server_id, $zone_id);
+}
+
+sub _copy_host_fields {
+  my ($rec, $json) = @_;
+
+  my @scalar_fields = qw(
+    ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
+    info location dept huser email model serial misc asset_id comment duid
+    iaid flags expiration prn wks mx rp_mbox rp_txt
+  );
+  for my $field (@scalar_fields) {
+    $rec->{$field} = $json->{$field} if exists $json->{$field};
+  }
+}
+
+sub _strip_marker_format {
+  my ($data, $api_header) = @_;
+  return [] unless ref $data eq 'ARRAY' && @$data > 1;
+
+  my $ncols = @$api_header;
+  my @result;
+
+  for my $i (1 .. $#$data) {
+    my @row = @{$data->[$i]};
+    shift @row;
+    $#row = $ncols - 1;
+
+    my %obj;
+    for my $j (0 .. $ncols - 1) {
+      $obj{$api_header->[$j]} = $row[$j] if $j < @row;
+    }
+    push @result, \%obj;
+  }
+
+  return \@result;
+}
+
+sub _mark_existing_for_deletion {
+  my ($rows, $existing_data, $count) = @_;
+  return unless ref $existing_data eq 'ARRAY';
+
+  for my $i (1 .. $#{$existing_data}) {
+    my $id = $existing_data->[$i][0];
+    next unless $id && $id > 0;
+    my @del = ($id, ('') x ($count - 1), -1);
+    push @$rows, \@del;
+  }
+}
+
+sub _build_array_field {
+  my ($api_data, $field_name) = @_;
+
+  return undef unless defined $api_data && ref $api_data eq 'ARRAY';
+  return undef unless exists $BACKEND_HEADERS{$field_name};
+
+  my @rows;
+  push @rows, $BACKEND_HEADERS{$field_name};
+
+  my $builder = $BUILDERS{$field_name};
+  for my $item (@$api_data) {
+    push @rows, $builder->($item);
+  }
+
+  return \@rows;
 }
 
 sub _build_host_response {
@@ -112,30 +249,22 @@ sub _build_host_response {
   $response->{cname_alias} = $host_data->{cname_alias} if exists $host_data->{cname_alias};
   $response->{static_alias} = $host_data->{static_alias} if exists $host_data->{static_alias};
 
-  $response->{ns_l} = $host_data->{ns_l} if exists $host_data->{ns_l};
-  $response->{ds_l} = $host_data->{ds_l} if exists $host_data->{ds_l};
-  $response->{wks_l} = $host_data->{wks_l} if exists $host_data->{wks_l};
-  $response->{mx_l} = $host_data->{mx_l} if exists $host_data->{mx_l};
-  $response->{dhcp_l} = $host_data->{dhcp_l} if exists $host_data->{dhcp_l};
-  $response->{dhcp_l6} = $host_data->{dhcp_l6} if exists $host_data->{dhcp_l6};
-  $response->{printer_l} = $host_data->{printer_l} if exists $host_data->{printer_l};
-  $response->{srv_l} = $host_data->{srv_l} if exists $host_data->{srv_l};
-  $response->{sshfp_l} = $host_data->{sshfp_l} if exists $host_data->{sshfp_l};
-  $response->{tlsa_l} = $host_data->{tlsa_l} if exists $host_data->{tlsa_l};
-  $response->{txt_l} = $host_data->{txt_l} if exists $host_data->{txt_l};
-  $response->{alias_l} = $host_data->{alias_l} if exists $host_data->{alias_l};
-  $response->{subgroups} = $host_data->{subgroups} if exists $host_data->{subgroups};
-  $response->{alias_a} = $host_data->{alias_a} if exists $host_data->{alias_a};
-
   $response->{wks_rec} = $host_data->{wks_rec} if exists $host_data->{wks_rec};
   $response->{mx_rec} = $host_data->{mx_rec} if exists $host_data->{mx_rec};
   $response->{grp_rec} = $host_data->{grp_rec} if exists $host_data->{grp_rec};
 
+  # Copy array fields using _strip_marker_format (matches Server/Zone pattern)
+  for my $field (@ARRAY_FIELDS) {
+    if (ref $host_data->{$field} eq 'ARRAY' && @{$host_data->{$field}} > 1) {
+      $response->{$field} = _strip_marker_format($host_data->{$field}, $HEADERS{$field});
+    }
+  }
+
   return $response;
 }
 
-# GET /servers/{server}/zones/{zone}/hosts/{hostname}
-# Get host by server, zone, and hostname
+# --- CRUD subroutines ---
+
 sub get_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
@@ -164,8 +293,6 @@ sub get_host ($self) {
   $self->render(openapi => _build_host_response($host_id, \%host_data, $zone_id));
 }
 
-# POST /servers/{server}/zones/{zone}/hosts
-# Create a new host in a specific zone on a specific server
 sub add_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
@@ -193,7 +320,6 @@ sub add_host ($self) {
 
   my $type = $json->{type} // 1;
 
-  # Validate fields for this host type
   if (my $err = _validate_type_fields($json, $type)) {
     return $self->render(
       openapi => { error => 'Bad Request', message => $err },
@@ -207,31 +333,23 @@ sub add_host ($self) {
     type   => $type,
   );
 
-  # Scalar fields writable during creation
-  my @scalar_fields = qw(
-    ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
-    info location dept huser email model serial misc asset_id comment duid
-    iaid flags expiration prn wks mx rp_mbox rp_txt
-  );
-  for my $field (@scalar_fields) {
-    $rec{$field} = $json->{$field} if exists $json->{$field};
-  }
+  _copy_host_fields(\%rec, $json);
 
   # Translate flat API format ["1.2.3.4"] -> BackEnd ip array field
   if (exists $json->{ips}) {
-    my @rows = (["IP", "reverse", "forward"]);
+    my @rows;
     for my $ip (@{$json->{ips} // []}) {
       push @rows, [0, $ip, 't', 't', 2];
     }
     $rec{ip} = \@rows;
   }
 
-  # Build array fields from API input
-  my @array_fields = qw(ns_l ds_l wks_l mx_l dhcp_l dhcp_l6 printer_l srv_l sshfp_l tlsa_l txt_l subgroups alias_a);
-  for my $field (@array_fields) {
+  # Build array fields from API input — strip headers for add_array_field (BackEnd::add_host)
+  for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
     my $data = _build_array_field($json->{$field}, $field);
-    $rec{$field} = $data if ref $data eq 'ARRAY';
+    next unless ref $data eq 'ARRAY';
+    $rec{$field} = [@{$data}[1 .. $#{$data}]];
   }
 
   my $host_id = Sauron::BackEnd::add_host(\%rec);
@@ -253,8 +371,6 @@ sub add_host ($self) {
   $self->render(openapi => _build_host_response($host_id, \%host_data, $zone_id), status => 201);
 }
 
-# DELETE /servers/{server}/zones/{zone}/hosts/{hostname}
-# Delete a host from a specific zone on a specific server
 sub delete_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
@@ -284,65 +400,6 @@ sub delete_host ($self) {
   $self->render(openapi => undef, status => 204);
 }
 
-# Marker position used by BackEnd::update_array_field for each field.
-# This must match the $count parameter in each update_array_field call
-# inside Sauron::BackEnd::update_host.
-my %UPDATE_COUNT = (
-  ip        => 4,
-  ns_l      => 3,
-  ds_l      => 6,
-  wks_l     => 4,
-  mx_l      => 4,
-  dhcp_l    => 3,
-  dhcp_l6   => 3,
-  printer_l => 3,
-  srv_l     => 6,
-  sshfp_l   => 5,
-  tlsa_l    => 6,
-  txt_l     => 3,
-  alias_a   => 2,
-  subgroups => 2,
-);
-
-# Type-specific field validation.
-# Maps each host type to the set of fields valid for that type.
-# Universal fields (type, comment, ttl, class, grp, expiration) are
-# always allowed and not listed here.
-my %TYPE_FIELDS = (
-  1   => [qw(ips ether hinfo_hw hinfo_sw mx_l wks_l sshfp_l srv_l txt_l
-             dhcp_l dhcp_l6 printer_l ns_l ds_l tlsa_l subgroups)],
-  2   => [qw(ns_l ds_l)],
-  3   => [qw(mx_l txt_l)],
-  4   => [qw(alias cname_txt)],
-  5   => [qw(printer_l dhcp_l dhcp_l6 subgroups)],
-  6   => [qw(ips)],
-  7   => [qw(ips mx_l txt_l alias_a)],
-  8   => [qw(srv_l)],
-  9   => [qw(ips ether duid iaid)],
-  11  => [qw(sshfp_l)],
-  12  => [qw(tlsa_l)],
-  13  => [qw(txt_l)],
-  101 => [qw(ips ether duid iaid)],
-);
-
-# Fields allowed for all host types.
-my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(hostname type comment ttl class grp expiration);
-
-# Validate that all fields in $json are allowed for $type.
-# Returns error message string if invalid, undef if OK.
-sub _validate_type_fields {
-  my ($json, $type) = @_;
-
-  my %valid = map { $_ => 1 } @{$TYPE_FIELDS{$type} // []};
-  for my $field (keys %$json) {
-    next if $UNIVERSAL_FIELDS{$field};
-    return "Field '$field' is not valid for host type $type" unless $valid{$field};
-  }
-  return undef;
-}
-
-# PUT /servers/{server}/zones/{zone}/hosts/{hostname}
-# Update an existing host in a specific zone on a specific server
 sub update_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
@@ -371,7 +428,6 @@ sub update_host ($self) {
     );
   }
 
-  # Validate fields against the host's existing type
   if (my $err = _validate_type_fields($json, $host_data{type})) {
     return $self->render(
       openapi => { error => 'Bad Request', message => $err },
@@ -386,16 +442,8 @@ sub update_host ($self) {
     domain => $host_data{domain},
   );
 
-  my @scalar_fields = qw(
-    ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
-    info location dept huser email model serial misc asset_id comment duid
-    iaid flags expiration prn wks mx rp_mbox rp_txt
-  );
-  for my $field (@scalar_fields) {
-    $rec{$field} = $json->{$field} if exists $json->{$field};
-  }
+  _copy_host_fields(\%rec, $json);
 
-  # Translate flat API format ["1.2.3.4"] → BackEnd ip array field
   if (exists $json->{ips}) {
     my @rows = (["IP", "reverse", "forward"]);
     _mark_existing_for_deletion(\@rows, $host_data{ip}, $UPDATE_COUNT{ip});
@@ -405,9 +453,7 @@ sub update_host ($self) {
     $rec{ip} = \@rows;
   }
 
-  # Replace-all semantics: delete existing records, then add new ones
-  my @array_fields = qw(ns_l ds_l wks_l mx_l dhcp_l dhcp_l6 printer_l srv_l sshfp_l tlsa_l txt_l subgroups alias_a);
-  for my $field (@array_fields) {
+  for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
 
     my $new = _build_array_field($json->{$field}, $field);
@@ -437,77 +483,44 @@ sub update_host ($self) {
   $self->render(openapi => _build_host_response($host_id, \%host_data, $host_data{zone}));
 }
 
-# Build deletion entries for existing records in BackEnd array field format.
-# update_array_field only reads [0] (record id) and [$count] (marker=-1),
-# so padding between them can be empty strings.
-sub _mark_existing_for_deletion {
-  my ($rows, $existing_data, $count) = @_;
+# --- Type-specific field validation ---
 
-  return unless ref $existing_data eq 'ARRAY';
+my %TYPE_FIELDS = (
+  1   => [qw(ips ether hinfo_hw hinfo_sw mx_l wks_l sshfp_l srv_l txt_l
+             dhcp_l dhcp_l6 printer_l ns_l ds_l tlsa_l subgroups)],
+  2   => [qw(ns_l ds_l)],
+  3   => [qw(mx_l txt_l)],
+  4   => [qw(alias cname_txt)],
+  5   => [qw(printer_l dhcp_l dhcp_l6 subgroups)],
+  6   => [qw(ips)],
+  7   => [qw(ips mx_l txt_l alias_a)],
+  8   => [qw(srv_l)],
+  9   => [qw(ips ether duid iaid)],
+  11  => [qw(sshfp_l)],
+  12  => [qw(tlsa_l)],
+  13  => [qw(txt_l)],
+  101 => [qw(ips ether duid iaid)],
+);
 
-  for my $i (1 .. $#{$existing_data}) {
-    my $id = $existing_data->[$i][0];
-    next unless $id && $id > 0;
-    my @del = ($id, ('') x ($count - 1), -1);
-    push @$rows, \@del;
+my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(
+  hostname type comment ttl class grp expiration
+  alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
+  info location dept huser email model serial misc asset_id duid
+  iaid flags prn wks mx rp_mbox rp_txt
+);
+
+sub _validate_type_fields {
+  my ($json, $type) = @_;
+
+  my %valid = map { $_ => 1 } @{$TYPE_FIELDS{$type} // []};
+  for my $field (keys %$json) {
+    next if $UNIVERSAL_FIELDS{$field};
+    return "Field '$field' is not valid for host type $type" unless $valid{$field};
   }
+  return undef;
 }
 
-sub _build_array_field {
-  my ($api_data, $field_name) = @_;
-
-  return undef unless defined $api_data;
-  return undef unless ref $api_data eq 'ARRAY';
-
-  my %headers = (
-    sshfp_l   => [qw(Algorithm Type Fingerprint Comments)],
-    ns_l      => [qw(NS Comments)],
-    ds_l      => ['Key tag', 'Algorithm', 'Digest type', 'Digest', 'Comments'],
-    mx_l      => [qw(Priority MX Comments)],
-    srv_l     => [qw(Priority Weight Port Target Comments)],
-    txt_l     => [qw(Text Comments)],
-    wks_l     => [qw(Proto Services Comments)],
-    tlsa_l    => ['Usage', 'Selector', 'Matching Type', 'Asociation Data', 'Comments'],
-    dhcp_l    => [qw(DHCP Comments)],
-    dhcp_l6   => [qw(DHCP Comments)],
-    printer_l => [qw(PRINTER Comments)],
-    alias_a   => [qw(Domain)],
-    subgroups => [qw(SubGroup)],
-  );
-
-  my %builders = (
-    sshfp_l   => \&_build_sshfp_record,
-    ns_l      => \&_build_ns_record,
-    ds_l      => \&_build_ds_record,
-    mx_l      => \&_build_mx_record,
-    srv_l     => \&_build_srv_record,
-    txt_l     => \&_build_txt_record,
-    wks_l     => \&_build_wks_record,
-    tlsa_l    => \&_build_tlsa_record,
-    dhcp_l    => \&_build_dhcp_record,
-    dhcp_l6   => \&_build_dhcp_record,
-    printer_l => \&_build_printer_record,
-    alias_a   => \&_build_alias_a_record,
-    subgroups => \&_build_subgroup_record,
-  );
-
-  return undef unless exists $headers{$field_name};
-
-  my @rows;
-  push @rows, $headers{$field_name};
-
-  my $builder = $builders{$field_name};
-  for my $item (@$api_data) {
-    push @rows, $builder->($item);
-  }
-
-  return \@rows;
-}
-
-sub _build_sshfp_record {
-  my ($obj) = @_;
-  return [0, $obj->{algorithm}, $obj->{hashtype}, $obj->{fingerprint}, $obj->{comment} // '', 2];
-}
+# --- Record builders ---
 
 sub _build_ns_record {
   my ($obj) = @_;
@@ -519,29 +532,14 @@ sub _build_ds_record {
   return [0, $obj->{key_tag}, $obj->{algorithm}, $obj->{digest_type}, $obj->{digest}, $obj->{comment} // '', 2];
 }
 
-sub _build_mx_record {
-  my ($obj) = @_;
-  return [0, $obj->{pri}, $obj->{mx}, $obj->{comment} // '', 2];
-}
-
-sub _build_srv_record {
-  my ($obj) = @_;
-  return [0, $obj->{pri}, $obj->{weight}, $obj->{port}, $obj->{target}, $obj->{comment} // '', 2];
-}
-
-sub _build_txt_record {
-  my ($obj) = @_;
-  return [0, $obj->{txt}, $obj->{comment} // '', 2];
-}
-
 sub _build_wks_record {
   my ($obj) = @_;
   return [0, $obj->{proto}, $obj->{services}, $obj->{comment} // '', 2];
 }
 
-sub _build_tlsa_record {
+sub _build_mx_record {
   my ($obj) = @_;
-  return [0, $obj->{usage}, $obj->{selector}, $obj->{matching_type}, $obj->{association_data}, $obj->{comment} // '', 2];
+  return [0, $obj->{pri}, $obj->{mx}, $obj->{comment} // '', 2];
 }
 
 sub _build_dhcp_record {
@@ -552,6 +550,26 @@ sub _build_dhcp_record {
 sub _build_printer_record {
   my ($obj) = @_;
   return [0, $obj->{printer}, $obj->{comment} // '', 2];
+}
+
+sub _build_srv_record {
+  my ($obj) = @_;
+  return [0, $obj->{pri}, $obj->{weight}, $obj->{port}, $obj->{target}, $obj->{comment} // '', 2];
+}
+
+sub _build_sshfp_record {
+  my ($obj) = @_;
+  return [0, $obj->{algorithm}, $obj->{hashtype}, $obj->{fingerprint}, $obj->{comment} // '', 2];
+}
+
+sub _build_tlsa_record {
+  my ($obj) = @_;
+  return [0, $obj->{usage}, $obj->{selector}, $obj->{matching_type}, $obj->{association_data}, $obj->{comment} // '', 2];
+}
+
+sub _build_txt_record {
+  my ($obj) = @_;
+  return [0, $obj->{txt}, $obj->{comment} // '', 2];
 }
 
 sub _build_alias_a_record {

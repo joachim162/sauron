@@ -357,19 +357,16 @@ subtest 'Host endpoints — zone read/write gates' => sub {
   });
   ok($host_id > 0, "Created test host id=$host_id") or diag("add_host failed with code: $host_id");
 
-  SKIP: {
-    skip 'Host GET response has known array-formatting bug', 2;
+  # Zone-R can read host
+  $t->get_ok("/api/v1/servers/srv-authz-${pid}-1/zones/zone1-${pid}.example.com/hosts/testhost-${pid}"
+      => as_user("zoner_${pid}\@example.com"))
+    ->status_is(200)
+    ->json_is('/domain' => "testhost-${pid}");
 
-    # Zone-R can read host
-    $t->get_ok("/api/v1/servers/srv-authz-${pid}-1/zones/zone1-${pid}.example.com/hosts/testhost-${pid}"
-        => as_user("zoner_${pid}\@example.com"))
-      ->status_is(200);
-
-    # Zone-RW can read host
-    $t->get_ok("/api/v1/servers/srv-authz-${pid}-1/zones/zone1-${pid}.example.com/hosts/testhost-${pid}"
-        => as_user("zonerw_${pid}\@example.com"))
-      ->status_is(200);
-  }
+  # Zone-RW can read host
+  $t->get_ok("/api/v1/servers/srv-authz-${pid}-1/zones/zone1-${pid}.example.com/hosts/testhost-${pid}"
+      => as_user("zonerw_${pid}\@example.com"))
+    ->status_is(200);
 
   # No-perms cannot read host
   $t->get_ok("/api/v1/servers/srv-authz-${pid}-1/zones/zone1-${pid}.example.com/hosts/testhost-${pid}"
