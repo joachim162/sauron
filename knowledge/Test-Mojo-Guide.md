@@ -168,10 +168,146 @@ HARNESS_IS_VERBOSE=1 prove -l -v t/basic.t
 - **Proxy trusted IPs**: The default `127.0.0.1,::1` works for Test::Mojo's embedded server. If you override `PROXY_AUTH_TRUSTED_IPS` in tests, ensure it includes `127.0.0.1`.
 - **Marker format**: BackEnd returns marker-format arrays. Use `_strip_marker_format()` (from controllers) before JSON assertions, or assert against the raw marker format if testing the controller directly.
 
+## Practical Patterns (from the test suite)
+
+### The `=>` (fat comma) trap with bareword function calls
+
+Perl's `=>` operator auto-quotes barewords on its left side. A function call
+without parentheses is treated as a string, not a function call:
+
+```perl
+# BROKEN: as_super is quoted to the string "as_super"
+$t->get_ok('/url' => as_super => json => { ... });
+# Sends: headers = "as_super", body = { ... }
+
+# FIXED: parentheses force a function call
+$t->get_ok('/url', as_super(), json => { ... });
+# Sends: headers = {X-Remote-User => ...}, body = { ... }
+```
+
+Functions called WITH arguments are not affected:
+```perl
+# OK — as_user() with arguments is a function call, not a bareword
+$t->get_ok('/url' => as_user("alice\@example.com") => json => { ... });
+```
+
+### Cached auth headers
+
+Calling `as_user()` on every request resets the session unnecessarily.
+Precompute the header hashref:
+
+```perl
+sub _as_super {
+  $t->reset_session;
+  return { 'X-Remote-User' => "super_${pid}\@example.com" };
+}
+my $SUPER = _as_super();  # cached — call once
+
+# Use the cached variable
+$t->get_ok('/api/v1/servers' => $SUPER)->status_is(200);
+$t->post_ok('/api/v1/servers', $SUPER, json => { ... })->status_is(201);
+```
+
+Note: use comma `,` (not `=>`) after cached variables, since `$SUPER` is
+already a hashref, not a function call.
+
+### OpenAPI validation vs controller error format
+
+When the request body fails OpenAPI schema validation (e.g., missing required
+field), the response comes from the OpenAPI plugin, not the controller:
+
+```
+# OpenAPI validation failure (missing 'hostname' required by NewHost)
+POST /hosts  body={type: 1}
+→ 400 {"errors": [{"message": "/allOf/1 Missing property.", "path": "/body/hostname"}]}
+
+# Controller validation failure (hostname empty string, passes OpenAPI)
+POST /hosts  body={hostname: ""}
+→ 400 {"error": "Bad Request", "message": "'hostname' is required in request body"}
+```
+
+Assert accordingly:
+```perl
+# OpenAPI error
+$t->post_ok($URL, $SUPER, json => { type => 1 })
+  ->status_is(400)
+  ->json_has('/errors');              # array of error objects
+
+# Controller error
+$t->post_ok($URL, $SUPER, json => { hostname => '' })
+  ->status_is(400)
+  ->json_is('/error' => 'Bad Request') # single error object
+  ->json_is('/message' => "'hostname' is required in request body");
+```
+
+### END block cleanup pattern
+
+```perl
+my (@users, @servers, @zones);
+END {
+  for my $uid (@users)   { eval { delete_test_user($uid);   }; }
+  for my $zid (@zones)   { eval { delete_test_zone($zid);   }; }
+  for my $sid (@servers) { eval { delete_test_server($sid); }; }
+}
+```
+
+Key points:
+- `eval` wraps every deletion so one failure doesn't block the rest
+- Order matters: users first (clean up permissions), then zones, then servers
+- If you create throwaway fixtures inside a subtest, push them onto the
+  shared arrays so the END block cleans them up too
+
+### Unique fixture names with PID
+
+```perl
+my $pid = $$;
+my $srv = create_test_server(name => "srv-${pid}-1");
+my $user = create_test_user(username => "testuser_${pid}");
+```
+
+Prevents collisions between concurrent `prove -j` runs or leftover fixtures
+from a previous aborted test.
+
+### subtest blocks for independent test groups
+
+```perl
+subtest 'GET /servers — list filtering' => sub {
+  $t->get_ok('/api/v1/servers' => $SUPER)->status_is(200);
+  ...
+};
+
+subtest 'POST /servers — create' => sub {
+  $t->post_ok('/api/v1/servers', $SUPER, json => {...})->status_is(201);
+  ...
+};
+```
+
+Benefits:
+- Each subtest reports independently in TAP output
+- Failure in one subtest doesn't prevent subsequent ones from running
+- `done_testing()` counts subtest results automatically
+
+### SKIP for known-broken tests
+
+```perl
+SKIP: {
+  skip 'Host GET response has known array-formatting bug', 2;
+  $t->get_ok(...)->status_is(200);
+  $t->get_ok(...)->status_is(200);
+}
+```
+
+- `skip $message, $count` — skip the next `$count` tests
+- Remove the SKIP block once the bug is fixed
+- Serves as documentation of known failures
+
 ## See Also
 
+- [[Test-Infrastructure]] — Test architecture, config, fixture helpers
 - [[Authentication-and-Authorization-Flow]] — How authN/authZ work in the API
 - [[Running-the-API]] — Docker and local run instructions
-- `sauron_api/t/basic.t` — Current minimal test
+- `sauron_api/t/auth.t` — AuthN test examples
+- `sauron_api/t/authz.t` — AuthZ test examples
+- `sauron_api/t/host.t` — CRUD test examples
 - `sauron_api/lib/SauronAPI.pm` — App startup, `before_dispatch` hook, auth helpers
 - https://docs.mojolicious.org/Test/Mojo — Full upstream documentation
