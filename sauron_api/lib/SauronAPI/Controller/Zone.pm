@@ -227,7 +227,8 @@ sub _build_zone_response {
   # Copy writable fields from ZoneFields
   for my $field (qw(name comment hostmaster ttl refresh retry expire minimum
                      forward nnotify chknames transfer_source transfer_source_v6 expiration)) {
-    $response->{$field} = $zone_data->{$field} if exists $zone_data->{$field};
+    $response->{$field} = $zone_data->{$field}
+      if exists $zone_data->{$field} && defined $zone_data->{$field};
   }
 
   # Boolean fields (BackEnd stores as 't'/'f')
@@ -264,11 +265,12 @@ sub list_zones ($self) {
   for my $row (@$zone_list) {
     next unless ref $row eq 'ARRAY' && @$row >= 2;
     push @zones, {
-      id       => $row->[1],
-      name     => $row->[0],
-      type     => $row->[2],
-      reverse  => ($row->[3] eq 't' ? $JSON::PP::true : $JSON::PP::false),
-      comment  => $row->[4] // '',
+      id        => $row->[1],
+      server_id => $server_id,
+      name      => $row->[0],
+      type      => $row->[2],
+      reverse   => ($row->[3] eq 't' ? $JSON::PP::true : $JSON::PP::false),
+      comment   => $row->[4] // '',
     };
   }
 

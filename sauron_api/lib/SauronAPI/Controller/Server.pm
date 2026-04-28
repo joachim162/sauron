@@ -229,7 +229,8 @@ sub _build_server_response {
   # Copy all scalar fields from ServerFields
   for my $field (@SCALAR_FIELDS) {
     next if $field eq 'zones_only' || $field eq 'no_roots';
-    $response->{$field} = $server_data->{$field} if exists $server_data->{$field};
+    $response->{$field} = $server_data->{$field}
+      if exists $server_data->{$field} && defined $server_data->{$field};
   }
 
   # Boolean fields (BackEnd stores as 't'/'f' strings)
