@@ -96,28 +96,42 @@ return 0 if ($state->{superuser} eq 'yes');
 
 ## API Integration
 
-To integrate the REST API with Sauron's authorization:
+The REST API uses the same permission system via `Sauron::BackEnd::get_permissions()`.
+The results are stored in the request stash by `load_user_context()` in
+`SauronAPI.pm`, then checked by `SauronAPI::AuthZ::check_perms()` in each
+controller action.
 
-1. **Authentication:** Verify API key against `users` table or dedicated `api_keys` table
-2. **Load Permissions:** Call `get_permissions($user_id, \%perms)`
-3. **Check Access:** Implement permission checks in controllers using the same logic as `chk_perms()`
+**How the API uses it:** (`SauronAPI.pm:70-85`, `SauronAPI/AuthZ.pm:9-123`)
 
-Example controller check:
 ```perl
-sub require_server_access($self, $server_name, $required_mode) {
-    my $api_user = $self->stash('api_user');
-    my %perms;
-    
-    get_permissions($api_user->{id}, \%perms);
-    
-    # Superuser bypass
-    return 1 if ($api_user->{superuser} eq 't');
-    
-    my $server_id = get_server_id($server_name);
-    my $mode = $perms{server}->{$server_id} // '';
-    
-    return ($mode =~ /$required_mode/);
-}
+# In before_dispatch or OpenAPI security handler:
+my %perms;
+Sauron::BackEnd::get_permissions($user_id, \%perms);
+$c->stash(api_perms => \%perms);
+
+# In controller actions:
+use SauronAPI::AuthZ qw(check_perms);
+return unless check_perms($self, type => 'server', server_id => $id, rule => 'RW');
+```
+
+**Permission types used by the API:**
+
+| `check_perms` type | Maps to `user_rights.rtype` | rule |
+|---|---|---|
+| `superuser` | — (checks `users.superuser`) | — |
+| `server` | rtype=1 | R, RW, RWS |
+| `zone` | rtype=2 | R, RW, RWS |
+| `host` | rtype=2 (zone RW) + rtype=4 (hostname mask) | — |
+| `delhost` | rtype=2 (zone RW) + rtype=11 (delmask) | — |
+| `flags` | rtype=13 | flag name |
+| `level` | rtype=6 | numeric threshold |
+
+**Privilege mode inheritance** (AuthZ.pm:57-61,131-137):
+When `$SAURON_PRIVILEGE_MODE == 0` (default), server-level rights
+implicitly grant zone-level rights of the same type. A user with server
+`RW` automatically has zone `RW` for all zones on that server.
+This is handled by `has_zone_access()` which checks server rights first,
+then falls back to explicit zone rights.
 ```
 
 ## Related
