@@ -65,6 +65,7 @@ sub create_test_user {
   return $id;
 }
 
+# TODO: Backend already implements this
 sub delete_test_user {
   my ($user_id) = @_;
   return unless $user_id && $user_id > 0;
