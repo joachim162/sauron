@@ -31,17 +31,25 @@ Listen 443
     RequestHeader set X-Forwarded-Proto "https"
     RequestHeader set X-Forwarded-Port "443"
 
-    # All paths proxied directly to API (no OIDC auth)
-    <Location />
+    # Frontend static files
+    <Location /app>
         ProxyPreserveHost On
-        ProxyPass http://sauron_api:3000/
-        ProxyPassReverse http://sauron_api:3000/
+        ProxyPass FRONTEND_BACKEND_PLACEHOLDER/app
+        ProxyPassReverse FRONTEND_BACKEND_PLACEHOLDER/app
     </Location>
+
+    # API proxy — ProxyPass ! excludes /app/ from catch-all
+    ProxyPass /app/ !
+    ProxyPass /app !
+    ProxyPass / http://sauron_api:3000/
+    ProxyPassReverse / http://sauron_api:3000/
 
     ErrorLog /proc/self/fd/2
     CustomLog /proc/self/fd/1 common
 </VirtualHost>
 PROXY_EOF
+
+    sed -i "s|FRONTEND_BACKEND_PLACEHOLDER|${FRONTEND_BACKEND:-http://frontend:80}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
 }
 
 # Generate Apache config from template with actual values
@@ -153,14 +161,23 @@ Listen 443
     </Location>
 
     # =====================================================================
-    # Root path - serve static frontend or redirect to login
+    # Frontend — served by the frontend service (no OIDC required)
     # =====================================================================
 
-    <Location />
+    <Location /app>
+        AuthType None
+        Require all granted
+
         ProxyPreserveHost On
-        ProxyPass http://sauron_api:3000/
-        ProxyPassReverse http://sauron_api:3000/
+        ProxyPass FRONTEND_BACKEND_PLACEHOLDER/app
+        ProxyPassReverse FRONTEND_BACKEND_PLACEHOLDER/app
     </Location>
+
+    # Exclude /app/ from API proxy
+    ProxyPass /app/ !
+    ProxyPass /app !
+    ProxyPass / http://sauron_api:3000/
+    ProxyPassReverse / http://sauron_api:3000/
 
     ErrorLog /proc/self/fd/2
     CustomLog /proc/self/fd/1 common
@@ -168,13 +185,13 @@ Listen 443
 APACHE_EOF
 
     # Replace placeholders with actual values
-    # Strip trailing slash from issuer URL to avoid double-slash in well-known path
     local oidc_issuer_clean="${oidc_issuer%/}"
     sed -i "s|OIDC_ISSUER_PLACEHOLDER|${oidc_issuer_clean}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_CLIENT_ID_PLACEHOLDER|${oidc_client_id}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_CLIENT_SECRET_PLACEHOLDER|${oidc_client_secret}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER|${oidc_crypto_passphrase}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_REDIRECT_URI_PLACEHOLDER|${oidc_redirect_uri}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
+    sed -i "s|FRONTEND_BACKEND_PLACEHOLDER|${FRONTEND_BACKEND:-http://frontend:80}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
 
     echo "Apache config generated successfully"
 }

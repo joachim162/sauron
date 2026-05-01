@@ -34,12 +34,27 @@ services:
       - .:/srv/sauron
     working_dir: /srv/sauron
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - sauron_api
+    expose:
+      - "80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   apache:
     build:
       context: .
       dockerfile: apache/Dockerfile
     depends_on:
       - sauron_api
+      - frontend
     ports:
       - "8181:80"
       - "4343:443"
@@ -50,9 +65,10 @@ services:
       OIDC_CRYPTO_PASSPHRASE: "${OIDC_CRYPTO_PASSPHRASE:-changeme}"
       OIDC_REDIRECT_URI: "${OIDC_REDIRECT_URI:-https://localhost:4343/callback}"
       API_BACKEND: "http://sauron_api:3000"
+      FRONTEND_BACKEND: "http://frontend:80"
       SERVER_NAME: "${SERVER_NAME:-localhost}"
     env_file:
-      - .env
+      - ".env"
     volumes:
       - ./apache/tls:/etc/apache2/tls
 

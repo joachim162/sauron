@@ -26,7 +26,7 @@ sub _render_user_response {
   }
 
   $c->render(json => {
-    user => {
+    user        => {
       id          => $user_id,
       username    => $username,
       name        => $name,
