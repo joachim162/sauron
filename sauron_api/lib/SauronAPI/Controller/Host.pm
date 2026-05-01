@@ -2,6 +2,7 @@ package SauronAPI::Controller::Host;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
+use Sauron::DB ();
 use SauronAPI::AuthZ qw(check_perms);
 
 # --- Dispatch tables (array field handling) ---
@@ -286,6 +287,31 @@ sub _build_host_response {
 }
 
 # --- CRUD subroutines ---
+
+sub list_hosts ($self) {
+  return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
+
+  my ($server_id, $zone_id) = _resolve_server_zone($self);
+  return unless $server_id;
+  return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
+
+  my @hosts;
+  Sauron::DB::db_query("SELECT id,domain,type FROM hosts WHERE zone=$zone_id ORDER BY domain", \@hosts);
+
+  my @result;
+  for my $row (@hosts) {
+    push @result, {
+      id      => $row->[0],
+      domain  => $row->[1],
+      type    => $row->[2],
+      zone_id => $zone_id,
+      fqdn    => '',
+    };
+  }
+
+  $self->render(openapi => \@result);
+}
 
 sub get_host ($self) {
   return unless $self->openapi->valid_input;
