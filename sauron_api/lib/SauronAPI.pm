@@ -202,8 +202,8 @@ sub startup {
     title => "Sauron API Documentation"
   });
 
-  # Root route - serve static index.html
-  $self->routes->get('/')->to('Root#index');
+  # Root route - redirect to frontend
+  $self->routes->get('/')->to(cb => sub ($c) { $c->redirect_to('/app/') });
 
   # Helpers
   $self->helper(get_server_id_or_404 => sub ($c, $name) {
