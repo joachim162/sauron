@@ -160,6 +160,24 @@ Listen 443
         ProxyPassReverse http://sauron_api:3000/api/v1/auth/logout
     </Location>
 
+    <Location /api/v1/auth/me>
+        AuthType None
+        Require all granted
+
+        ProxyPreserveHost On
+        ProxyPass http://sauron_api:3000/api/v1/auth/me
+        ProxyPassReverse http://sauron_api:3000/api/v1/auth/me
+    </Location>
+
+    <Location /api/v1/auth/config>
+        AuthType None
+        Require all granted
+
+        ProxyPreserveHost On
+        ProxyPass http://sauron_api:3000/api/v1/auth/config
+        ProxyPassReverse http://sauron_api:3000/api/v1/auth/config
+    </Location>
+
     # =====================================================================
     # Frontend — served by the frontend service (no OIDC required)
     # =====================================================================

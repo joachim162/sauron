@@ -11,3 +11,6 @@ session:
   cookie_name: bff_session
   ttl: 86400
   secure: 0
+
+auth:
+  mode: password     # password | oidc | both

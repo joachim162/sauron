@@ -166,4 +166,48 @@ sub me ($self) {
   );
 }
 
+# GET /auth/config
+# Return auth configuration for the frontend.
+sub config ($self) {
+  my $mode = $self->app->config->{auth}{mode} // 'password';
+  my $sso_url = $self->app->config->{auth}{sso_url} // '/api/v1/auth/sso';
+  $self->render(json => {
+    auth_mode => $mode,
+    sso_url   => $sso_url,
+  });
+}
+
+# GET /auth/sso
+# Trigger OIDC login through Apache. Apache's mod_auth_openidc intercepts
+# this endpoint before it reaches the API, performs the OIDC flow, then
+# sets X-Remote-User. After authentication, this endpoint redirects back
+# to the frontend with a session cookie.
+sub sso ($self) {
+  my $uid = $self->stash('api_user_id');
+  my $method = $self->stash('api_auth_method') // '';
+  my $redirect = $self->req->url->query->param('redirect') // '/app/';
+
+  if ($uid && $method eq 'proxy') {
+    my %user;
+    if (Sauron::BackEnd::get_user_by_id($uid, \%user) == 0) {
+      my $ip = $self->req->env->{REMOTE_ADDR} // '';
+      my $ttl = $self->app->config->{session}->{ttl} // 86400;
+      my $token = Sauron::BackEnd::create_session($uid, 'oidc', $ip, $ttl);
+      if ($token) {
+        my $cookie_name = $self->app->config->{session}->{cookie_name} // 'bff_session';
+        my $secure = $self->app->config->{session}->{secure} // 0;
+        $self->cookie($cookie_name => $token, {
+          path     => '/',
+          http_only => 1,
+          secure   => $secure,
+          same_site => 'Lax',
+          max_age  => $ttl,
+        });
+      }
+    }
+  }
+
+  $self->redirect_to($redirect);
+}
+
 1;

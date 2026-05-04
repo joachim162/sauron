@@ -27,6 +27,61 @@ paths:
   /auth/me:
     $ref: "./paths/me.yaml"
 
+  /auth/config:
+    get:
+      security: []
+      summary: Get authentication configuration
+      tags: [ auth ]
+      description: >
+        Returns the auth mode configured for this API instance.
+        Used by the frontend to determine whether to show the password login
+        form, the OIDC SSO button, or both.
+      operationId: auth_config
+      x-mojo-name: auth_config
+      x-mojo-to: "Auth#config"
+      responses:
+        '200':
+          description: Auth configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_mode:
+                    type: string
+                    enum: [password, oidc, both]
+                    example: both
+                  sso_url:
+                    type: string
+                    example: /api/v1/auth/sso
+
+  /auth/sso:
+    get:
+      security: []
+      summary: Authenticate via SSO/OIDC
+      tags: [ auth ]
+      description: >
+        Redirects the user to the OIDC provider for authentication.
+        Apache intercepts this endpoint and performs the OIDC flow.
+        On success, a session cookie is set and the user is redirected
+        to the configured frontend URL.
+      operationId: auth_sso
+      x-mojo-name: auth_sso
+      x-mojo-to: "Auth#sso"
+      parameters:
+        - name: redirect
+          in: query
+          required: false
+          description: URL to redirect to after successful authentication
+          schema:
+            type: string
+            default: /app/
+      responses:
+        '302':
+          description: Redirect to self or to the OIDC provider
+        '200':
+          description: Authenticated, redirected to the frontend
+
   /servers:
     $ref: "./paths/servers.yaml"
 

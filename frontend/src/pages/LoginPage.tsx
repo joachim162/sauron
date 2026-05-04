@@ -11,7 +11,13 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Loader2, LogIn } from "lucide-react";
+import { api } from "@/lib/api-client";
+
+interface AuthConfig {
+  auth_mode: string;
+  sso_url: string;
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -20,12 +26,25 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [config, setConfig] = useState<AuthConfig | null>(null);
+  const [configLoading, setConfigLoading] = useState(true);
 
   useEffect(() => {
     if (isAuthenticated) {
       navigate("/", { replace: true });
     }
   }, [isAuthenticated, navigate]);
+
+  useEffect(() => {
+    setConfigLoading(true);
+    api.get<AuthConfig>("/auth/config")
+      .then((cfg) => setConfig(cfg))
+      .catch(() => setConfig({ auth_mode: "password", sso_url: "/api/v1/auth/sso" }))
+      .finally(() => setConfigLoading(false));
+  }, []);
+
+  const showPassword = config?.auth_mode === "password" || config?.auth_mode === "both";
+  const showSso = config?.auth_mode === "oidc" || config?.auth_mode === "both";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +60,24 @@ export default function LoginPage() {
     }
   };
 
+  const handleSsoLogin = () => {
+    if (config?.sso_url) {
+      window.location.href = config.sso_url;
+    }
+  };
+
+  if (configLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-sm overflow-hidden">
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm overflow-hidden">
@@ -55,42 +92,63 @@ export default function LoginPage() {
           <CardTitle className="text-2xl">Sauron</CardTitle>
           <CardDescription>DNS & DHCP Management</CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
-                {error}
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                autoComplete="email"
-                autoFocus
-                required
-              />
+        <CardContent className="space-y-4">
+          {error && (
+            <div className="rounded-md bg-destructive/15 p-3 text-sm text-destructive">
+              {error}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Sign in
+          )}
+
+          {showSso && (
+            <Button
+              onClick={handleSsoLogin}
+              className="w-full"
+              variant="default"
+            >
+              <LogIn className="mr-2 h-4 w-4" />
+              Sign in with SSO
             </Button>
-          </form>
+          )}
+
+          {showPassword && (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {showSso && (
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 border-t" />
+                  <span className="text-xs text-muted-foreground">or</span>
+                  <div className="flex-1 border-t" />
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Sign in
+              </Button>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>
