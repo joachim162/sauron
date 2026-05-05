@@ -44,7 +44,7 @@ sub startup {
     my $proxy_cfg = $config->{proxy_auth} // {};
     my $header = $proxy_cfg->{header} // 'X-Remote-User';
     my $remote_user = $c->req->headers->header($header);
-    if ($remote_user) {
+    if (defined $remote_user && length $remote_user) {
       my $result = $c->resolve_proxy_user;
       if ($result->{user_id}) {
         $c->load_user_context($result->{user_id}, 'proxy');
@@ -106,9 +106,9 @@ sub startup {
     my $remote_ip = $c->tx->remote_address;
     my $remote_user = $c->req->headers->header($header);
 
-    warn "DEBUG resolve_proxy_user: remote_ip=$remote_ip header=$remote_user\n";
+    warn "DEBUG resolve_proxy_user: remote_ip=$remote_ip header=" . ($remote_user // 'undef') . "\n";
 
-    return { error => 'Unauthorized', message => 'No proxy auth header', status => 401 } unless $remote_user;
+    return { error => 'Unauthorized', message => 'No proxy auth header', status => 401 } unless defined $remote_user && length $remote_user;
 
     my $trusted = 0;
     for my $entry (@trusted) {
