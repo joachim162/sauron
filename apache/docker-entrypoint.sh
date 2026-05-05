@@ -146,6 +146,8 @@ Listen 443
         AuthType None
         Require all granted
 
+        RequestHeader unset X-Remote-User
+
         ProxyPreserveHost On
         ProxyPass http://sauron_api:3000/api/v1/auth/login
         ProxyPassReverse http://sauron_api:3000/api/v1/auth/login
@@ -154,6 +156,8 @@ Listen 443
     <Location /api/v1/auth/logout>
         AuthType None
         Require all granted
+
+        RequestHeader unset X-Remote-User
 
         ProxyPreserveHost On
         ProxyPass http://sauron_api:3000/api/v1/auth/logout
@@ -164,6 +168,8 @@ Listen 443
         AuthType None
         Require all granted
 
+        RequestHeader unset X-Remote-User
+
         ProxyPreserveHost On
         ProxyPass http://sauron_api:3000/api/v1/auth/me
         ProxyPassReverse http://sauron_api:3000/api/v1/auth/me
@@ -172,6 +178,8 @@ Listen 443
     <Location /api/v1/auth/config>
         AuthType None
         Require all granted
+
+        RequestHeader unset X-Remote-User
 
         ProxyPreserveHost On
         ProxyPass http://sauron_api:3000/api/v1/auth/config
