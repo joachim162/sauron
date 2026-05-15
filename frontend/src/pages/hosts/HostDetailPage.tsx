@@ -354,10 +354,7 @@ export default function HostDetailPage() {
     e.preventDefault();
     setFormError(null);
     const fd = new FormData(e.currentTarget);
-    const data: Record<string, unknown> = {
-      domain: fd.get("domain") as string,
-      type: Number(fd.get("type")),
-    };
+    const data: Record<string, unknown> = {};
     // Scalar fields
     for (const key of [
       "ether", "huser", "dept", "location", "info", "email",

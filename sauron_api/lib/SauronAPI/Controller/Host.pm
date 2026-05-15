@@ -568,7 +568,7 @@ my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(
   hostname type comment ttl class grp expiration
   alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
   info location dept huser email model serial misc asset_id duid
-  iaid flags prn wks mx rp_mbox rp_txt
+  iaid flags prn wks mx rp_mbox rp_txt domain
 );
 
 sub _validate_type_fields {
