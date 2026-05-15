@@ -85,27 +85,6 @@ function toERows(raw: unknown[][]): ERow[] {
   }));
 }
 
-/**
- * Build BackEnd-compatible array from ERow[].
- * Result: [[headers], [id, val1, …, mode], …]
- * mode: -1=delete, 1=update, 2=add
- */
-function buildArray(headers: string[], rows: ERow[]): unknown[][] {
-  const out: unknown[][] = [headers];
-  for (const r of rows) {
-    if (r._deleted && r._dbId > 0) {
-      out.push([r._dbId, ...r.values, -1]);
-    } else if (r._deleted) {
-      continue; // new row deleted before save → skip
-    } else if (r._dbId === 0) {
-      out.push([0, ...r.values, 2]);
-    } else {
-      out.push([r._dbId, ...r.values, 1]);
-    }
-  }
-  return out;
-}
-
 /* ── inline editable table ────────────────────────────── */
 
 function EditableArrayCard({
@@ -406,20 +385,38 @@ export default function HostDetailPage() {
       data[key] = v ? Number(v) : 0;
     }
     // Validate TXT records: non-delete rows must have non-empty TXT value
-    const visibleTxt = txtEdit.filter(r => !r._deleted);
-    for (const row of visibleTxt) {
+    const txtRowsVisible = txtEdit.filter(r => !r._deleted);
+    for (const row of txtRowsVisible) {
       if (!row.values[0] || row.values[0].trim() === "") {
         setFormError("TXT: Empty field not allowed");
         return;
       }
     }
-    // Array fields
-    data.ip = buildArray(["IP", "reverse", "forward"], ipEdit);
-    data.txt_l = buildArray(["TXT", "Comments"], txtEdit);
-    data.mx_l = buildArray(["Priority", "MX", "Comments"], mxEdit);
-    data.ns_l = buildArray(["NS", "Comments"], nsEdit);
-    data.dhcp_l = buildArray(["DHCP", "Comments"], dhcpEdit);
-    data.srv_l = buildArray(["Priority", "Weight", "Port", "Target", "Comments"], srvEdit);
+    // Array fields — convert ERows to API object format
+    const visibleIp = ipEdit.filter(r => !r._deleted);
+    if (visibleIp.length > 0) {
+      data.ips = visibleIp.map(r => r.values[0]);
+    }
+    const visibleTxt = txtEdit.filter(r => !r._deleted);
+    if (visibleTxt.length > 0) {
+      data.txt_l = visibleTxt.map(r => ({ txt: r.values[0], comment: r.values[1] || "" }));
+    }
+    const visibleMx = mxEdit.filter(r => !r._deleted);
+    if (visibleMx.length > 0) {
+      data.mx_l = visibleMx.map(r => ({ pri: Number(r.values[0]), mx: r.values[1], comment: r.values[2] || "" }));
+    }
+    const visibleNs = nsEdit.filter(r => !r._deleted);
+    if (visibleNs.length > 0) {
+      data.ns_l = visibleNs.map(r => ({ ns: r.values[0], comment: r.values[1] || "" }));
+    }
+    const visibleDhcp = dhcpEdit.filter(r => !r._deleted);
+    if (visibleDhcp.length > 0) {
+      data.dhcp_l = visibleDhcp.map(r => ({ dhcp: r.values[0], comment: r.values[1] || "" }));
+    }
+    const visibleSrv = srvEdit.filter(r => !r._deleted);
+    if (visibleSrv.length > 0) {
+      data.srv_l = visibleSrv.map(r => ({ pri: Number(r.values[0]), weight: Number(r.values[1]), port: Number(r.values[2]), target: r.values[3], comment: r.values[4] || "" }));
+    }
     updateMutation.mutate(data as Partial<Host>);
   };
 
