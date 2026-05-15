@@ -355,14 +355,22 @@ export default function HostDetailPage() {
     setFormError(null);
     const fd = new FormData(e.currentTarget);
     const data: Record<string, unknown> = {};
-    // Scalar fields
+    // Scalar fields (string type)
     for (const key of [
       "ether", "huser", "dept", "location", "info", "email",
-      "hinfo_hw", "hinfo_sw", "duid", "iaid",
-      "asset_id", "model", "serial", "misc", "expiration",
+      "hinfo_hw", "hinfo_sw", "duid",
+      "asset_id", "model", "serial", "misc",
     ]) {
       const v = fd.get(key) as string;
-      if (v !== null && v !== undefined) data[key] = v;
+      if (v) data[key] = v;
+    }
+    // Scalar fields (integer type)
+    for (const key of ["iaid", "expiration"] as const) {
+      const v = fd.get(key) as string;
+      if (v && v.trim() !== "") {
+        const n = Number(v);
+        if (!isNaN(n) && n > 0) data[key] = n;
+      }
     }
     // TTL: empty → -1 (default), otherwise validate 600-86400
     const ttlStr = fd.get("ttl") as string;
@@ -373,13 +381,11 @@ export default function HostDetailPage() {
         return;
       }
       data.ttl = ttlNum;
-    } else {
-      data.ttl = -1; // default
     }
-    // Other numeric fields (send as numbers, empty → 0)
+    // Other numeric fields (only send if non-empty/non-zero)
     for (const key of ["router", "grp", "mx", "wks"]) {
       const v = fd.get(key) as string;
-      data[key] = v ? Number(v) : 0;
+      if (v && v.trim() !== "" && Number(v) !== 0) data[key] = Number(v);
     }
     // Validate TXT records: non-delete rows must have non-empty TXT value
     const txtRowsVisible = txtEdit.filter(r => !r._deleted);
@@ -556,12 +562,12 @@ export default function HostDetailPage() {
                       defaultValue={d.router ? String(d.router) : "0"}
                       className="h-8 text-sm" />
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="expiration" className="text-xs">Expiration date</Label>
-                    <Input id="expiration" name="expiration"
-                      defaultValue={d.expiration ? String(d.expiration) : ""}
-                      placeholder="YYYY-MM-DD or epoch" className="h-8 text-sm" />
-                  </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="expiration" className="text-xs">Expiration (Unix epoch, 0=none)</Label>
+                      <Input id="expiration" name="expiration" type="number"
+                        defaultValue={d.expiration && Number(d.expiration) > 0 ? String(d.expiration) : ""}
+                        placeholder="0" className="h-8 text-sm" />
+                    </div>
                   <Separator />
                   {TEXT_FIELDS.slice(1).map((f) => (
                     <div key={f.key} className="space-y-1">
@@ -621,7 +627,7 @@ export default function HostDetailPage() {
                     {EQUIP_FIELDS.map((f) => (
                       <div key={f.key} className="space-y-1">
                         <Label htmlFor={f.key} className="text-xs">{f.label}</Label>
-                        <Input id={f.key} name={f.key}
+                        <Input id={f.key} name={f.key} type={f.key === "iaid" ? "number" : "text"}
                           defaultValue={String((d[f.key] as string) || "")}
                           className={`h-8 text-sm ${f.mono ? "font-mono" : ""}`} />
                       </div>
