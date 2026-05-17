@@ -46,3 +46,4 @@ sauron_api/sauron_a_p_i.yml
 # openssl config for dev cert generation
 server.cnf
 # eof
+graphify-out

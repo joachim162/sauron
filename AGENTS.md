@@ -287,6 +287,7 @@ Key notes: [Architecture-Overview.md](knowledge/Architecture-Overview.md), [Apac
 ## Gitignored Secrets
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> cc0b391 (Add note fo further explaination of udpating host, update AGENTS.md)
 ```bash
 docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/net.t"
@@ -425,6 +426,13 @@ All paginated list endpoints return the same envelope so the frontend data layer
 ## Knowledge Base & Graphify
 
 Notes in `knowledge/` follow Zettelkasten format. A knowledge graph lives at `graphify-out/` with god nodes, community structure, and cross-file relationships.
+=======
+`sauron_api/sauron_a_p_i.yml`, `.env`, `*.key`, `*.crt`, `server.cnf` are gitignored — they contain credentials and must be created locally for development.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+>>>>>>> 5d27354 (Add graphify tool to opencode for knowledge graph)
 
 When the user types `/graphify`, invoke the `skill` tool with `skill: "graphify"` before doing anything else.
 
@@ -433,6 +441,7 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+<<<<<<< HEAD
 
 ## Gitignored Secrets
 
@@ -440,3 +449,5 @@ Rules:
 =======
 `sauron_api/sauron_a_p_i.yml`, `.env`, `*.key`, `*.crt`, `server.cnf` are gitignored — they contain credentials and must be created locally for development.
 >>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
+=======
+>>>>>>> 5d27354 (Add graphify tool to opencode for knowledge graph)
