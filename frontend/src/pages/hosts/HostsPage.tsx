@@ -38,17 +38,122 @@ export default function HostsPage() {
   const [typeTouched, setTypeTouched] = useState(false);
   const [deleteHostname, setDeleteHostname] = useState<string | null>(null);
 
-  const HOST_EXTRA_FIELDS: Record<number, Array<{ key: string; label: string; placeholder: string; array?: boolean }>> = {
-    1:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
-    5:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
-    6:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
-    7:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
-    9:  [
-      { key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true },
-      { key: "ether", label: "MAC Address", placeholder: "aa:bb:cc:dd:ee:ff" },
-    ],
-    101: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
-    0:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
+  const HOST_CREATE_FIELDS: Record<number, {
+    inputs: Array<{ key: string; label: string; placeholder: string }>;
+    toPayload: (fd: FormData) => Record<string, unknown>;
+  }> = {
+    1: {
+      inputs: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10" }],
+      toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [v] } : {}; },
+    },
+    2: {
+      inputs: [{ key: "ns", label: "NS Server", placeholder: "ns1.example.com" }],
+      toPayload: (fd) => { const v = fd.get("ns") as string; return v ? { ns_l: [{ ns: v, comment: "" }] } : {}; },
+    },
+    3: {
+      inputs: [
+        { key: "pri", label: "Priority", placeholder: "10" },
+        { key: "mx", label: "MX Target", placeholder: "mail.example.com" },
+      ],
+      toPayload: (fd) => {
+        const pri = fd.get("pri") as string;
+        const mx = fd.get("mx") as string;
+        return (pri && mx) ? { mx_l: [{ pri: Number(pri), mx, comment: "" }] } : {};
+      },
+    },
+    4: {
+      inputs: [{ key: "cname_txt", label: "CNAME Target", placeholder: "target.example.com." }],
+      toPayload: (fd) => { const v = fd.get("cname_txt") as string; return v ? { cname_txt: v } : {}; },
+    },
+    5: {
+      inputs: [{ key: "printer", label: "Printer Name", placeholder: "printer-name" }],
+      toPayload: (fd) => { const v = fd.get("printer") as string; return v ? { printer_l: [{ printer: v, comment: "" }] } : {}; },
+    },
+    6: {
+      inputs: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10" }],
+      toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [v] } : {}; },
+    },
+    7: {
+      inputs: [{ key: "arec", label: "AREC Target", placeholder: "192.168.1.10" }],
+      toPayload: (fd) => { const v = fd.get("arec") as string; return v ? { alias_a: [{ arec: v }] } : {}; },
+    },
+    8: {
+      inputs: [
+        { key: "pri", label: "Priority", placeholder: "0" },
+        { key: "weight", label: "Weight", placeholder: "100" },
+        { key: "port", label: "Port", placeholder: "5060" },
+        { key: "target", label: "Target", placeholder: "sip.example.com" },
+      ],
+      toPayload: (fd) => {
+        const pri = fd.get("pri") as string;
+        const weight = fd.get("weight") as string;
+        const port = fd.get("port") as string;
+        const target = fd.get("target") as string;
+        return (pri && weight && port && target)
+          ? { srv_l: [{ pri: Number(pri), weight: Number(weight), port: Number(port), target, comment: "" }] }
+          : {};
+      },
+    },
+    9: {
+      inputs: [
+        { key: "ether", label: "MAC Address", placeholder: "aa:bb:cc:dd:ee:ff" },
+        { key: "ips", label: "IP Address", placeholder: "192.168.1.10" },
+      ],
+      toPayload: (fd) => {
+        const p: Record<string, unknown> = {};
+        const e = fd.get("ether") as string; if (e) p.ether = e;
+        const i = fd.get("ips") as string; if (i) p.ips = [i];
+        return p;
+      },
+    },
+    11: {
+      inputs: [
+        { key: "algorithm", label: "Algorithm", placeholder: "1" },
+        { key: "hashtype", label: "Hash Type", placeholder: "1" },
+        { key: "fingerprint", label: "Fingerprint", placeholder: "" },
+      ],
+      toPayload: (fd) => {
+        const a = fd.get("algorithm") as string;
+        const h = fd.get("hashtype") as string;
+        const f = fd.get("fingerprint") as string;
+        return (a && h && f)
+          ? { sshfp_l: [{ algorithm: Number(a), hashtype: Number(h), fingerprint: f, comment: "" }] }
+          : {};
+      },
+    },
+    12: {
+      inputs: [
+        { key: "usage", label: "Usage", placeholder: "0" },
+        { key: "selector", label: "Selector", placeholder: "0" },
+        { key: "matching_type", label: "Matching Type", placeholder: "0" },
+        { key: "association_data", label: "Association Data", placeholder: "" },
+      ],
+      toPayload: (fd) => {
+        const u = fd.get("usage") as string;
+        const s = fd.get("selector") as string;
+        const m = fd.get("matching_type") as string;
+        const a = fd.get("association_data") as string;
+        return (u && s && m && a)
+          ? { tlsa_l: [{ usage: Number(u), selector: Number(s), matching_type: Number(m), association_data: a, comment: "" }] }
+          : {};
+      },
+    },
+    13: {
+      inputs: [{ key: "txt", label: "TXT Value", placeholder: "v=spf1 ..." }],
+      toPayload: (fd) => { const v = fd.get("txt") as string; return v ? { txt_l: [{ txt: v, comment: "" }] } : {}; },
+    },
+    101: {
+      inputs: [
+        { key: "ether", label: "MAC Address", placeholder: "aa:bb:cc:dd:ee:ff" },
+        { key: "ips", label: "IP Address", placeholder: "192.168.1.10" },
+      ],
+      toPayload: (fd) => {
+        const p: Record<string, unknown> = {};
+        const e = fd.get("ether") as string; if (e) p.ether = e;
+        const i = fd.get("ips") as string; if (i) p.ips = [i];
+        return p;
+      },
+    },
   };
 
   // List hosts in zone
@@ -226,13 +331,8 @@ export default function HostsPage() {
                   hostname: fd.get("domain") as string,
                   type,
                 };
-                const extra = HOST_EXTRA_FIELDS[type] || [];
-                for (const field of extra) {
-                  const val = fd.get(field.key) as string;
-                  if (val) {
-                    payload[field.key] = field.array ? [val] : val;
-                  }
-                }
+                const cfg = HOST_CREATE_FIELDS[type];
+                if (cfg) Object.assign(payload, cfg.toPayload(fd));
                 createMutation.mutate(payload);
               }}
               className="space-y-4"
@@ -256,7 +356,7 @@ export default function HostsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              {typeTouched && HOST_EXTRA_FIELDS[Number(selectedType)]?.map((field) => (
+              {typeTouched && HOST_CREATE_FIELDS[Number(selectedType)]?.inputs.map((field) => (
                 <div className="space-y-2" key={field.key}>
                   <Label htmlFor={field.key}>{field.label}</Label>
                   <Input id={field.key} name={field.key} placeholder={field.placeholder} />

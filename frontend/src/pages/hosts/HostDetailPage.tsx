@@ -302,9 +302,14 @@ export default function HostDetailPage() {
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<Host>) => hostsApi.update(serverName!, zoneName!, hostname!, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["host", serverName, zoneName, hostname] });
-      setEditing(false);
+    onSuccess: (result) => {
+      if (result?.domain && result.domain !== hostname) {
+        queryClient.invalidateQueries({ queryKey: ["hosts"] });
+        navigate(`/hosts/${encodeURIComponent(result.domain)}`, { replace: true });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["host", serverName, zoneName, hostname] });
+        setEditing(false);
+      }
     },
   });
 
