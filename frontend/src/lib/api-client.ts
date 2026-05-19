@@ -9,14 +9,15 @@ class ApiClient {
     body?: unknown,
     _options?: { noAuth?: boolean }
   ): Promise<T> {
+    const hasBody = body !== undefined;
     const headers: Record<string, string> = {
-      "Content-Type": "application/json",
+      ...(hasBody ? { "Content-Type": "application/json" } : {}),
     };
 
     const res = await fetch(`${API_BASE}${path}`, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: hasBody ? JSON.stringify(body) : undefined,
       credentials: "include",
     });
 
@@ -28,6 +29,10 @@ class ApiClient {
         401,
         (data as ApiError) || { error: "Unauthorized" }
       );
+    }
+
+    if (res.status === 204) {
+      return undefined as T;
     }
 
     const data = await res.json();

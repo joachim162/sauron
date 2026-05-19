@@ -35,18 +35,16 @@ services:
     working_dir: /srv/sauron
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    depends_on:
-      - sauron_api
-    expose:
-      - "80"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    image: node:20-bookworm
+    working_dir: /srv/sauron/frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/srv/sauron
+    command: >
+      sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      - VITE_API_URL=http://sauron_api:3000
 
   apache:
     build:
@@ -65,7 +63,7 @@ services:
       OIDC_CRYPTO_PASSPHRASE: "${OIDC_CRYPTO_PASSPHRASE:-changeme}"
       OIDC_REDIRECT_URI: "${OIDC_REDIRECT_URI:-https://localhost:4343/callback}"
       API_BACKEND: "http://sauron_api:3000"
-      FRONTEND_BACKEND: "http://frontend:80"
+      FRONTEND_BACKEND: "http://frontend:5173"
       SERVER_NAME: "${SERVER_NAME:-localhost}"
     env_file:
       - ".env"

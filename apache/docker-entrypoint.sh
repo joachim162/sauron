@@ -49,7 +49,7 @@ Listen 443
 </VirtualHost>
 PROXY_EOF
 
-    sed -i "s|FRONTEND_BACKEND_PLACEHOLDER|${FRONTEND_BACKEND:-http://frontend:80}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
+    sed -i "s|FRONTEND_BACKEND_PLACEHOLDER|${FRONTEND_BACKEND:-http://frontend:5173}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
 }
 
 # Generate Apache config from template with actual values
@@ -217,7 +217,7 @@ APACHE_EOF
     sed -i "s|OIDC_CLIENT_SECRET_PLACEHOLDER|${oidc_client_secret}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_CRYPTO_PASSPHRASE_PLACEHOLDER|${oidc_crypto_passphrase}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
     sed -i "s|OIDC_REDIRECT_URI_PLACEHOLDER|${oidc_redirect_uri}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
-    sed -i "s|FRONTEND_BACKEND_PLACEHOLDER|${FRONTEND_BACKEND:-http://frontend:80}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
+    sed -i "s|FRONTEND_BACKEND_PLACEHOLDER|${FRONTEND_BACKEND:-http://frontend:5173}|g" /usr/local/apache2/conf/extra/httpd-oidc.conf
 
     echo "Apache config generated successfully"
 }
