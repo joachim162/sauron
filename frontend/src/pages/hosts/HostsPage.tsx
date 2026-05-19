@@ -34,7 +34,22 @@ export default function HostsPage() {
   const queryClient = useQueryClient();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [selectedType, setSelectedType] = useState("1");
+  const [typeTouched, setTypeTouched] = useState(false);
   const [deleteHostname, setDeleteHostname] = useState<string | null>(null);
+
+  const HOST_EXTRA_FIELDS: Record<number, Array<{ key: string; label: string; placeholder: string; array?: boolean }>> = {
+    1:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
+    5:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
+    6:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
+    7:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
+    9:  [
+      { key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true },
+      { key: "ether", label: "MAC Address", placeholder: "aa:bb:cc:dd:ee:ff" },
+    ],
+    101: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
+    0:  [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10", array: true }],
+  };
 
   // List hosts in zone
   const { data: hosts, isLoading } = useQuery({
@@ -52,7 +67,7 @@ export default function HostsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: { hostname: string; type: number; ips?: string[] }) =>
+    mutationFn: (data: { hostname: string; type: number; [key: string]: unknown }) =>
       hostsApi.create(serverName!, zoneName!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
@@ -206,11 +221,19 @@ export default function HostsPage() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
-                createMutation.mutate({
+                const type = Number(fd.get("type"));
+                const payload: { hostname: string; type: number; [key: string]: unknown } = {
                   hostname: fd.get("domain") as string,
-                  type: Number(fd.get("type")),
-                  ips: (fd.get("ip") as string) ? [(fd.get("ip") as string)] : undefined,
-                });
+                  type,
+                };
+                const extra = HOST_EXTRA_FIELDS[type] || [];
+                for (const field of extra) {
+                  const val = fd.get(field.key) as string;
+                  if (val) {
+                    payload[field.key] = field.array ? [val] : val;
+                  }
+                }
+                createMutation.mutate(payload);
               }}
               className="space-y-4"
             >
@@ -220,7 +243,7 @@ export default function HostsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="type">Type</Label>
-                <Select name="type" defaultValue="1">
+                <Select name="type" defaultValue="1" onValueChange={(v) => { setSelectedType(v); setTypeTouched(true); }}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -233,10 +256,12 @@ export default function HostsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="ip">IP Address</Label>
-                <Input id="ip" name="ip" placeholder="192.168.1.10" />
-              </div>
+              {typeTouched && HOST_EXTRA_FIELDS[Number(selectedType)]?.map((field) => (
+                <div className="space-y-2" key={field.key}>
+                  <Label htmlFor={field.key}>{field.label}</Label>
+                  <Input id={field.key} name={field.key} placeholder={field.placeholder} />
+                </div>
+              ))}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                   Cancel
