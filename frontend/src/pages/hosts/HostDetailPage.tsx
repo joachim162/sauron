@@ -357,7 +357,7 @@ export default function HostDetailPage() {
     const data: Record<string, unknown> = {};
     // Scalar fields (string type)
     for (const key of [
-      "ether", "huser", "dept", "location", "info", "email",
+      "domain", "ether", "huser", "dept", "location", "info", "email",
       "hinfo_hw", "hinfo_sw", "duid",
       "asset_id", "model", "serial", "misc",
     ]) {

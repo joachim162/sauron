@@ -111,7 +111,7 @@ sub _copy_host_fields {
   my ($rec, $json) = @_;
 
   my @scalar_fields = qw(
-    ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
+    domain ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
     info location dept huser email model serial misc asset_id comment duid
     iaid flags expiration prn wks mx rp_mbox rp_txt
   );
