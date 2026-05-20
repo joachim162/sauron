@@ -1,0 +1,100 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get server details
+  tags: [ servers ]
+  description: Returns detailed information about a specific DNS/DHCP server.
+  operationId: get_server
+  x-mojo-name: get_server
+  x-mojo-to: "Server#get_server"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+  responses:
+    '200':
+      description: Server details
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Server'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update an existing server
+  tags: [ servers ]
+  description: Updates an existing server configuration.
+  operationId: update_server
+  x-mojo-name: update_server
+  x-mojo-to: "Server#update_server"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateServer'
+  responses:
+    '200':
+      description: Server updated successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Server'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a server
+  tags: [ servers ]
+  description: >
+    Deletes a server and all associated zones, hosts, and related data.
+    This operation is irreversible.
+  operationId: delete_server
+  x-mojo-name: delete_server
+  x-mojo-to: "Server#delete_server"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+  responses:
+    '204':
+      description: Server deleted successfully
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

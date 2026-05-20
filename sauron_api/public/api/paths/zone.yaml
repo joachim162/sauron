@@ -1,0 +1,101 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get zone details
+  tags: [ zones ]
+  description: Returns detailed information about a specific DNS zone.
+  operationId: get_zone
+  x-mojo-name: get_zone
+  x-mojo-to: "Zone#get_zone"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+  responses:
+    '200':
+      description: Zone details
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Zone'
+    '404':
+      description: Server or zone not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update an existing zone
+  tags: [ zones ]
+  description: Updates an existing zone configuration.
+  operationId: update_zone
+  x-mojo-name: update_zone
+  x-mojo-to: "Zone#update_zone"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateZone'
+  responses:
+    '200':
+      description: Zone updated successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Zone'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or zone not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a zone
+  tags: [ zones ]
+  description: Removes a DNS zone from a specific server.
+  operationId: delete_zone
+  x-mojo-name: delete_zone
+  x-mojo-to: "Zone#delete_zone"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+  responses:
+    '204':
+      description: Zone deleted successfully
+    '404':
+      description: Server or zone not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

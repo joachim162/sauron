@@ -1,0 +1,15 @@
+Error:
+  description: Standard error response
+  content:
+    application/json:
+      schema:
+        $ref: './schemas.yaml#/Error'
+UnauthorizedError:
+  description: Access token is missing or invalid
+ForbiddenError:
+  description: Insufficient permissions to perform this action
+  content:
+    application/json:
+      schema:
+        $ref: './schemas.yaml#/Error'
+

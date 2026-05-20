@@ -1,0 +1,30 @@
+get:
+  security: []
+  summary: Get current authenticated user
+  tags: [ auth ]
+  description: >
+    Returns information about the currently authenticated user.
+    Auth is handled before routing: proxy auth (X-Remote-User header from trusted
+    reverse proxy) or session cookie. Returns 401 if not authenticated.
+  operationId: auth_me
+  x-mojo-name: auth_me
+  x-mojo-to: "Auth#me"
+  responses:
+    '200':
+      description: Current user information
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/UserResponse'
+    '401':
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '403':
+      description: Account expired or locked
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'

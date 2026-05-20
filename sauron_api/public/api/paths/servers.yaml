@@ -1,0 +1,64 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: List all servers
+  tags: [ servers ]
+  description: Returns a list of all DNS/DHCP servers managed by Sauron.
+  operationId: list_servers
+  x-mojo-name: list_servers
+  x-mojo-to: "Server#list_servers"
+  responses:
+    '200':
+      description: A list of servers
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: '../components/schemas.yaml#/Server'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+post:
+  security:
+    - BearerAuth: []
+  summary: Create a new server
+  tags: [ servers ]
+  description: Adds a new DNS/DHCP server to the system.
+  operationId: add_server
+  x-mojo-name: add_server
+  x-mojo-to: "Server#add_server"
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/NewServer'
+  responses:
+    '201':
+      description: Server created successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Server'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: Server already exists
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

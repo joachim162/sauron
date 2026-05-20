@@ -1,0 +1,46 @@
+post:
+  security: []
+  summary: Authenticate with email and password
+  tags: [ auth ]
+  description: >
+    Authenticates a user with email and password. On successful authentication,
+    a session cookie is set. The session expires after the configured TTL.
+  operationId: auth_login
+  x-mojo-name: auth_login
+  x-mojo-to: "Auth#login"
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/LoginRequest'
+  responses:
+    '200':
+      description: Login successful
+      headers:
+        Set-Cookie:
+          schema:
+            type: string
+          description: Session cookie (HttpOnly)
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/UserResponse'
+    '400':
+      description: Invalid request (missing or malformed email/password)
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      description: Invalid credentials
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '403':
+      description: Account expired or locked
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'

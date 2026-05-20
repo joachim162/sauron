@@ -1,0 +1,28 @@
+server:
+  name: server
+  in: path
+  required: true
+  description: Unique name of the server
+  x-mojo-placeholder: '#'
+  schema:
+    type: string
+    example: middle-earth
+zone:
+  name: zone
+  in: path
+  required: true
+  description: Name of the zone
+  x-mojo-placeholder: '#'
+  schema:
+    type: string
+    example: example.com
+hostname:
+  name: hostname
+  in: path
+  required: true
+  description: Hostname within the zone
+  x-mojo-placeholder: '#'
+  schema:
+    type: string
+    example: bilbo
+

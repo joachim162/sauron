@@ -16,13 +16,20 @@ RUN apt-get update -qq && apt-get install -y \
 
 RUN cpanm Mojolicious::Plugin::SwaggerUI
 
+# Redocly CLI for OpenAPI spec validation & bundling
+RUN apt-get update -qq && apt-get install -y nodejs npm \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g @redocly/cli
+
 WORKDIR /srv/sauron
 
 COPY . .
 
 RUN ./configure \
     && make install \
-    && ln -sf DB-DBI.pm /srv/sauron/Sauron/DB.pm
+    && ln -sf DB-DBI.pm /srv/sauron/Sauron/DB.pm \
+    && mkdir -p /srv/sauron/sauron_api/public/api/dist \
+    && npx @redocly/cli bundle /srv/sauron/sauron_api/public/api/openapi.yaml -o /srv/sauron/sauron_api/public/api/dist/openapi.yaml
 
 ENV PERL5LIB=/srv/sauron
 

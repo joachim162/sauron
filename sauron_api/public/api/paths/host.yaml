@@ -1,0 +1,104 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get host by hostname
+  tags: [ hosts ]
+  description: Returns detailed information about a specific host in the specified zone.
+  operationId: get_host
+  x-mojo-name: get_host
+  x-mojo-to: "Host#get_host"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+    - $ref: '../components/parameters.yaml#/hostname'
+  responses:
+    '200':
+      description: Host details
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Host'
+    '404':
+      description: Server, zone, or host not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update an existing host
+  tags: [ hosts ]
+  description: Updates an existing host record in the specified zone.
+  operationId: update_host
+  x-mojo-name: update_host
+  x-mojo-to: "Host#update_host"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+    - $ref: '../components/parameters.yaml#/hostname'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateHost'
+  responses:
+    '200':
+      description: Host updated successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Host'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server, zone, or host not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a host
+  tags: [ hosts ]
+  description: Deletes a host record from the specified zone.
+  operationId: delete_host
+  x-mojo-name: delete_host
+  x-mojo-to: "Host#delete_host"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+    - $ref: '../components/parameters.yaml#/hostname'
+  responses:
+    '204':
+      description: Host deleted successfully
+    '404':
+      description: Server, zone, or host not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

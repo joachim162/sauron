@@ -5,10 +5,12 @@
 # from any directory
 **/*.orig
 **/*.dist
+**/*dist
 **/*.save
 **/*~
 *.tar.gz
 *.zip
+*.env
 
 # year-and-date-ending
 **/*[.-]20??-??-??
@@ -37,12 +39,10 @@ doc/tables.sgml
 # Sauron API
 sauron_api/sauron_a_p_i.yml
 
-# eof
-.env
-
 # keys
 *.key
 *.crt
 
 # openssl config for dev cert generation
 server.cnf
+# eof

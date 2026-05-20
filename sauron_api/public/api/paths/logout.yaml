@@ -1,0 +1,26 @@
+post:
+  security: []
+  summary: End the current session
+  tags: [ auth ]
+  description: >
+    Destroys the current session and clears the session cookie.
+  operationId: auth_logout
+  x-mojo-name: auth_logout
+  x-mojo-to: "Auth#logout"
+  responses:
+    '200':
+      description: Logout successful
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: Logged out
+    '401':
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'

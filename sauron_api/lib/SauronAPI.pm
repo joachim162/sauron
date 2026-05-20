@@ -171,7 +171,7 @@ sub startup {
 
   # OpenAPI Plugin Setup
   $self->plugin(OpenAPI => {
-    url => $self->home->child('public', 'api', 'openapi.yaml'),
+    url => $self->home->child('public', 'api', 'dist', 'openapi.yaml'),
     route => $self->routes->any('/api/v1'),
     schema => 'v3',
     skip_validating_specification => 1,

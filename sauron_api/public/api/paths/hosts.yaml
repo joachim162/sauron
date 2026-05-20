@@ -1,0 +1,49 @@
+post:
+  security:
+    - BearerAuth: []
+  summary: Create a new host
+  tags: [ hosts ]
+  description: Creates a new host record in the specified zone on the specified server.
+  operationId: add_host
+  x-mojo-name: add_host
+  x-mojo-to: "Host#add_host"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/NewHost'
+  responses:
+    '201':
+      description: Host created successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Host'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or zone not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: Host already exists in this zone
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
