@@ -34,7 +34,13 @@ sub _render_user_response {
       superuser   => $superuser ? JSON::PP::true : JSON::PP::false,
       alevel      => $perms{alevel} // 0,
       auth_method => $auth_method,
-    }
+    },
+    permissions => {
+      server => $perms{server} // {},
+      zone   => $perms{zone}   // {},
+      alevel => $perms{alevel} // 0,
+      rhf    => $perms{rhf}    // {},
+    },
   });
 }
 

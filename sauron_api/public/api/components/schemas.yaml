@@ -1352,6 +1352,24 @@ UserResponse:
   properties:
     user:
       $ref: '#/User'
+    permissions:
+      type: object
+      properties:
+        server:
+          type: object
+          additionalProperties:
+            type: string
+        zone:
+          type: object
+          additionalProperties:
+            type: string
+        alevel:
+          type: integer
+        rhf:
+          type: object
+          description: Required Host Fields - maps field name to 0 (required) or non-zero (optional)
+          additionalProperties:
+            type: integer
 
 Error:
   type: object
