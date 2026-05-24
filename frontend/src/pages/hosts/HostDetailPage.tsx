@@ -30,6 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, MoreHorizontal, Copy, Link, Ban, Plus } from "lucide-react";
+import { FormHint } from "@/components/FormHint";
 import {
   Dialog,
   DialogContent,
@@ -57,11 +58,24 @@ function parseDateStr(raw: unknown): { text: string; pending: boolean } {
 }
 
 /** Read-only field display */
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Field({ label, value, mono, hint }: { label: string; value: string; mono?: boolean; hint?: string }) {
   return (
     <div>
-      <div className="text-muted-foreground text-xs">{label}</div>
+      <div className="text-muted-foreground text-xs flex items-center gap-1">
+        {label}
+        {hint && <FormHint text={hint} />}
+      </div>
       <div className={`font-medium text-sm ${mono ? "font-mono" : ""}`}>{value || "—"}</div>
+    </div>
+  );
+}
+
+/** Edit-mode label with optional hint icon */
+function LabelHint({ htmlFor, label, hint }: { htmlFor: string; label: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-1">
+      <Label htmlFor={htmlFor} className="text-xs">{label}</Label>
+      {hint && <FormHint text={hint} />}
     </div>
   );
 }
@@ -454,12 +468,12 @@ export default function HostDetailPage() {
     { key: "info", label: "[Extra] Info" },
   ];
 
-  const EQUIP_FIELDS = [
+  const EQUIP_FIELDS: { key: string; label: string; mono?: boolean; hint?: string }[] = [
     { key: "hinfo_hw", label: "HINFO hardware" },
     { key: "hinfo_sw", label: "HINFO software" },
     { key: "ether", label: "MAC Address", mono: true },
-    { key: "duid", label: "DUID", mono: true },
-    { key: "iaid", label: "IAID", mono: true },
+    { key: "duid", label: "DUID", mono: true, hint: "DHCP Unique Identifier. A hex string (24–40 characters) used to assign IPv6 addresses via DHCPv6. Must be unique within the zone." },
+    { key: "iaid", label: "IAID", mono: true, hint: "Identity Association Identifier. A numeric ID (0–4294967295) paired with the DUID to identify a specific IPv6 lease. Cannot be used without a DUID." },
     { key: "asset_id", label: "Asset ID" },
     { key: "model", label: "Model" },
     { key: "serial", label: "Serial no." },
@@ -631,7 +645,7 @@ export default function HostDetailPage() {
                   <div className="grid grid-cols-2 gap-3">
                     {EQUIP_FIELDS.map((f) => (
                       <div key={f.key} className="space-y-1">
-                        <Label htmlFor={f.key} className="text-xs">{f.label}</Label>
+                        <LabelHint htmlFor={f.key} label={f.label} hint={f.hint} />
                         <Input id={f.key} name={f.key} type={f.key === "iaid" ? "number" : "text"}
                           defaultValue={String((d[f.key] as string) || "")}
                           className={`h-8 text-sm ${f.mono ? "font-mono" : ""}`} />
@@ -649,8 +663,8 @@ export default function HostDetailPage() {
                       <Field label="Card manufacturer" value={String(d.card_info || "").replace(/&nbsp;/g, "").trim() || "—"} />
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-sm mt-3">
-                      <Field label="DUID" value={String(d.duid || "—")} mono />
-                      <Field label="IAID" value={String(d.iaid || "—")} mono />
+                      <Field label="DUID" value={String(d.duid || "—")} mono hint="DHCP Unique Identifier. A hex string (24–40 characters) used to assign IPv6 addresses via DHCPv6. Must be unique within the zone." />
+                      <Field label="IAID" value={String(d.iaid || "—")} mono hint="Identity Association Identifier. A numeric ID (0–4294967295) paired with the DUID to identify a specific IPv6 lease. Cannot be used without a DUID." />
                     </div>
                     {(d.asset_id || d.model || d.serial || d.misc) && (
                       <div className="grid grid-cols-2 gap-4 text-sm mt-3">
