@@ -43,10 +43,24 @@ import { useState, useCallback } from "react";
 
 /* ── helpers ─────────────────────────────────────────── */
 
-/** Extract data rows from BackEnd arrays (skip header row at [0]). */
-function dataRows(arr: unknown): unknown[][] {
-  if (!Array.isArray(arr) || arr.length <= 1) return [];
-  return arr.slice(1) as unknown[][];
+/** Convert API object-format arrays to ERow[]. */
+function objToERows(arr: unknown, keys: string[]): ERow[] {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((item) => ({
+    _dbId: 0,
+    _deleted: false,
+    values: keys.map((k) => String((item as Record<string, unknown>)[k] ?? "")),
+  }));
+}
+
+/** Convert API ips string array to ERow[] for IpArrayCard. */
+function ipsToERows(ips: unknown): ERow[] {
+  if (!Array.isArray(ips)) return [];
+  return (ips as string[]).map((ip) => ({
+    _dbId: 0,
+    _deleted: false,
+    values: [ip, "t", "t"],
+  }));
 }
 
 /** Parse cdate_str / mdate_str — strip HTML, extract pending flag. */
@@ -87,17 +101,6 @@ type ERow = {
   _deleted: boolean;
   values: string[];    // field values (without id/mode)
 };
-
-/** Convert BackEnd array rows to ERow[]. Row format: [id, val1, val2, ..., modeFlag] */
-function toERows(raw: unknown[][]): ERow[] {
-  // slice(1, -1) strips the DB id (first) and the mode flag (last)
-  // that get_array_field always appends.
-  return raw.map((r) => ({
-    _dbId: Number(r[0]) || 0,
-    _deleted: false,
-    values: r.slice(1, -1).map((v) => String(v ?? "")),
-  }));
-}
 
 /* ── inline editable table ────────────────────────────── */
 
@@ -338,12 +341,12 @@ export default function HostDetailPage() {
   const enterEdit = useCallback(() => {
     if (!host) return;
     const d = host as Record<string, unknown>;
-    setIpEdit(toERows(dataRows(d.ip)));
-    setTxtEdit(toERows(dataRows(d.txt_l)));
-    setMxEdit(toERows(dataRows(d.mx_l)));
-    setNsEdit(toERows(dataRows(d.ns_l)));
-    setDhcpEdit(toERows(dataRows(d.dhcp_l)));
-    setSrvEdit(toERows(dataRows(d.srv_l)));
+    setIpEdit(ipsToERows(d.ips));
+    setTxtEdit(objToERows(d.txt_l, ["txt", "comment"]));
+    setMxEdit(objToERows(d.mx_l, ["pri", "mx", "comment"]));
+    setNsEdit(objToERows(d.ns_l, ["ns", "comment"]));
+    setDhcpEdit(objToERows(d.dhcp_l, ["dhcp", "comment"]));
+    setSrvEdit(objToERows(d.srv_l, ["pri", "weight", "port", "target", "comment"]));
     setEditing(true);
   }, [host]);
 
@@ -443,15 +446,15 @@ export default function HostDetailPage() {
   };
 
   // Read-only data
-  const ipRows = dataRows(d.ip);
-  const ipDisplay = ipRows.map((r) => String(r[1] || r[0])).join(", ");
-  const mxRows = dataRows(d.mx_l);
-  const nsRows = dataRows(d.ns_l);
-  const txtRows = dataRows(d.txt_l);
-  const aliasRows = dataRows(d.alias_l);
-  const dhcpRows = dataRows(d.dhcp_l);
-  const srvRows = dataRows(d.srv_l);
-  const subgroupRows = dataRows(d.subgroups);
+  const ipList = (d.ips as string[]) || [];
+  const ipDisplay = ipList.join(", ");
+  const mxRows = objToERows(d.mx_l, ["pri", "mx", "comment"]);
+  const nsRows = objToERows(d.ns_l, ["ns", "comment"]);
+  const txtRows = objToERows(d.txt_l, ["txt", "comment"]);
+  const aliasRows = objToERows(d.alias_a, ["arec"]);
+  const dhcpRows = objToERows(d.dhcp_l, ["dhcp", "comment"]);
+  const srvRows = objToERows(d.srv_l, ["pri", "weight", "port", "target", "comment"]);
+  const subgroupRows = objToERows(d.subgroups, ["grp"]);
 
   const created = parseDateStr(d.cdate_str);
   const modified = parseDateStr(d.mdate_str);
@@ -633,7 +636,7 @@ export default function HostDetailPage() {
           {/* ── Right column: IP + Equipment + Groups ──── */}
           <div className="space-y-6">
             {/* IP Addresses */}
-            <IpArrayCard rows={editing ? ipEdit : toERows(ipRows)} setRows={setIpEdit} editing={editing} />
+            <IpArrayCard rows={editing ? ipEdit : ipsToERows(ipList)} setRows={setIpEdit} editing={editing} />
 
             {/* Equipment Info */}
             <Card>
@@ -715,7 +718,7 @@ export default function HostDetailPage() {
                             : String(d.grp))
                         : "<Not selected>"
                     } />
-                    <Field label="SubGroups" value={subgroupRows.length > 0 ? subgroupRows.map((r) => String(r[1] || r[0])).join(", ") : "<None>"} />
+                    <Field label="SubGroups" value={subgroupRows.length > 0 ? subgroupRows.map((r) => r.values[0]).join(", ") : "<None>"} />
                     <Field label="MX template" value={
                       Number(d.mx) > 0
                         ? (d.mx_rec && typeof d.mx_rec === "object" && "name" in (d.mx_rec as Record<string, unknown>)
@@ -743,7 +746,7 @@ export default function HostDetailPage() {
         <EditableArrayCard
           title="TXT Records"
           columns={["TXT", "Comment"]}
-          rows={editing ? txtEdit : toERows(txtRows)}
+          rows={editing ? txtEdit : txtRows}
           setRows={setTxtEdit}
           editing={editing}
         />
@@ -753,7 +756,7 @@ export default function HostDetailPage() {
           <EditableArrayCard
             title="MX Records"
             columns={["Priority", "MX", "Comment"]}
-            rows={editing ? mxEdit : toERows(mxRows)}
+            rows={editing ? mxEdit : mxRows}
             setRows={setMxEdit}
             editing={editing}
             mono={[1]}
@@ -761,21 +764,21 @@ export default function HostDetailPage() {
           <EditableArrayCard
             title="NS Records"
             columns={["NS", "Comment"]}
-            rows={editing ? nsEdit : toERows(nsRows)}
+            rows={editing ? nsEdit : nsRows}
             setRows={setNsEdit}
             editing={editing}
           />
           <EditableArrayCard
             title="DHCP Entries"
             columns={["DHCP", "Comment"]}
-            rows={editing ? dhcpEdit : toERows(dhcpRows)}
+            rows={editing ? dhcpEdit : dhcpRows}
             setRows={setDhcpEdit}
             editing={editing}
           />
           <EditableArrayCard
             title="SRV Records"
             columns={["Priority", "Weight", "Port", "Target", "Comment"]}
-            rows={editing ? srvEdit : toERows(srvRows)}
+            rows={editing ? srvEdit : srvRows}
             setRows={setSrvEdit}
             editing={editing}
             mono={[3]}
@@ -797,8 +800,8 @@ export default function HostDetailPage() {
                 <tbody>
                   {aliasRows.map((row, i) => (
                     <tr key={i} className="border-b last:border-0">
-                      <td className="py-1 font-mono">{String(row[1] || row[0])}</td>
-                      <td className="py-1">{String(row[2]) === "t" ? "CNAME" : "AREC"}</td>
+                      <td className="py-1 font-mono">{row.values[0]}</td>
+                      <td className="py-1">AREC</td>
                     </tr>
                   ))}
                 </tbody>
