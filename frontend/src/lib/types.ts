@@ -22,6 +22,7 @@ export interface Permissions {
   server: Record<string, string>;
   zone: Record<string, string>;
   alevel: number;
+  rhf?: Record<string, number>;
 }
 
 export interface Server {

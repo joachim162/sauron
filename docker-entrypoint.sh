@@ -122,5 +122,9 @@ else
     echo "=== Database already initialized ($DB_TABLES tables), skipping setup ==="
 fi
 
+echo "=== Bundling OpenAPI spec with Redocly ==="
+mkdir -p /srv/sauron/sauron_api/public/api/dist
+npx @redocly/cli bundle /srv/sauron/sauron_api/public/api/openapi.yaml -o /srv/sauron/sauron_api/public/api/dist/openapi.yaml 2>&1
+
 echo "=== Starting Sauron API ==="
 exec "$@"

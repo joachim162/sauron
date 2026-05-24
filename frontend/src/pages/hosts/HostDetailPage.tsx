@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { hostsApi } from "@/api";
 import type { Host } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
+import { ApiRequestError } from "@/lib/api-client";
 import { useServerContext } from "@/hooks/use-server-context";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -84,11 +86,12 @@ function Field({ label, value, mono, hint }: { label: string; value: string; mon
   );
 }
 
-/** Edit-mode label with optional hint icon */
-function LabelHint({ htmlFor, label, hint }: { htmlFor: string; label: string; hint?: string }) {
+/** Edit-mode label with optional hint icon and required marker */
+function LabelHint({ htmlFor, label, hint, required }: { htmlFor: string; label: string; hint?: string; required?: boolean }) {
   return (
     <div className="flex items-center gap-1">
       <Label htmlFor={htmlFor} className="text-xs">{label}</Label>
+      {required && <span className="text-destructive font-bold">*</span>}
       {hint && <FormHint text={hint} />}
     </div>
   );
@@ -299,6 +302,9 @@ export default function HostDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { serverName, zoneName } = useServerContext();
+  const { permissions } = useAuth();
+  const rhf = permissions?.rhf ?? {};
+  const isRequired = (key: string) => rhf[key] === 0;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -340,7 +346,7 @@ export default function HostDetailPage() {
   // Enter edit mode: snapshot array data into editable state
   const enterEdit = useCallback(() => {
     if (!host) return;
-    const d = host as Record<string, unknown>;
+  const d = host as Record<string, unknown>;
     setIpEdit(ipsToERows(d.ips));
     setTxtEdit(objToERows(d.txt_l, ["txt", "comment"]));
     setMxEdit(objToERows(d.mx_l, ["pri", "mx", "comment"]));
@@ -384,7 +390,11 @@ export default function HostDetailPage() {
       "asset_id", "model", "serial", "misc",
     ]) {
       const v = fd.get(key) as string;
-      if (v) data[key] = v;
+      if (v) {
+        data[key] = v;
+      } else if (isRequired(key)) {
+        data[key] = v ?? "";
+      }
     }
     // Scalar fields (integer type)
     for (const key of ["iaid", "expiration"] as const) {
@@ -593,7 +603,7 @@ export default function HostDetailPage() {
                   <Separator />
                   {TEXT_FIELDS.slice(1).map((f) => (
                     <div key={f.key} className="space-y-1">
-                      <Label htmlFor={f.key} className="text-xs">{f.label}</Label>
+                      <LabelHint htmlFor={f.key} label={f.label} required={isRequired(f.key)} />
                       <Input id={f.key} name={f.key}
                         defaultValue={String((d[f.key] as string) || "")}
                         className={`h-8 text-sm ${f.mono ? "font-mono" : ""}`} />
@@ -648,7 +658,7 @@ export default function HostDetailPage() {
                   <div className="grid grid-cols-2 gap-3">
                     {EQUIP_FIELDS.map((f) => (
                       <div key={f.key} className="space-y-1">
-                        <LabelHint htmlFor={f.key} label={f.label} hint={f.hint} />
+                        <LabelHint htmlFor={f.key} label={f.label} hint={f.hint} required={isRequired(f.key)} />
                         <Input id={f.key} name={f.key} type={f.key === "iaid" ? "number" : "text"}
                           defaultValue={String((d[f.key] as string) || "")}
                           className={`h-8 text-sm ${f.mono ? "font-mono" : ""}`} />
@@ -866,8 +876,8 @@ export default function HostDetailPage() {
             )}
             {updateMutation.isError && (
               <p className="text-sm text-destructive mr-2">
-                {updateMutation.error instanceof Error
-                  ? updateMutation.error.message
+                {updateMutation.error instanceof ApiRequestError
+                  ? updateMutation.error.data.message || updateMutation.error.message
                   : "Failed to save."}
               </p>
             )}

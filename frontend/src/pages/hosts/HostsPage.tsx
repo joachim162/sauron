@@ -5,6 +5,7 @@ import { hostsApi } from "@/api";
 import type { Host } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { useServerContext } from "@/hooks/use-server-context";
+import { useAuth } from "@/hooks/use-auth";
 import { DataTable } from "@/components/DataTable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,9 +28,27 @@ import {
 } from "@/components/ui/select";
 import { Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { useState } from "react";
+import { ApiRequestError } from "@/lib/api-client";
+
+const RHF_LABELS: Record<string, string> = {
+  huser: "User",
+  dept: "Dept.",
+  location: "Location",
+  info: "[Extra] Info",
+  ether: "MAC Address",
+  duid: "DUID",
+  asset_id: "Asset ID",
+  model: "Model",
+  serial: "Serial no.",
+  misc: "Misc.",
+  email: "User Email",
+};
 
 export default function HostsPage() {
   const { serverName, zoneId, zoneName } = useServerContext();
+  const { permissions } = useAuth();
+  const rhf = permissions?.rhf ?? {};
+  const rhfRequired = Object.entries(rhf).filter(([, v]) => v === 0).map(([k]) => k);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -333,6 +352,10 @@ export default function HostsPage() {
                 };
                 const cfg = HOST_CREATE_FIELDS[type];
                 if (cfg) Object.assign(payload, cfg.toPayload(fd));
+                for (const key of rhfRequired) {
+                  const v = fd.get(key) as string;
+                  if (v) payload[key] = v;
+                }
                 createMutation.mutate(payload);
               }}
               className="space-y-4"
@@ -362,6 +385,15 @@ export default function HostsPage() {
                   <Input id={field.key} name={field.key} placeholder={field.placeholder} />
                 </div>
               ))}
+              {rhfRequired.map((key) => (
+                <div className="space-y-2" key={key}>
+                  <Label htmlFor={key}>
+                    {RHF_LABELS[key] || key}
+                    <span className="text-destructive font-bold ml-1">*</span>
+                  </Label>
+                  <Input id={key} name={key} />
+                </div>
+              ))}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
                   Cancel
@@ -371,6 +403,13 @@ export default function HostsPage() {
                   Create
                 </Button>
               </DialogFooter>
+              {createMutation.isError && (
+                <p className="text-sm text-destructive">
+                  {createMutation.error instanceof ApiRequestError
+                    ? createMutation.error.data.message || createMutation.error.message
+                    : "Failed to create host."}
+                </p>
+              )}
             </form>
           </DialogContent>
         </Dialog>
