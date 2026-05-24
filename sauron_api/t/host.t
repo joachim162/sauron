@@ -12,6 +12,7 @@ use SauronAPITest qw(
   create_test_server delete_test_server
   create_test_zone delete_test_zone
   grant_zone_access
+  grant_rhf
 );
 
 my $t = setup_test_app();
@@ -97,6 +98,78 @@ subtest 'POST duplicate host' => sub {
   # Cleanup
   my $dup_id = Sauron::BackEnd::get_host_id($z1, "dup-${pid}");
   Sauron::BackEnd::delete_host($dup_id) if $dup_id > 0;
+};
+
+# RHF user with `dept` required
+my $rhf_user = create_test_user(username => "hostrhf_${pid}", email => "hostrhf_${pid}\@example.com");
+push @users, $rhf_user;
+grant_zone_access($rhf_user, $z1, 'RW');
+grant_rhf($rhf_user, 'dept', 0);  # 0 = required
+sub _as_rhf {
+  $t->reset_session;
+  return { 'X-Remote-User' => "hostrhf_${pid}\@example.com" };
+}
+my $RHF = _as_rhf();
+
+subtest 'POST create host fails without required field (RHF)' => sub {
+  $t->post_ok($URL => $RHF => json => { hostname => "norhf-${pid}", type => 1 })
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request')
+    ->json_like('/message' => qr/dept/);
+};
+
+subtest 'POST create host succeeds with required field (RHF)' => sub {
+  $t->post_ok($URL => $RHF => json => { hostname => "yesrhf-${pid}", type => 1, dept => 'Engineering' })
+    ->status_is(201)
+    ->json_is('/domain' => "yesrhf-${pid}")
+    ->json_is('/dept'   => 'Engineering');
+
+  my $id = $t->tx->res->json->{id};
+  Sauron::BackEnd::delete_host($id) if $id > 0;
+};
+
+subtest 'POST create host succeeds with whitespace-only field (RHF)' => sub {
+  $t->post_ok($URL => $RHF => json => { hostname => "wsrhf-${pid}", type => 1, dept => '  ' })
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request')
+    ->json_like('/message' => qr/dept/);
+};
+
+subtest 'PUT update host rejects clearing required field (RHF)' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "updrhf-${pid}", type => 1, dept => 'Engineering'
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->put_ok("$URL/updrhf-${pid}" => $RHF => json => { dept => '' })
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request');
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'PUT update host allows omitting required field (RHF)' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "skiprhf-${pid}", type => 1, dept => 'Engineering'
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->put_ok("$URL/skiprhf-${pid}" => $RHF => json => { comment => 'not touching dept' })
+    ->status_is(200)
+    ->json_is('/comment' => 'not touching dept')
+    ->json_is('/dept'    => 'Engineering');
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'Superuser bypasses RHF' => sub {
+  $t->post_ok($URL => $SUPER => json => { hostname => "suprhf-${pid}", type => 1 })
+    ->status_is(201);
+
+  my $id = $t->tx->res->json->{id};
+  Sauron::BackEnd::delete_host($id) if $id > 0;
 };
 
 # ========================================================================

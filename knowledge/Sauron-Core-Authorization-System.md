@@ -43,7 +43,13 @@ CREATE TABLE user_rights (
 | 5 | IP mask | regex |
 | 6 | Authorization level | 0-999 |
 | 7 | Expiration limit | days |
+| 8 | Default Dept | text |
+| 9 | Template mask | regex |
+| 10 | Group mask | regex |
 | 11 | Delete mask | regex |
+| 12 | Required host field | field name |
+| 13 | Privilege flags | flag name |
+| 14 | Default host | text |
 
 ## Authorization Levels
 
@@ -135,6 +141,8 @@ then falls back to explicit zone rights.
 ```
 
 ## Related
+- [[Required-Host-Fields]] - Per-user mandatory/optional host fields
+- [[Host-Masks]] - Hostname, delete, template, and group masks
 - [[Database-API-Key-Authentication]] - API key storage proposal
 - [[Authentication-and-Authorization]] - API-level auth flow
 - [[Sauron-Core-Security-Model]] - Security overview

@@ -119,6 +119,28 @@ sub _copy_host_fields {
   }
 }
 
+sub _check_rhf {
+  my ($c, $json, $is_create) = @_;
+
+  return if $c->stash('api_superuser');
+
+  my $rhf = $c->stash('api_perms')->{rhf} || {};
+  return unless keys %$rhf;
+
+  my @missing;
+  for my $field (sort keys %$rhf) {
+    next unless $rhf->{$field} == 0;
+    my $val = $json->{$field};
+    if ($is_create) {
+      push @missing, $field unless defined $val && $val =~ /\S/;
+    } else {
+      next unless exists $json->{$field};
+      push @missing, $field unless defined $val && $val =~ /\S/;
+    }
+  }
+  return @missing ? \@missing : undef;
+}
+
 sub _strip_marker_format {
   my ($data, $api_header) = @_;
   return [] unless ref $data eq 'ARRAY' && @$data > 1;
@@ -335,6 +357,13 @@ sub add_host ($self) {
 
   _copy_host_fields(\%rec, $json);
 
+  if (my $missing = _check_rhf($self, $json, 1)) {
+    return $self->render(
+      openapi => { error => 'Bad Request', message => 'Required fields missing: ' . join(', ', @$missing) },
+      status  => 400
+    );
+  }
+
   # Translate flat API format ["1.2.3.4"] -> BackEnd ip array field
   if (exists $json->{ips}) {
     my @rows;
@@ -443,6 +472,13 @@ sub update_host ($self) {
   );
 
   _copy_host_fields(\%rec, $json);
+
+  if (my $missing = _check_rhf($self, $json, 0)) {
+    return $self->render(
+      openapi => { error => 'Bad Request', message => 'Required fields missing: ' . join(', ', @$missing) },
+      status  => 400
+    );
+  }
 
   if (exists $json->{ips}) {
     my @rows = (["IP", "reverse", "forward"]);
