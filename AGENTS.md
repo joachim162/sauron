@@ -3,6 +3,7 @@
 Guidelines for agentic coding agents working on the Sauron codebase.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 ## Git & Remotes
 
 - **`origin`** — `https://github.com/joachim162/sauron.git` (default, push here). Branches under `origin/` belong to this forked repo and are used to implement the new REST API and frontend.
@@ -12,32 +13,50 @@ Guidelines for agentic coding agents working on the Sauron codebase.
 
 =======
 >>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
+=======
+## Git & Remotes
+
+- **`origin`** — `https://github.com/joachim162/sauron.git` (default, push here)
+- **`upstream`** — `https://github.com/tjko/sauron.git` (read-only upstream, never push)
+- **Current branch:** `modernize/rest-api-and-frontend`
+- **Create issues on:** `joachim162/sauron` (`gh issue create --repo joachim162/sauron`)
+
+>>>>>>> 9431850 (Update AGENTS.md)
 ## Build & Run
 
 ```bash
 ./configure && make          # Configure and build
 make check                   # Syntax-check all Perl files
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 make docs                    # Generate HTML docs from SQL schemas
 make install                 # Install (requires root)
 >>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
+=======
+>>>>>>> 9431850 (Update AGENTS.md)
 make clean                   # Clean build artifacts
 ```
 
 **Docker (full stack):**
 ```bash
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 9431850 (Update AGENTS.md)
 docker compose up -d                   # Start postgres + API + frontend + Apache
 docker compose up -d sauron_api        # Restart API only
 docker compose restart sauron_api      # Restart API (picks up code changes from bind mount)
 docker compose logs sauron_api --tail  # View API logs
 docker compose ps                      # List running containers
+<<<<<<< HEAD
 =======
 docker-compose up -d                # Start postgres + API + Apache
 docker-compose up -d sauron_api     # Restart API only
 docker-compose build apache          # Rebuild Apache after config changes
 docker-compose logs sauron_api-1     # View API logs
+=======
+>>>>>>> 9431850 (Update AGENTS.md)
 ```
 
 **Perl syntax checks require Sauron modules on path:**
@@ -47,6 +66,7 @@ PERL5LIB=/home/jachym/Documents/sauron perl -wc Sauron/BackEnd.pm
 ```
 Mojolicious modules are not installed on the host — syntax-check API files inside Docker or skip them.
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 **Perl syntax checks** require Sauron modules on path. Mojolicious is not installed on the host — check API files inside Docker or skip:
 ```bash
@@ -68,10 +88,28 @@ cd sauron_api
 prove -l t/                    # All tests (minimal — only basic.t)
 prove -l t/basic.t             # Single test
 source sauron_api/test_api.sh  # Curl-based integration tests (requires running API + DB)
+=======
+**API tests (inside container):**
+```bash
+docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/host.t"
+```
+
+**Frontend:**
+```bash
+cd frontend && npm run build   # TypeScript check + Vite build
+```
+Vite dev server runs inside the `frontend` Docker container with HMR — source changes are picked up automatically.
+
+**OpenAPI spec bundling:**
+The API loads from `public/api/dist/openapi.yaml`, bundled from the split spec files. Regenerate after editing `paths/` or `components/` files:
+```bash
+docker compose exec sauron_api bash -c "cd /srv/sauron && npx @redocly/cli bundle sauron_api/public/api/openapi.yaml -o sauron_api/public/api/dist/openapi.yaml"
+>>>>>>> 9431850 (Update AGENTS.md)
 ```
 
 ## Architecture
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 Interactive API documentation is available at `/api` (e.g., `http://localhost:3000/api`).
 It fetches the OpenAPI spec from `/api/v1` and provides a live testing interface.
@@ -224,6 +262,9 @@ fatal("Database error: $DBI::errstr") unless ($res);
 =======
 Sauron is Perl DNS/DHCP management with a Mojolicious REST API and Apache reverse proxy for OIDC.
 >>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
+=======
+Sauron is Perl DNS/DHCP management with a Mojolicious REST API, React frontend (Vite + shadcn/ui), and Apache reverse proxy for OIDC.
+>>>>>>> 9431850 (Update AGENTS.md)
 
 ```
 Browser → Apache (HTTPS :443, mod_auth_openidc)
@@ -232,58 +273,64 @@ Browser → Apache (HTTPS :443, mod_auth_openidc)
           Sauron API (HTTP :3000, Mojolicious)
               ↓
           PostgreSQL (database)
+
+Frontend (Vite dev :5173) served via Apache proxy at /app/
 ```
 
 **Auth flows (3 methods, coexist):**
-- **BearerAuth**: Personal access tokens (`Authorization: Bearer sau_...`) — validated by OpenAPI security
-- **Session cookie**: `bff_session` from `POST /api/v1/auth/login` — validated by `before_dispatch` hook
-- **Proxy auth**: `X-Remote-User` header from trusted Apache — validated by `before_dispatch` hook
+- **BearerAuth**: Personal access tokens (`Authorization: Bearer sau_...`)
+- **Session cookie**: `bff_session` from `POST /api/v1/auth/login`
+- **Proxy auth**: `X-Remote-User` header from trusted Apache
 
 **Key entry points:**
-- `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, security handlers, `before_dispatch` hook
-- `sauron_api/lib/SauronAPI/Controller/Auth.pm` — Login/logout/me controllers
+- `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, `before_dispatch` hook
+- `sauron_api/lib/SauronAPI/Controller/` — One controller per resource (Auth, Host, Server, Zone)
 - `Sauron/BackEnd.pm` — 4500+ lines, all database operations. Always use this instead of raw SQL.
-- `sauron_api/public/api/openapi.yaml` — Source of truth for API contracts
+- `sauron_api/public/api/openapi.yaml` — Root OpenAPI spec (references `paths/` and `components/`)
+- `frontend/src/api/index.ts` — Frontend API client
+- `frontend/src/hooks/use-auth.tsx` — Auth context provider
 
 **OpenAPI spec ↔ code binding:** Routes use `x-mojo-to: "Controller#action"` to map spec operations to Perl methods. The OpenAPI plugin at `/api/v1` automatically routes based on these annotations.
 
-**`before_dispatch` hook:** Two responsibilities — (1) adjusts `url->base` from `X-Forwarded-Proto`/`Host` headers so the OpenAPI spec returns correct `https://` URLs when behind Apache; (2) resolves proxy auth and session cookie auth, populating the per-request stash with `api_user_id`, `api_perms`, and `api_auth_method`. This hook runs for every request before routing, so all controllers have user context available.
+**`before_dispatch` hook:** Adjusts `url->base` from proxy headers, then resolves auth (proxy → session → none). Populates `api_user_id`, `api_perms`, `api_auth_method` in stash — available in every controller.
 
 ## Code Style
 
-- **Indentation:** 2 spaces, no tabs
-- **Braces:** Same line: `sub foo {`
-- **Variables:** `$lowercase` scalars, `@array`, `%hash`
-- **Private functions:** Prefix with `_`
+- **Perl:** 2-space indent, same-line braces, private functions prefixed with `_`
+- **Perl imports:** `use strict; use warnings;` then Sauron modules, then external
+- **Boolean serialization:** Use `JSON::PP::true`/`JSON::PP::false` in API responses (never `\1`/`\0` — those deserialize as `{}` in JSON)
+- **Perl BackEnd booleans:** Stored as `'t'`/`'f'` strings — convert when building API responses
 - **No comments unless requested**
-- **Imports order:** `use strict; use warnings;` then Sauron modules, then external modules
-- **Boolean serialization:** Use `JSON::PP::true`/`JSON::PP::false`, never `\1`/`\0` (those become `{}`)
-- **BackEnd booleans:** Stored as `'t'`/`'f'` strings — convert when building API responses
+- **TypeScript:** shadcn/ui conventions, TanStack Query for data fetching, `lucide-react` for icons
 
-## OpenAPI/Common Pitfalls
+## OpenAPI Pitfalls
 
-- **Nullability:** Any BackEnd field that can return `undef` MUST have `nullable: true` in the schema. Without it, `type: string` rejects null with 500 errors.
-- **Array fields:** BackEnd returns marker-format arrays. Use `_strip_marker_format($data, $api_header)` with `%HEADERS` dispatch, NOT the BackEnd header row (`$data->[0]`).
-- **Auth method enum:** Use `proxy` (not `oidc`) — the OpenAPI enum is `[password, proxy, pat]`.
-- **`security: []`** on endpoints means no OpenAPI security validation — `before_dispatch` still runs and may have set `api_user_id` in the stash.
-- **OpenAPI security** only declares `BearerAuth` — proxy and session auth are handled procedurally in `before_dispatch`, not declaratively in the spec.
+- **Nullability:** Any field that can return `undef` MUST have `nullable: true`. Without it, `type: string` rejects null with 500.
+- **Array fields:** BackEnd returns marker-format arrays. Use `_strip_marker_format($data, $api_header)` with `%HEADERS` dispatch.
+- **Auth method enum:** Use `proxy` (not `oidc`) — enum is `[password, proxy, pat]`.
+- **`security: []`** means no OpenAPI validation — `before_dispatch` still runs and may have set `api_user_id`.
+- **OpenAPI security** only declares `BearerAuth` — proxy and session auth handled procedurally in `before_dispatch`.
 
-## Docker/Auth Architecture
+## Docker Gotchas
 
-**Apache config** is generated at container startup by `apache/docker-entrypoint.sh` from environment variables. Key behaviors:
-- `/api/v1/auth/login` and `/auth/logout` are public (`AuthType None`) — API handles its own auth
-- `/api/v1/*` (everything else) requires OIDC auth, which sets `X-Remote-User`
-- `RequestHeader unset X-Remote-User` before `RequestHeader set` prevents header spoofing
-- `Listen 443` must be explicit — not in default `httpd.conf`
-- `PROXY_AUTH_TRUSTED_IPS` env var overrides config file, supports CIDR notation (parsed via `Net::Netmask`)
-- Use `Net::Netmask`, not `Net::IP::ip_is_innet` (latter doesn't exist in installed version)
+- **entrypoint.sh** is copied to `/usr/local/bin/docker-entrypoint.sh` during Docker build. Edit the source at `./docker-entrypoint.sh`, then sync it into the running container:
+  ```bash
+  docker compose cp docker-entrypoint.sh sauron_api:/usr/local/bin/docker-entrypoint.sh
+  ```
+  Then restart to pick up changes.
+- **Bind mount** at `.:/srv/sauron` — code changes are live inside the container, but build artifacts from `COPY` in Dockerfile are hidden by the mount.
+- **Apache config** is generated at startup by `apache/docker-entrypoint.sh` from env vars.
+- **Test user:** `testuser@example.com` / `testuser` — has RHF requiring `dept`. Admin: `admin@example.com` / `admin`.
 
-## Knowledge Base
+## Frontend State
 
-Notes in `knowledge/` follow Zettelkasten: atomic, kebab-case filenames, bidirectional links, reference specific file paths and line numbers.
+- Host CRUD works. Other pages (Users, Groups, ACLs, Keys, Nets, VLANs, Templates) are "Coming Soon" placeholders.
+- RHF (Required Host Fields) is fully implemented: API enforces on POST/PUT, frontend shows red `*` markers, error messages display inline.
+- The frontend reads RHF from `permissions.rhf` in `/auth/me` response.
 
-Key notes: [Architecture-Overview.md](knowledge/Architecture-Overview.md), [Apache-Reverse-Proxy-OIDC-Auth.md](knowledge/Apache-Reverse-Proxy-OIDC-Auth.md), [Browser-Session-Cookie-Auth-Flow.md](knowledge/Browser-Session-Cookie-Auth-Flow.md), [BackEnd Schema Completeness](knowledge/Sauron-Core-Integration.md)
+## Knowledge Base & Graphify
 
+<<<<<<< HEAD
 ## Gitignored Secrets
 
 <<<<<<< HEAD
@@ -433,6 +480,9 @@ Notes in `knowledge/` follow Zettelkasten format. A knowledge graph lives at `gr
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 >>>>>>> 5d27354 (Add graphify tool to opencode for knowledge graph)
+=======
+Notes in `knowledge/` follow Zettelkasten format. A knowledge graph lives at `graphify-out/` with god nodes, community structure, and cross-file relationships.
+>>>>>>> 9431850 (Update AGENTS.md)
 
 When the user types `/graphify`, invoke the `skill` tool with `skill: "graphify"` before doing anything else.
 
@@ -442,12 +492,18 @@ Rules:
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 9431850 (Update AGENTS.md)
 
 ## Gitignored Secrets
 
 `sauron_api/sauron_a_p_i.yml`, `.env`, `*.key`, `*.crt`, `server.cnf` — must be created locally.
+<<<<<<< HEAD
 =======
 `sauron_api/sauron_a_p_i.yml`, `.env`, `*.key`, `*.crt`, `server.cnf` are gitignored — they contain credentials and must be created locally for development.
 >>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
 =======
 >>>>>>> 5d27354 (Add graphify tool to opencode for knowledge graph)
+=======
+>>>>>>> 9431850 (Update AGENTS.md)
