@@ -33,6 +33,10 @@ doc/tables.sgml
 # don't ignore (yourself, github, ...)
 !.gitignore 
 !.github/
+!.dockerignore
 
+
+# runtime generated
+named.root
 
 # eof
