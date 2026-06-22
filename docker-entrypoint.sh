@@ -6,32 +6,32 @@ echo "=== Sauron Docker Startup ==="
 cd /srv/sauron
 
 if [ ! -f sauron_api/sauron_a_p_i.yml ] && [ -f sauron_api/sauron_a_p_i.yml.example ]; then
-    echo "=== Creating sauron_a_p_i.yml from example ==="
-    cp sauron_api/sauron_a_p_i.yml.example sauron_api/sauron_a_p_i.yml
+  echo "=== Creating sauron_a_p_i.yml from example ==="
+  cp sauron_api/sauron_a_p_i.yml.example sauron_api/sauron_a_p_i.yml
 fi
 
 if [ ! -L Sauron/DB.pm ]; then
-    ln -sf DB-DBI.pm Sauron/DB.pm
+  ln -sf DB-DBI.pm Sauron/DB.pm
 fi
 
 if grep -q '__CONF_FILE_PATH__' Sauron/Sauron.pm 2>/dev/null; then
-    echo "=== Patching source tree for bind mount ==="
-    ./configure && make install
+  echo "=== Patching source tree for bind mount ==="
+  ./configure && make install
 fi
 
 echo "Waiting for PostgreSQL..."
 for i in {1..30}; do
-    if pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" > /dev/null 2>&1; then
-        echo "PostgreSQL is ready."
-        break
-    fi
-    echo "Waiting for PostgreSQL... ($i/30)"
-    sleep 2
+  if pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+    echo "PostgreSQL is ready."
+    break
+  fi
+  echo "Waiting for PostgreSQL... ($i/30)"
+  sleep 2
 done
 
 if [ "$i" -eq 30 ]; then
-    echo "PostgreSQL failed to start within an acceptable time."
-    exit 1
+  echo "PostgreSQL failed to start within an acceptable time."
+  exit 1
 fi
 
 CONFIG_FILE="/usr/local/etc/sauron/config"
@@ -52,30 +52,30 @@ DB_TABLES=$(psql -t -c "SELECT COUNT(*) FROM information_schema.tables WHERE tab
 DB_TABLES=$(echo "$DB_TABLES" | tr -d '[:space:]')
 
 if [ "$DB_TABLES" -eq 0 ] || [ -z "$DB_TABLES" ]; then
-    echo "=== Database is empty, initializing... ==="
+  echo "=== Database is empty, initializing... ==="
 
-    echo "=== Creating database tables ==="
-    echo y | /srv/sauron/createtables
+  echo "=== Creating database tables ==="
+  echo y | /srv/sauron/createtables
 
-    echo "=== Creating bff_sessions table ==="
-    psql -f /srv/sauron/sql/bff_sessions.sql || true
+  echo "=== Creating bff_sessions table ==="
+  psql -f /srv/sauron/sql/bff_sessions.sql || true
 
-    echo "=== Creating personal_access_tokens table ==="
-    psql -f /srv/sauron/sql/personal_access_tokens.sql || true
+  echo "=== Creating personal_access_tokens table ==="
+  psql -f /srv/sauron/sql/personal_access_tokens.sql || true
 
-    echo "=== Downloading root hints ==="
-    if [ ! -s /srv/sauron/named.root ]; then
-        wget -q -O /srv/sauron/named.root 'ftp://ftp.rs.internic.net/domain/named.root' || true
-    fi
-    if [ -s /srv/sauron/named.root ]; then
-        /srv/sauron/import-roots default /srv/sauron/named.root
-        echo "Root hints imported."
-    else
-        echo "Warning: named.root not available, skipping."
-    fi
+  echo "=== Downloading root hints ==="
+  if [ ! -s /srv/sauron/named.root ]; then
+    wget -q -O /srv/sauron/named.root 'ftp://ftp.rs.internic.net/domain/named.root' || true
+  fi
+  if [ -s /srv/sauron/named.root ]; then
+    /srv/sauron/import-roots default /srv/sauron/named.root
+    echo "Root hints imported."
+  else
+    echo "Warning: named.root not available, skipping."
+  fi
 
-    echo "=== Creating test server ==="
-    /srv/sauron/runsql - << 'EOF'
+  echo "=== Creating test server ==="
+  /srv/sauron/runsql - <<'EOF'
 INSERT INTO servers (name, hostname, hostmaster)
 VALUES ('example', 'sauron.example.com', 'hostmaster@example.com.');
 INSERT INTO nets (server, net, netname, vlan, subnet)
@@ -84,23 +84,23 @@ INSERT INTO nets (server, net, netname, vlan, subnet)
 VALUES (1, INET '2001:db8::/32', 'testnet6', 1, false);
 EOF
 
-    echo "=== Importing test zones ==="
-    if [ -f /srv/sauron/test/middle.earth.zone ]; then
-        /srv/sauron/import-zone example middle.earth /srv/sauron/test/middle.earth.zone || true
-    fi
-    if [ -f /srv/sauron/test/10.10.in-addr.arpa.zone ]; then
-        /srv/sauron/import-zone example 10.10.in-addr.arpa /srv/sauron/test/10.10.in-addr.arpa.zone || true
-    fi
+  echo "=== Importing test zones ==="
+  if [ -f /srv/sauron/test/middle.earth.zone ]; then
+    /srv/sauron/import-zone example middle.earth /srv/sauron/test/middle.earth.zone || true
+  fi
+  if [ -f /srv/sauron/test/10.10.in-addr.arpa.zone ]; then
+    /srv/sauron/import-zone example 10.10.in-addr.arpa /srv/sauron/test/10.10.in-addr.arpa.zone || true
+  fi
 
-    echo "=== Creating admin user ==="
-    ADMIN_PWD_HASH=$(perl -MDigest::MD5 -e '
+  echo "=== Creating admin user ==="
+  ADMIN_PWD_HASH=$(perl -MDigest::MD5 -e '
         my $salt = 1000000;
         my $password = "admin";
         my $ctx = Digest::MD5->new;
         $ctx->add($salt . $password . "\n");
         print "MD5:" . $salt . ":" . $ctx->hexdigest;
     ')
-    psql -c "
+  psql -c "
     INSERT INTO users (username, password, name, email, superuser, gid)
     VALUES ('admin', '${ADMIN_PWD_HASH}', 'Admin User', 'admin@example.com', true, -1)
     ON CONFLICT (username) DO UPDATE SET
@@ -110,21 +110,21 @@ EOF
         superuser = EXCLUDED.superuser;
     "
 
-    echo ""
-    echo "=== Initialization complete ==="
-    echo "Admin user created:"
-    echo "  username: admin"
-    echo "  email: admin@example.com"
-    echo "  password: admin"
-    echo ""
+  echo ""
+  echo "=== Initialization complete ==="
+  echo "Admin user created:"
+  echo "  username: admin"
+  echo "  email: admin@example.com"
+  echo "  password: admin"
+  echo ""
 
 else
-    echo "=== Database already initialized ($DB_TABLES tables), skipping setup ==="
+  echo "=== Database already initialized ($DB_TABLES tables), skipping setup ==="
 fi
 
 echo "=== Bundling OpenAPI spec with Redocly ==="
 mkdir -p /srv/sauron/sauron_api/public/api/dist
-npx @redocly/cli bundle /srv/sauron/sauron_api/public/api/openapi.yaml -o /srv/sauron/sauron_api/public/api/dist/openapi.yaml 2>&1
+redocly bundle /srv/sauron/sauron_api/public/api/openapi.yaml -o /srv/sauron/sauron_api/public/api/dist/openapi.yaml 2>&1 || echo "Warning: OpenAPI bundling failed"
 
 echo "=== Starting Sauron API ==="
 exec "$@"
