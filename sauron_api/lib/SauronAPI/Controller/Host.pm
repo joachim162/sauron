@@ -4,6 +4,11 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 use Sauron::BackEnd ();
 use Sauron::DB ();
 use SauronAPI::AuthZ qw(check_perms);
+use SauronAPI::Controller::Base qw(
+  backend_array_to_api api_array_to_backend_create api_array_to_backend_update
+  mark_existing_for_deletion
+  build_mx_record build_value_record
+);
 
 # --- Dispatch tables (array field handling) ---
 # Following the same pattern as Server.pm and Zone.pm
@@ -49,14 +54,14 @@ my %BUILDERS = (
   ns_l      => \&_build_ns_record,
   ds_l      => \&_build_ds_record,
   wks_l     => \&_build_wks_record,
-  mx_l      => \&_build_mx_record,
-  dhcp_l    => \&_build_dhcp_record,
-  dhcp_l6   => \&_build_dhcp_record,
+  mx_l      => \&build_mx_record,
+  dhcp_l    => sub { build_value_record($_[0], 'dhcp') },
+  dhcp_l6   => sub { build_value_record($_[0], 'dhcp') },
   printer_l => \&_build_printer_record,
   srv_l     => \&_build_srv_record,
   sshfp_l   => \&_build_sshfp_record,
   tlsa_l    => \&_build_tlsa_record,
-  txt_l     => \&_build_txt_record,
+  txt_l     => sub { build_value_record($_[0], 'txt') },
   alias_a   => \&_build_alias_a_record,
   subgroups => \&_build_subgroup_record,
 );
@@ -142,57 +147,6 @@ sub _check_rhf {
   return @missing ? \@missing : undef;
 }
 
-sub _strip_marker_format {
-  my ($data, $api_header) = @_;
-  return [] unless ref $data eq 'ARRAY' && @$data > 1;
-
-  my $ncols = @$api_header;
-  my @result;
-
-  for my $i (1 .. $#$data) {
-    my @row = @{$data->[$i]};
-    shift @row;
-    $#row = $ncols - 1;
-
-    my %obj;
-    for my $j (0 .. $ncols - 1) {
-      $obj{$api_header->[$j]} = $row[$j] if $j < @row;
-    }
-    push @result, \%obj;
-  }
-
-  return \@result;
-}
-
-sub _mark_existing_for_deletion {
-  my ($rows, $existing_data, $count) = @_;
-  return unless ref $existing_data eq 'ARRAY';
-
-  for my $i (1 .. $#{$existing_data}) {
-    my $id = $existing_data->[$i][0];
-    next unless $id && $id > 0;
-    my @del = ($id, ('') x ($count - 1), -1);
-    push @$rows, \@del;
-  }
-}
-
-sub _build_array_field {
-  my ($api_data, $field_name) = @_;
-
-  return undef unless defined $api_data && ref $api_data eq 'ARRAY';
-  return undef unless exists $BACKEND_HEADERS{$field_name};
-
-  my @rows;
-  push @rows, $BACKEND_HEADERS{$field_name};
-
-  my $builder = $BUILDERS{$field_name};
-  for my $item (@$api_data) {
-    push @rows, $builder->($item);
-  }
-
-  return \@rows;
-}
-
 sub _build_host_response {
   my ($host_id, $host_data, $zone_id) = @_;
 
@@ -276,10 +230,10 @@ sub _build_host_response {
   $response->{mx_rec} = $host_data->{mx_rec} if exists $host_data->{mx_rec};
   $response->{grp_rec} = $host_data->{grp_rec} if exists $host_data->{grp_rec};
 
-  # Copy array fields using _strip_marker_format (matches Server/Zone pattern)
+  # Copy array fields
   for my $field (@ARRAY_FIELDS) {
     if (ref $host_data->{$field} eq 'ARRAY' && @{$host_data->{$field}} > 1) {
-      $response->{$field} = _strip_marker_format($host_data->{$field}, $HEADERS{$field});
+      $response->{$field} = backend_array_to_api($host_data->{$field}, $field, \%HEADERS);
     }
   }
 
@@ -399,12 +353,12 @@ sub add_host ($self) {
     $rec{ip} = \@rows;
   }
 
-  # Build array fields from API input — strip headers for add_array_field (BackEnd::add_host)
+  # Build array fields from API input
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
-    my $data = _build_array_field($json->{$field}, $field);
+    my $data = api_array_to_backend_create($json->{$field}, $field, \%BACKEND_HEADERS, \%BUILDERS, 0);
     next unless ref $data eq 'ARRAY';
-    $rec{$field} = [@{$data}[1 .. $#{$data}]];
+    $rec{$field} = $data;
   }
 
   my $host_id = Sauron::BackEnd::add_host(\%rec);
@@ -508,7 +462,7 @@ sub update_host ($self) {
 
   if (exists $json->{ips}) {
     my @rows = (["IP", "reverse", "forward"]);
-    _mark_existing_for_deletion(\@rows, $host_data{ip}, $UPDATE_COUNT{ip});
+    mark_existing_for_deletion(\@rows, $host_data{ip}, $UPDATE_COUNT{ip});
     for my $ip (@{$json->{ips} // []}) {
       push @rows, [0, $ip, 't', 't', 2];
     }
@@ -518,13 +472,11 @@ sub update_host ($self) {
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
 
-    my $new = _build_array_field($json->{$field}, $field);
-    next unless ref $new eq 'ARRAY';
-
-    my @rows = ($new->[0]);
-    _mark_existing_for_deletion(\@rows, $host_data{$field}, $UPDATE_COUNT{$field});
-    push @rows, @{$new}[1 .. $#{$new}];
-    $rec{$field} = \@rows;
+    my $data = api_array_to_backend_update(
+      $json->{$field}, $host_data{$field}, $field,
+      \%BACKEND_HEADERS, \%BUILDERS, \%UPDATE_COUNT
+    );
+    $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 
   my $res = Sauron::BackEnd::update_host(\%rec);
@@ -599,16 +551,6 @@ sub _build_wks_record {
   return [0, $obj->{proto}, $obj->{services}, $obj->{comment} // '', 2];
 }
 
-sub _build_mx_record {
-  my ($obj) = @_;
-  return [0, $obj->{pri}, $obj->{mx}, $obj->{comment} // '', 2];
-}
-
-sub _build_dhcp_record {
-  my ($obj) = @_;
-  return [0, $obj->{dhcp}, $obj->{comment} // '', 2];
-}
-
 sub _build_printer_record {
   my ($obj) = @_;
   return [0, $obj->{printer}, $obj->{comment} // '', 2];
@@ -627,11 +569,6 @@ sub _build_sshfp_record {
 sub _build_tlsa_record {
   my ($obj) = @_;
   return [0, $obj->{usage}, $obj->{selector}, $obj->{matching_type}, $obj->{association_data}, $obj->{comment} // '', 2];
-}
-
-sub _build_txt_record {
-  my ($obj) = @_;
-  return [0, $obj->{txt}, $obj->{comment} // '', 2];
 }
 
 sub _build_alias_a_record {

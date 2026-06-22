@@ -1,12 +1,13 @@
 package SauronAPI::Controller::Server;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
-use Data::Dumper;
 
 use Sauron::BackEnd ();
 use SauronAPI::AuthZ qw(check_perms filter_servers);
+use SauronAPI::Controller::Base qw(
+  backend_array_to_api api_array_to_backend_create api_array_to_backend_update
+  build_aml_record build_value_record build_forwarder_record
+);
 use JSON::PP ();
-
-# TODO: Test all endpoints
 
 # All scalar fields from get_record("servers", ...) that map to ServerFields schema.
 my @SCALAR_FIELDS = qw(
@@ -55,7 +56,7 @@ my %BACKEND_HEADERS = (
   dhcp6             => ['DHCP6', 'Comments'],
 );
 
-# API output column names — used by _strip_marker_format for response mapping.
+# API output column names — used by backend_array_to_api for response mapping.
 my %HEADERS = (
   # AML fields — columns from cidr_entries: mode, ip, acl, tkey, op, comment
   allow_transfer    => [qw(mode ip acl tkey op comment)],
@@ -80,23 +81,23 @@ my %HEADERS = (
 );
 
 my %BUILDERS = (
-  allow_transfer    => \&_build_aml_record,
-  allow_query       => \&_build_aml_record,
-  allow_recursion   => \&_build_aml_record,
-  blackhole         => \&_build_aml_record,
-  listen_on         => \&_build_aml_record,
-  listen_on_v6      => \&_build_aml_record,
-  allow_query_cache => \&_build_aml_record,
-  allow_notify      => \&_build_aml_record,
-  forwarders        => \&_build_forwarder_record,
-  dhcp_l            => \&_build_simple_record,
-  dhcp              => \&_build_simple_record,
-  txt               => \&_build_simple_record,
-  logging           => \&_build_simple_record,
-  custom_opts       => \&_build_simple_record,
-  bind_globals      => \&_build_simple_record,
-  dhcp6_l           => \&_build_simple_record,
-  dhcp6             => \&_build_simple_record,
+  allow_transfer    => \&build_aml_record,
+  allow_query       => \&build_aml_record,
+  allow_recursion   => \&build_aml_record,
+  blackhole         => \&build_aml_record,
+  listen_on         => \&build_aml_record,
+  listen_on_v6      => \&build_aml_record,
+  allow_query_cache => \&build_aml_record,
+  allow_notify      => \&build_aml_record,
+  forwarders        => sub { build_forwarder_record($_[0], 0) },
+  dhcp_l            => sub { build_value_record($_[0], 'dhcp') },
+  dhcp              => sub { build_value_record($_[0], 'dhcp') },
+  txt               => sub { build_value_record($_[0], 'txt') },
+  logging           => sub { build_value_record($_[0], 'txt') },
+  custom_opts       => sub { build_value_record($_[0], 'txt') },
+  bind_globals      => sub { build_value_record($_[0], 'txt') },
+  dhcp6_l           => sub { build_value_record($_[0], 'dhcp') },
+  dhcp6             => sub { build_value_record($_[0], 'dhcp') },
 );
 
 # Marker column position for update_array_field in BackEnd.
@@ -163,55 +164,6 @@ sub _copy_scalar_fields {
   }
 }
 
-# Build deletion entries for existing records in BackEnd array field format.
-# update_array_field only reads [0] (record id) and [$count] (marker=-1),
-# so padding between them can be empty strings.
-sub _mark_existing_for_deletion {
-  my ($rows, $existing_data, $count) = @_;
-  return unless ref $existing_data eq 'ARRAY';
-
-  for my $i (1 .. $#{$existing_data}) {
-    my $id = $existing_data->[$i][0];
-    next unless $id && $id > 0;
-    my @del = ($id, ('') x ($count - 1), -1);
-    push @$rows, \@del;
-  }
-}
-
-sub _build_aml_record {
-  my ($obj) = @_;
-  return [0, $obj->{mode} // 0, $obj->{ip} // '', $obj->{acl} // 0,
-            $obj->{tkey} // 0, $obj->{op} // 0, $obj->{comment} // '', 2];
-}
-
-sub _build_forwarder_record {
-  my ($obj) = @_;
-  return [0, $obj->{ip}, $obj->{comment} // '', 2];
-}
-
-sub _build_simple_record {
-  my ($obj) = @_;
-  my $val = $obj->{dhcp} // $obj->{txt} // '';
-  return [0, $val, $obj->{comment} // '', 2];
-}
-
-sub _build_array_field {
-  my ($api_data, $field_name) = @_;
-
-  return undef unless defined $api_data && ref $api_data eq 'ARRAY';
-  return undef unless exists $BACKEND_HEADERS{$field_name};
-
-  my @rows;
-  push @rows, $BACKEND_HEADERS{$field_name};
-
-  my $builder = $BUILDERS{$field_name};
-  for my $item (@$api_data) {
-    push @rows, $builder->($item);
-  }
-
-  return \@rows;
-}
-
 # Map BackEnd server data hash to OpenAPI Server schema.
 sub _build_server_response {
   my ($server_id, $server_data) = @_;
@@ -240,38 +192,11 @@ sub _build_server_response {
   # Copy array fields — use %HEADERS for clean API column names
   for my $field (@ARRAY_FIELDS) {
     if (ref $server_data->{$field} eq 'ARRAY' && @{$server_data->{$field}} > 1) {
-      $response->{$field} = _strip_marker_format($server_data->{$field}, $HEADERS{$field});
+      $response->{$field} = backend_array_to_api($server_data->{$field}, $field, \%HEADERS);
     }
   }
 
-  print Dumper($response);
   return $response;
-}
-
-# Strip BackEnd marker format from array fields to clean API objects.
-# $api_header: clean column names from %HEADERS (not the BackEnd header row).
-# Data rows: [id, col1, col2, ..., marker] — id at [0], marker at end.
-# AML rows also have extra join columns after the marker (ignored).
-sub _strip_marker_format {
-  my ($data, $api_header) = @_;
-  return [] unless ref $data eq 'ARRAY' && @$data > 1;
-
-  my $ncols = @$api_header;
-  my @result;
-
-  for my $i (1 .. $#$data) {
-    my @row = @{$data->[$i]};
-    shift @row;  # remove id at index 0
-    $#row = $ncols - 1;  # keep only $ncols data elements (discard marker + join cols)
-
-    my %obj;
-    for my $j (0 .. $ncols - 1) {
-      $obj{$api_header->[$j]} = $row[$j] if $j < @row;
-    }
-    push @result, \%obj;
-  }
-
-  return \@result;
 }
 
 # --- CRUD subroutines ---
@@ -325,7 +250,6 @@ sub get_server ($self) {
     );
   }
 
-  print Dumper(\%server_data);
   $self->render(openapi => _build_server_response($server_id, \%server_data));
 }
 
@@ -359,9 +283,12 @@ sub add_server ($self) {
   _copy_scalar_fields(\%rec, $json);
 
   # Copy array fields
+  # AML fields in the create path go through update_array_field and need the
+  # header row; other fields go through add_array_field and need data rows only.
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
-    my $data = _build_array_field($json->{$field}, $field);
+    my $keep_header = ($BACKEND_HEADERS{$field}[0] eq 'aml');
+    my $data = api_array_to_backend_create($json->{$field}, $field, \%BACKEND_HEADERS, \%BUILDERS, $keep_header);
     $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 
@@ -410,13 +337,11 @@ sub update_server ($self) {
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
 
-    my $new = _build_array_field($json->{$field}, $field);
-    next unless ref $new eq 'ARRAY';
-
-    my @rows = ($new->[0]);
-    _mark_existing_for_deletion(\@rows, $server_data{$field}, $UPDATE_COUNT{$field});
-    push @rows, @{$new}[1 .. $#{$new}];
-    $rec{$field} = \@rows;
+    my $data = api_array_to_backend_update(
+      $json->{$field}, $server_data{$field}, $field,
+      \%BACKEND_HEADERS, \%BUILDERS, \%UPDATE_COUNT
+    );
+    $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 
   my $res = Sauron::BackEnd::update_server(\%rec);

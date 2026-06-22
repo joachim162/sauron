@@ -3,6 +3,10 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
 use SauronAPI::AuthZ qw(check_perms filter_zones);
+use SauronAPI::Controller::Base qw(
+  backend_array_to_api api_array_to_backend_update
+  build_aml_record build_mx_record build_value_record build_forwarder_record
+);
 use JSON::PP ();
 
 # --- Dispatch tables (array field handling) ---
@@ -49,18 +53,18 @@ my %HEADERS = (
 );
 
 my %BUILDERS = (
-  allow_update      => \&_build_aml_record,
-  allow_query       => \&_build_aml_record,
-  allow_transfer    => \&_build_aml_record,
-  masters           => \&_build_simple_record,
-  also_notify       => \&_build_simple_record,
-  forwarders        => \&_build_forwarder_record,
-  dhcp              => \&_build_simple_record,
-  ns                => \&_build_simple_record,
-  mx                => \&_build_mx_record,
-  txt               => \&_build_simple_record,
-  zentries_ta       => \&_build_simple_record,
-  zentries          => \&_build_simple_record,
+  allow_update      => \&build_aml_record,
+  allow_query       => \&build_aml_record,
+  allow_transfer    => \&build_aml_record,
+  masters           => sub { build_value_record($_[0], 'ip') },
+  also_notify       => sub { build_value_record($_[0], 'ip') },
+  forwarders        => sub { build_forwarder_record($_[0], 1) },
+  dhcp              => sub { build_value_record($_[0], 'dhcp') },
+  ns                => sub { build_value_record($_[0], 'ns') },
+  mx                => \&build_mx_record,
+  txt               => sub { build_value_record($_[0], 'txt') },
+  zentries_ta       => sub { build_value_record($_[0], 'txt') },
+  zentries          => sub { build_value_record($_[0], 'txt') },
 );
 
 my %UPDATE_COUNT = (
@@ -95,86 +99,6 @@ sub _resolve_server {
   }
 
   return $server_id;
-}
-
-# Strip BackEnd marker format from array fields to clean API objects.
-# $api_header: clean column names from %HEADERS (not the BackEnd header row).
-# Data rows: [id, col1, col2, ..., marker] — id at [0], marker at end.
-# AML rows also have extra join columns after the marker (ignored).
-sub _strip_marker_format {
-  my ($data, $api_header) = @_;
-  return [] unless ref $data eq 'ARRAY' && @$data > 1;
-
-  my $ncols = @$api_header;
-  my @result;
-
-  for my $i (1 .. $#$data) {
-    my @row = @{$data->[$i]};
-    shift @row;  # remove id at index 0
-    $#row = $ncols - 1;  # keep only $ncols data elements (discard marker + join cols)
-
-    my %obj;
-    for my $j (0 .. $ncols - 1) {
-      $obj{$api_header->[$j]} = $row[$j] if $j < @row;
-    }
-    push @result, \%obj;
-  }
-
-  return \@result;
-}
-
-# Mark existing array field rows for deletion (unified for all field types).
-# update_array_field only reads [0] (record id) and [$count] (marker=-1),
-# so padding between them can be empty strings.
-sub _mark_existing_for_deletion {
-  my ($rows, $existing_data, $count) = @_;
-  return unless ref $existing_data eq 'ARRAY';
-
-  for my $i (1 .. $#{$existing_data}) {
-    my $id = $existing_data->[$i][0];
-    next unless $id && $id > 0;
-    my @del = ($id, ('') x ($count - 1), -1);
-    push @$rows, \@del;
-  }
-}
-
-sub _build_aml_record {
-  my ($obj) = @_;
-  return [0, $obj->{mode} // 0, $obj->{ip} // '', $obj->{acl} // 0,
-            $obj->{tkey} // 0, $obj->{op} // 0, $obj->{comment} // '', 2];
-}
-
-sub _build_forwarder_record {
-  my ($obj) = @_;
-  return [0, $obj->{ip}, $obj->{port} // '', $obj->{comment} // '', 2];
-}
-
-sub _build_simple_record {
-  my ($obj) = @_;
-  my $val = $obj->{ns} // $obj->{ip} // $obj->{dhcp} // $obj->{txt} // $obj->{mx} // '';
-  return [0, $val, $obj->{comment} // '', 2];
-}
-
-sub _build_mx_record {
-  my ($obj) = @_;
-  return [0, $obj->{pri} // 0, $obj->{mx} // '', $obj->{comment} // '', 2];
-}
-
-sub _build_array_field {
-  my ($api_data, $field_name) = @_;
-
-  return undef unless defined $api_data && ref $api_data eq 'ARRAY';
-  return undef unless exists $BACKEND_HEADERS{$field_name};
-
-  my @rows;
-  push @rows, $BACKEND_HEADERS{$field_name};
-
-  my $builder = $BUILDERS{$field_name};
-  for my $item (@$api_data) {
-    push @rows, $builder->($item);
-  }
-
-  return \@rows;
 }
 
 # Copy scalar fields from JSON to %rec for creation/update.
@@ -239,10 +163,10 @@ sub _build_zone_response {
   $response->{type} = $zone_data->{type} if exists $zone_data->{type};
   $response->{class} = $zone_data->{class} if exists $zone_data->{class};
 
-  # Copy array fields using _strip_marker_format
+  # Copy array fields
   for my $field (@ARRAY_FIELDS) {
     if (ref $zone_data->{$field} eq 'ARRAY' && @{$zone_data->{$field}} > 1) {
-      $response->{$field} = _strip_marker_format($zone_data->{$field}, $HEADERS{$field});
+      $response->{$field} = backend_array_to_api($zone_data->{$field}, $field, \%HEADERS);
     }
   }
 
@@ -431,13 +355,11 @@ sub update_zone ($self) {
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
 
-    my $new = _build_array_field($json->{$field}, $field);
-    next unless ref $new eq 'ARRAY';
-
-    my @rows = ($new->[0]);
-    _mark_existing_for_deletion(\@rows, $existing_zone{$field}, $UPDATE_COUNT{$field});
-    push @rows, @{$new}[1 .. $#{$new}];
-    $rec{$field} = \@rows;
+    my $data = api_array_to_backend_update(
+      $json->{$field}, $existing_zone{$field}, $field,
+      \%BACKEND_HEADERS, \%BUILDERS, \%UPDATE_COUNT
+    );
+    $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 
   my $res = Sauron::BackEnd::update_zone(\%rec);
