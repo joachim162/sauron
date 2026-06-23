@@ -1,5 +1,9 @@
 # Update Host: BackEnd Marker Format
 
+**Note:** This file covers the Host update path only. For a general
+overview covering all three resources (Server, Zone, Host) across
+create/read/update operations, see [[BackEnd-Array-Field-Wire-Format]].
+
 This document explains how the Host API's `update_host` controller works,
 focusing on the data structure expected by `Sauron::BackEnd::update_host`.
 
