@@ -4,83 +4,81 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 use Sauron::BackEnd ();
 use Sauron::DB ();
 use SauronAPI::AuthZ qw(check_perms);
-use SauronAPI::Controller::Base qw(
-  backend_array_to_api api_array_to_backend_create api_array_to_backend_update
-  mark_existing_for_deletion
-  build_mx_record build_value_record
-);
+use SauronAPI::Codecs qw(mx value);
+use SauronAPI::FieldCodec;
 
-# --- Dispatch tables (array field handling) ---
 # Following the same pattern as Server.pm and Zone.pm
 
 my @ARRAY_FIELDS = qw(
-  ns_l ds_l wks_l mx_l dhcp_l dhcp_l6 printer_l srv_l sshfp_l tlsa_l txt_l
+  ip ns_l ds_l wks_l mx_l dhcp_l dhcp_l6 printer_l srv_l sshfp_l tlsa_l txt_l
   alias_a subgroups
 );
 
-my %BACKEND_HEADERS = (
-  ns_l      => ['NS', 'Comments'],
-  ds_l      => ['Key tag', 'Algorithm', 'Digest type', 'Digest', 'Comments'],
-  wks_l     => ['Proto', 'Services', 'Comments'],
-  mx_l      => ['Priority', 'MX', 'Comments'],
-  dhcp_l    => ['DHCP', 'Comments'],
-  dhcp_l6   => ['DHCP', 'Comments'],
-  printer_l => ['PRINTER', 'Comments'],
-  srv_l     => ['Priority', 'Weight', 'Port', 'Target', 'Comments'],
-  sshfp_l   => ['Algorithm', 'Type', 'Fingerprint', 'Comments'],
-  tlsa_l    => ['Usage', 'Selector', 'Matching Type', 'Asociation Data', 'Comments'],
-  txt_l     => ['Text', 'Comments'],
-  alias_a   => ['Domain'],
-  subgroups => ['SubGroup'],
-);
-
-my %HEADERS = (
-  ns_l      => [qw(ns comment)],
-  ds_l      => [qw(key_tag algorithm digest_type digest comment)],
-  wks_l     => [qw(proto services comment)],
-  mx_l      => [qw(pri mx comment)],
-  dhcp_l    => [qw(dhcp comment)],
-  dhcp_l6   => [qw(dhcp comment)],
-  printer_l => [qw(printer comment)],
-  srv_l     => [qw(pri weight port target comment)],
-  sshfp_l   => [qw(algorithm hashtype fingerprint comment)],
-  tlsa_l    => [qw(usage selector matching_type association_data comment)],
-  txt_l     => [qw(txt comment)],
-  alias_a   => [qw(arec)],
-  subgroups => [qw(grp)],
-);
-
-my %BUILDERS = (
-  ns_l      => \&_build_ns_record,
-  ds_l      => \&_build_ds_record,
-  wks_l     => \&_build_wks_record,
-  mx_l      => \&build_mx_record,
-  dhcp_l    => sub { build_value_record($_[0], 'dhcp') },
-  dhcp_l6   => sub { build_value_record($_[0], 'dhcp') },
-  printer_l => \&_build_printer_record,
-  srv_l     => \&_build_srv_record,
-  sshfp_l   => \&_build_sshfp_record,
-  tlsa_l    => \&_build_tlsa_record,
-  txt_l     => sub { build_value_record($_[0], 'txt') },
-  alias_a   => \&_build_alias_a_record,
-  subgroups => \&_build_subgroup_record,
-);
-
-my %UPDATE_COUNT = (
-  ip        => 4,
-  ns_l      => 3,
-  ds_l      => 6,
-  wks_l     => 4,
-  mx_l      => 4,
-  dhcp_l    => 3,
-  dhcp_l6   => 3,
-  printer_l => 3,
-  srv_l     => 6,
-  sshfp_l   => 5,
-  tlsa_l    => 6,
-  txt_l     => 3,
-  alias_a   => 2,
-  subgroups => 2,
+my %FIELDS = (
+  ip        => SauronAPI::FieldCodec->new(
+    backend_header => ['IP', 'reverse', 'forward'],
+    api_columns    => [qw(ip reverse forward)],
+    build_row      => sub { [0, $_[0], 't', 't', 2] },
+    marker_count   => 4,
+  ),
+  ns_l      => SauronAPI::FieldCodec->new(
+    backend_header => ['NS', 'Comments'],
+    api_columns    => [qw(ns comment)],
+    build_row      => \&_build_ns_record,
+    marker_count   => 3,
+  ),
+  ds_l      => SauronAPI::FieldCodec->new(
+    backend_header => ['Key tag', 'Algorithm', 'Digest type', 'Digest', 'Comments'],
+    api_columns    => [qw(key_tag algorithm digest_type digest comment)],
+    build_row      => \&_build_ds_record,
+    marker_count   => 6,
+  ),
+  wks_l     => SauronAPI::FieldCodec->new(
+    backend_header => ['Proto', 'Services', 'Comments'],
+    api_columns    => [qw(proto services comment)],
+    build_row      => \&_build_wks_record,
+    marker_count   => 4,
+  ),
+  mx_l      => mx(),
+  dhcp_l    => value(key => 'dhcp', label => 'DHCP'),
+  dhcp_l6   => value(key => 'dhcp', label => 'DHCP'),
+  printer_l => SauronAPI::FieldCodec->new(
+    backend_header => ['PRINTER', 'Comments'],
+    api_columns    => [qw(printer comment)],
+    build_row      => \&_build_printer_record,
+    marker_count   => 3,
+  ),
+  srv_l     => SauronAPI::FieldCodec->new(
+    backend_header => ['Priority', 'Weight', 'Port', 'Target', 'Comments'],
+    api_columns    => [qw(pri weight port target comment)],
+    build_row      => \&_build_srv_record,
+    marker_count   => 6,
+  ),
+  sshfp_l   => SauronAPI::FieldCodec->new(
+    backend_header => ['Algorithm', 'Type', 'Fingerprint', 'Comments'],
+    api_columns    => [qw(algorithm hashtype fingerprint comment)],
+    build_row      => \&_build_sshfp_record,
+    marker_count   => 5,
+  ),
+  tlsa_l    => SauronAPI::FieldCodec->new(
+    backend_header => ['Usage', 'Selector', 'Matching Type', 'Asociation Data', 'Comments'],
+    api_columns    => [qw(usage selector matching_type association_data comment)],
+    build_row      => \&_build_tlsa_record,
+    marker_count   => 6,
+  ),
+  txt_l     => value(key => 'txt', label => 'Text'),
+  alias_a   => SauronAPI::FieldCodec->new(
+    backend_header => ['Domain'],
+    api_columns    => [qw(arec)],
+    build_row      => \&_build_alias_a_record,
+    marker_count   => 2,
+  ),
+  subgroups => SauronAPI::FieldCodec->new(
+    backend_header => ['SubGroup'],
+    api_columns    => [qw(grp)],
+    build_row      => \&_build_subgroup_record,
+    marker_count   => 2,
+  ),
 );
 
 # --- Helper functions ---
@@ -232,8 +230,9 @@ sub _build_host_response {
 
   # Copy array fields
   for my $field (@ARRAY_FIELDS) {
+    next if $field eq 'ip';  # ip is decoded into flat ips array above
     if (ref $host_data->{$field} eq 'ARRAY' && @{$host_data->{$field}} > 1) {
-      $response->{$field} = backend_array_to_api($host_data->{$field}, $field, \%HEADERS);
+      $response->{$field} = $FIELDS{$field}->decode($host_data->{$field});
     }
   }
 
@@ -346,17 +345,15 @@ sub add_host ($self) {
 
   # Translate flat API format ["1.2.3.4"] -> BackEnd ip array field
   if (exists $json->{ips}) {
-    my @rows;
-    for my $ip (@{$json->{ips} // []}) {
-      push @rows, [0, $ip, 't', 't', 2];
-    }
-    $rec{ip} = \@rows;
+    my $data = $FIELDS{ip}->encode_create($json->{ips});
+    $rec{ip} = $data if ref $data eq 'ARRAY';
   }
 
   # Build array fields from API input
   for my $field (@ARRAY_FIELDS) {
+    next if $field eq 'ip';
     next unless exists $json->{$field};
-    my $data = api_array_to_backend_create($json->{$field}, $field, \%BACKEND_HEADERS, \%BUILDERS, 0);
+    my $data = $FIELDS{$field}->encode_create($json->{$field});
     next unless ref $data eq 'ARRAY';
     $rec{$field} = $data;
   }
@@ -461,21 +458,15 @@ sub update_host ($self) {
   }
 
   if (exists $json->{ips}) {
-    my @rows = (["IP", "reverse", "forward"]);
-    mark_existing_for_deletion(\@rows, $host_data{ip}, $UPDATE_COUNT{ip});
-    for my $ip (@{$json->{ips} // []}) {
-      push @rows, [0, $ip, 't', 't', 2];
-    }
-    $rec{ip} = \@rows;
+    my $data = $FIELDS{ip}->encode_update($json->{ips}, $host_data{ip});
+    $rec{ip} = $data if ref $data eq 'ARRAY';
   }
 
   for my $field (@ARRAY_FIELDS) {
+    next if $field eq 'ip';
     next unless exists $json->{$field};
 
-    my $data = api_array_to_backend_update(
-      $json->{$field}, $host_data{$field}, $field,
-      \%BACKEND_HEADERS, \%BUILDERS, \%UPDATE_COUNT
-    );
+    my $data = $FIELDS{$field}->encode_update($json->{$field}, $host_data{$field});
     $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 

@@ -3,10 +3,7 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
 use SauronAPI::AuthZ qw(check_perms filter_servers);
-use SauronAPI::Controller::Base qw(
-  backend_array_to_api api_array_to_backend_create api_array_to_backend_update
-  build_aml_record build_value_record build_forwarder_record
-);
+use SauronAPI::Codecs qw(aml value forwarder);
 use JSON::PP ();
 
 # All scalar fields from get_record("servers", ...) that map to ServerFields schema.
@@ -33,94 +30,24 @@ my @ARRAY_FIELDS = qw(
 
 # --- Dispatch tables (array field handling) ---
 
-my %BACKEND_HEADERS = (
-  # AML fields — header is ['aml', 0] (server_id gets set contextually)
-  allow_transfer    => ['aml', 0],
-  allow_query       => ['aml', 0],
-  allow_recursion   => ['aml', 0],
-  blackhole         => ['aml', 0],
-  listen_on         => ['aml', 0],
-  listen_on_v6      => ['aml', 0],
-  allow_query_cache => ['aml', 0],
-  allow_notify      => ['aml', 0],
-  # Forwarders
-  forwarders        => ['IP', 'Comments'],
-  # Simple text/dhcp fields
-  dhcp_l            => ['DHCP', 'Comments'],
-  dhcp              => ['DHCP', 'Comments'],
-  txt               => ['TXT', 'Comments'],
-  logging           => ['TXT', 'Comments'],
-  custom_opts       => ['TXT', 'Comments'],
-  bind_globals      => ['TXT', 'Comments'],
-  dhcp6_l           => ['DHCP6', 'Comments'],
-  dhcp6             => ['DHCP6', 'Comments'],
-);
-
-# API output column names — used by backend_array_to_api for response mapping.
-my %HEADERS = (
-  # AML fields — columns from cidr_entries: mode, ip, acl, tkey, op, comment
-  allow_transfer    => [qw(mode ip acl tkey op comment)],
-  allow_query       => [qw(mode ip acl tkey op comment)],
-  allow_recursion   => [qw(mode ip acl tkey op comment)],
-  blackhole         => [qw(mode ip acl tkey op comment)],
-  listen_on         => [qw(mode ip acl tkey op comment)],
-  listen_on_v6      => [qw(mode ip acl tkey op comment)],
-  allow_query_cache => [qw(mode ip acl tkey op comment)],
-  allow_notify      => [qw(mode ip acl tkey op comment)],
-  # Forwarders
-  forwarders        => [qw(ip comment)],
-  # Simple text/dhcp fields
-  dhcp_l            => [qw(dhcp comment)],
-  dhcp              => [qw(dhcp comment)],
-  txt               => [qw(txt comment)],
-  logging           => [qw(txt comment)],
-  custom_opts       => [qw(txt comment)],
-  bind_globals      => [qw(txt comment)],
-  dhcp6_l           => [qw(dhcp comment)],
-  dhcp6             => [qw(dhcp comment)],
-);
-
-my %BUILDERS = (
-  allow_transfer    => \&build_aml_record,
-  allow_query       => \&build_aml_record,
-  allow_recursion   => \&build_aml_record,
-  blackhole         => \&build_aml_record,
-  listen_on         => \&build_aml_record,
-  listen_on_v6      => \&build_aml_record,
-  allow_query_cache => \&build_aml_record,
-  allow_notify      => \&build_aml_record,
-  forwarders        => sub { build_forwarder_record($_[0], 0) },
-  dhcp_l            => sub { build_value_record($_[0], 'dhcp') },
-  dhcp              => sub { build_value_record($_[0], 'dhcp') },
-  txt               => sub { build_value_record($_[0], 'txt') },
-  logging           => sub { build_value_record($_[0], 'txt') },
-  custom_opts       => sub { build_value_record($_[0], 'txt') },
-  bind_globals      => sub { build_value_record($_[0], 'txt') },
-  dhcp6_l           => sub { build_value_record($_[0], 'dhcp') },
-  dhcp6             => sub { build_value_record($_[0], 'dhcp') },
-);
-
-# Marker column position for update_array_field in BackEnd.
-# AML fields: marker at index 7 (8 columns: id + 6 data + marker).
-# Simple/forwarder fields: marker at index 3 (4 columns: id + 2 data + marker).
-my %UPDATE_COUNT = (
-  allow_transfer    => 7,
-  allow_query       => 7,
-  allow_recursion   => 7,
-  blackhole         => 7,
-  listen_on         => 7,
-  listen_on_v6      => 7,
-  allow_query_cache => 7,
-  allow_notify      => 7,
-  forwarders        => 3,
-  dhcp_l            => 3,
-  dhcp              => 3,
-  txt               => 3,
-  logging           => 3,
-  custom_opts       => 3,
-  bind_globals      => 3,
-  dhcp6_l           => 3,
-  dhcp6             => 3,
+my %FIELDS = (
+  allow_transfer    => aml(),
+  allow_query       => aml(),
+  allow_recursion   => aml(),
+  blackhole         => aml(),
+  listen_on         => aml(),
+  listen_on_v6      => aml(),
+  allow_query_cache => aml(),
+  allow_notify      => aml(),
+  forwarders        => forwarder(with_port => 0),
+  dhcp_l            => value(key => 'dhcp', label => 'DHCP'),
+  dhcp              => value(key => 'dhcp', label => 'DHCP'),
+  txt               => value(key => 'txt',  label => 'TXT'),
+  logging           => value(key => 'txt',  label => 'TXT'),
+  custom_opts       => value(key => 'txt',  label => 'TXT'),
+  bind_globals      => value(key => 'txt',  label => 'TXT'),
+  dhcp6_l           => value(key => 'dhcp', label => 'DHCP6'),
+  dhcp6             => value(key => 'dhcp', label => 'DHCP6'),
 );
 
 # --- Helper functions ---
@@ -189,10 +116,10 @@ sub _build_server_response {
   $response->{zones_only} = ($server_data->{zones_only} eq 't' ? $JSON::PP::true : $JSON::PP::false) if defined $server_data->{zones_only};
   $response->{no_roots}   = ($server_data->{no_roots}   eq 't' ? $JSON::PP::true : $JSON::PP::false) if defined $server_data->{no_roots};
 
-  # Copy array fields — use %HEADERS for clean API column names
+  # Copy array fields
   for my $field (@ARRAY_FIELDS) {
     if (ref $server_data->{$field} eq 'ARRAY' && @{$server_data->{$field}} > 1) {
-      $response->{$field} = backend_array_to_api($server_data->{$field}, $field, \%HEADERS);
+      $response->{$field} = $FIELDS{$field}->decode($server_data->{$field});
     }
   }
 
@@ -283,12 +210,9 @@ sub add_server ($self) {
   _copy_scalar_fields(\%rec, $json);
 
   # Copy array fields
-  # AML fields in the create path go through update_array_field and need the
-  # header row; other fields go through add_array_field and need data rows only.
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
-    my $keep_header = ($BACKEND_HEADERS{$field}[0] eq 'aml');
-    my $data = api_array_to_backend_create($json->{$field}, $field, \%BACKEND_HEADERS, \%BUILDERS, $keep_header);
+    my $data = $FIELDS{$field}->encode_create($json->{$field});
     $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 
@@ -337,10 +261,7 @@ sub update_server ($self) {
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
 
-    my $data = api_array_to_backend_update(
-      $json->{$field}, $server_data{$field}, $field,
-      \%BACKEND_HEADERS, \%BUILDERS, \%UPDATE_COUNT
-    );
+    my $data = $FIELDS{$field}->encode_update($json->{$field}, $server_data{$field});
     $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 

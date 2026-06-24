@@ -3,14 +3,13 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
 use SauronAPI::AuthZ qw(check_perms filter_zones);
-use SauronAPI::Controller::Base qw(
-  backend_array_to_api api_array_to_backend_update
-  build_aml_record build_mx_record build_value_record build_forwarder_record
-);
+use SauronAPI::Codecs qw(aml mx value forwarder);
 use JSON::PP ();
 
 # --- Dispatch tables (array field handling) ---
-# Following the same pattern as Server.pm
+# Each field is mapped to a FieldCodec instance that encapsulates
+# BackEnd wire-format knowledge (header row, column names, row builder,
+# marker count, and whether to keep the header on create).
 
 my @ARRAY_FIELDS = qw(
   allow_update allow_query allow_transfer
@@ -18,68 +17,19 @@ my @ARRAY_FIELDS = qw(
   dhcp ns mx txt zentries_ta zentries
 );
 
-my %BACKEND_HEADERS = (
-  # AML fields
-  allow_update      => ['aml', 0],
-  allow_query       => ['aml', 0],
-  allow_transfer    => ['aml', 0],
-  # Simple array fields
-  masters           => ['IP', 'Comments'],
-  also_notify       => ['IP', 'Comments'],
-  forwarders        => ['IP', 'Port', 'Comments'],
-  dhcp              => ['DHCP', 'Comments'],
-  ns                => ['NS', 'Comments'],
-  mx                => ['Priority', 'MX', 'Comments'],
-  txt               => ['TXT', 'Comments'],
-  zentries_ta       => ['TXT'],
-  zentries          => ['TXT', 'Comments'],
-);
-
-my %HEADERS = (
-  # AML fields — columns from cidr_entries: mode, ip, acl, tkey, op, comment
-  allow_update      => [qw(mode ip acl tkey op comment)],
-  allow_query       => [qw(mode ip acl tkey op comment)],
-  allow_transfer    => [qw(mode ip acl tkey op comment)],
-  # Simple array fields
-  masters           => [qw(ip comment)],
-  also_notify       => [qw(ip comment)],
-  forwarders        => [qw(ip port comment)],
-  dhcp              => [qw(dhcp comment)],
-  ns                => [qw(ns comment)],
-  mx                => [qw(pri mx comment)],
-  txt               => [qw(txt comment)],
-  zentries_ta       => [qw(txt)],
-  zentries          => [qw(txt comment)],
-);
-
-my %BUILDERS = (
-  allow_update      => \&build_aml_record,
-  allow_query       => \&build_aml_record,
-  allow_transfer    => \&build_aml_record,
-  masters           => sub { build_value_record($_[0], 'ip') },
-  also_notify       => sub { build_value_record($_[0], 'ip') },
-  forwarders        => sub { build_forwarder_record($_[0], 1) },
-  dhcp              => sub { build_value_record($_[0], 'dhcp') },
-  ns                => sub { build_value_record($_[0], 'ns') },
-  mx                => \&build_mx_record,
-  txt               => sub { build_value_record($_[0], 'txt') },
-  zentries_ta       => sub { build_value_record($_[0], 'txt') },
-  zentries          => sub { build_value_record($_[0], 'txt') },
-);
-
-my %UPDATE_COUNT = (
-  allow_update      => 7,
-  allow_query       => 7,
-  allow_transfer    => 7,
-  masters           => 3,
-  also_notify       => 3,
-  forwarders        => 4,
-  dhcp              => 3,
-  ns                => 3,
-  mx                => 4,
-  txt               => 3,
-  zentries_ta       => 2,
-  zentries          => 3,
+my %FIELDS = (
+  allow_update   => aml(),
+  allow_query    => aml(),
+  allow_transfer => aml(),
+  masters        => value(key => 'ip',   label => 'IP'),
+  also_notify    => value(key => 'ip',   label => 'IP'),
+  forwarders     => forwarder(with_port => 1),
+  dhcp           => value(key => 'dhcp', label => 'DHCP'),
+  ns             => value(key => 'ns',   label => 'NS'),
+  mx             => mx(),
+  txt            => value(key => 'txt',  label => 'TXT'),
+  zentries_ta    => value(key => 'txt',  label => 'TXT',   comment => 0),
+  zentries       => value(key => 'txt',  label => 'TXT'),
 );
 
 # --- Helper functions ---
@@ -166,7 +116,7 @@ sub _build_zone_response {
   # Copy array fields
   for my $field (@ARRAY_FIELDS) {
     if (ref $zone_data->{$field} eq 'ARRAY' && @{$zone_data->{$field}} > 1) {
-      $response->{$field} = backend_array_to_api($zone_data->{$field}, $field, \%HEADERS);
+      $response->{$field} = $FIELDS{$field}->decode($zone_data->{$field});
     }
   }
 
@@ -355,10 +305,7 @@ sub update_zone ($self) {
   for my $field (@ARRAY_FIELDS) {
     next unless exists $json->{$field};
 
-    my $data = api_array_to_backend_update(
-      $json->{$field}, $existing_zone{$field}, $field,
-      \%BACKEND_HEADERS, \%BUILDERS, \%UPDATE_COUNT
-    );
+    my $data = $FIELDS{$field}->encode_update($json->{$field}, $existing_zone{$field});
     $rec{$field} = $data if ref $data eq 'ARRAY';
   }
 
