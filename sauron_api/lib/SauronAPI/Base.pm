@@ -1,4 +1,4 @@
-package SauronAPI::Controller::Base;
+package SauronAPI::Base;
 use strict;
 use warnings;
 
@@ -10,10 +10,6 @@ our @EXPORT_OK = qw(
   build_value_record build_forwarder_record
 );
 
-# Strip BackEnd marker format from array fields to clean API objects.
-# $api_header: clean column names (not the BackEnd header row).
-# Data rows: [id, col1, col2, ..., marker] -- id at [0], marker at end.
-# AML rows also have extra join columns after the marker (ignored).
 sub strip_marker_format {
   my ($data, $api_header) = @_;
   return [] unless ref $data eq 'ARRAY' && @$data > 1;
@@ -36,9 +32,6 @@ sub strip_marker_format {
   return \@result;
 }
 
-# Mark existing array field rows for deletion.
-# update_array_field only reads [0] (record id) and [$count] (marker=-1),
-# so padding between them can be empty strings.
 sub mark_existing_for_deletion {
   my ($rows, $existing_data, $count) = @_;
   return unless ref $existing_data eq 'ARRAY';
@@ -50,8 +43,6 @@ sub mark_existing_for_deletion {
     push @$rows, \@del;
   }
 }
-
-# Builders for common record shapes.
 
 sub build_aml_record {
   my ($obj) = @_;

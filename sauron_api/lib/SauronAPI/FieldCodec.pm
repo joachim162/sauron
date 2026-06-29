@@ -2,7 +2,7 @@ package SauronAPI::FieldCodec;
 use strict;
 use warnings;
 
-use SauronAPI::Controller::Base qw(
+use SauronAPI::Base qw(
   strip_marker_format mark_existing_for_deletion
 );
 

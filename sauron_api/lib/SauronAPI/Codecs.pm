@@ -5,7 +5,7 @@ use warnings;
 use Exporter 'import';
 our @EXPORT_OK = qw(aml mx value forwarder);
 
-use SauronAPI::Controller::Base qw(
+use SauronAPI::Base qw(
   build_aml_record build_mx_record build_value_record build_forwarder_record
 );
 use SauronAPI::FieldCodec;
