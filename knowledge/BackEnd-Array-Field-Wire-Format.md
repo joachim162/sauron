@@ -197,7 +197,7 @@ satellite table/schema pair has its own count.
 
 ```
 JSON API (array of objects)
-  ↗  backend_array_to_api        API controllers via SauronAPI::Controller::Base
+  ↗  backend_array_to_api        API controllers via SauronAPI::Base
   ↘  api_array_to_backend_create / api_array_to_backend_update
     ──────────────────────────────────────────────────────────────
 Marker-row arrays with header / id / marker columns

@@ -24,7 +24,7 @@ SauronAPI::Codecs                 factory funcs for COMMON shapes (aml/mx/value/
 SauronAPI::FieldCodec             OO object: decode()/encode_create()/encode_update() per field
         |  uses primitives + builders from
         v
-SauronAPI::Controller::Base       low-level marker-format primitives + record builders
+SauronAPI::Base       low-level marker-format primitives + record builders
 ```
 
 All three controllers share the same CRUD skeleton — `valid_input` →
