@@ -1,0 +1,96 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: List all networks on a server
+  tags: [ networks ]
+  description: Returns all network/subnet records on the specified server.
+  operationId: list_nets
+  x-mojo-name: list_nets
+  x-mojo-to: "Net#list_nets"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - name: subnets
+      in: query
+      required: false
+      description: >
+        Filter by subnet type: 0=only top-level nets, 1=only subnets,
+        omit=all networks
+      schema:
+        type: integer
+        enum: [0, 1]
+    - name: alevel
+      in: query
+      required: false
+      description: Maximum authorization level (inclusive)
+      schema:
+        type: integer
+  responses:
+    '200':
+      description: A list of networks
+      content:
+        application/json:
+          schema:
+            type: array
+            items:
+              $ref: '../components/schemas.yaml#/Net'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+
+post:
+  security:
+    - BearerAuth: []
+  summary: Create a new network
+  tags: [ networks ]
+  description: Adds a new network/subnet to the specified server.
+  operationId: add_net
+  x-mojo-name: add_net
+  x-mojo-to: "Net#add_net"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/NewNet'
+  responses:
+    '201':
+      description: Network created successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Net'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: Network already exists on this server
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

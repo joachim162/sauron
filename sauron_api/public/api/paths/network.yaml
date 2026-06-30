@@ -1,0 +1,103 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get network details
+  tags: [ networks ]
+  description: Returns full details of a specific network, including DHCP options.
+  operationId: get_net
+  x-mojo-name: get_net
+  x-mojo-to: "Net#get_net"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/net'
+  responses:
+    '200':
+      description: Network details
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Net'
+    '404':
+      description: Server or network not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+
+put:
+  security:
+    - BearerAuth: []
+  summary: Update a network
+  tags: [ networks ]
+  description: Updates an existing network. All fields are optional; only provided fields are updated.
+  operationId: update_net
+  x-mojo-name: update_net
+  x-mojo-to: "Net#update_net"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/net'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateNet'
+  responses:
+    '200':
+      description: Network updated successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Net'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or network not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a network
+  tags: [ networks ]
+  description: Permanently deletes a network and all associated DHCP options.
+  operationId: delete_net
+  x-mojo-name: delete_net
+  x-mojo-to: "Net#delete_net"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/net'
+  responses:
+    '204':
+      description: Network deleted successfully
+    '404':
+      description: Server or network not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

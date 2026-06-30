@@ -26,3 +26,15 @@ hostname:
     type: string
     example: bilbo
 
+net:
+  name: net
+  in: path
+  required: true
+  description: >
+    Network identifier — either the CIDR (e.g. 192.168.1.0/24) or the
+    netname handle (e.g. office-net).
+  x-mojo-placeholder: '#'
+  schema:
+    type: string
+    example: 192.168.1.0/24
+

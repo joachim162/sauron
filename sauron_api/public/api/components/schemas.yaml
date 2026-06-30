@@ -1371,6 +1371,148 @@ UserResponse:
           additionalProperties:
             type: integer
 
+NetFields:
+  type: object
+  description: Shared writable fields for network records.
+  properties:
+    netname:
+      type: string
+      nullable: true
+      description: Network handle (letters, numbers, hyphens)
+      example: office-net
+    name:
+      type: string
+      nullable: true
+      description: Descriptive name
+      example: Office Network
+    net:
+      type: string
+      description: Network in CIDR notation
+      example: 192.168.1.0/24
+    subnet:
+      type: boolean
+      description: Whether this is a subnet (true) or a top-level net (false)
+      example: true
+    dummy:
+      type: boolean
+      description: Virtual subnet flag (groups hosts within a real subnet)
+      example: false
+    vlan:
+      type: integer
+      nullable: true
+      description: VLAN ID (-1 if none)
+      example: -1
+    alevel:
+      type: integer
+      description: Required authorization level
+      example: 0
+    private_flag:
+      type: boolean
+      description: If true, network is hidden from the browser UI
+      example: false
+    comment:
+      type: string
+      nullable: true
+      description: Network description/notes
+      example: Main office subnet
+    range_start:
+      type: string
+      nullable: true
+      description: Auto-assign address range start
+      example: 192.168.1.1
+    range_end:
+      type: string
+      nullable: true
+      description: Auto-assign address range end
+      example: 192.168.1.254
+    ip_policy:
+      type: integer
+      nullable: true
+      description: >
+        IP address assignment policy: 0=Lowest free, 10=Highest free,
+        20=MAC based, 30=IPv4 based
+      example: 0
+    no_dhcp:
+      type: boolean
+      description: Disable DHCP for this network
+      example: false
+    rp_mbox:
+      type: string
+      nullable: true
+      description: RP mailbox
+    rp_txt:
+      type: string
+      nullable: true
+      description: RP TXT record
+    dhcp_l:
+      type: array
+      description: Network-specific DHCP options
+      items:
+        type: object
+        required:
+          - dhcp
+        properties:
+          dhcp:
+            type: string
+            description: DHCP option value
+          comment:
+            type: string
+            nullable: true
+
+Net:
+  allOf:
+    - $ref: '#/NetFields'
+    - type: object
+      required:
+        - id
+        - server_id
+        - net
+      properties:
+        id:
+          type: integer
+          example: 5
+        server_id:
+          type: integer
+          example: 1
+        cdate:
+          type: integer
+          nullable: true
+          description: Creation timestamp (Unix epoch)
+        cuser:
+          type: string
+          nullable: true
+          description: Created by user
+        mdate:
+          type: integer
+          nullable: true
+          description: Last modification timestamp (Unix epoch)
+        muser:
+          type: string
+          nullable: true
+          description: Last modified by user
+
+NewNet:
+  allOf:
+    - $ref: '#/NetFields'
+    - type: object
+      required:
+        - netname
+        - name
+        - net
+      description: >
+        Schema for creating a new network. The server ID is taken from
+        the URL path. For subnets (subnet=true), range_start and range_end
+        are auto-assigned if not provided.
+
+UpdateNet:
+  allOf:
+    - $ref: '#/NetFields'
+    - type: object
+      description: >
+        Schema for updating an existing network. All writable fields are
+        optional; only provided fields are updated. Array fields use
+        replace-all semantics.
+
 Error:
   type: object
   required:
