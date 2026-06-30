@@ -15,7 +15,9 @@ tags:
   - name: zones
     description: API Endpoints for Zones
   - name: auth
-    description: Authentication endpoints
+    description: Authentication Endpoints
+  - name: networks
+    description: API Endpoints for Networks
 
 paths:
   /auth/login:
@@ -100,6 +102,12 @@ paths:
   /servers/{server}/zones/{zone}:
     $ref: "./paths/zone.yaml"
 
+  /servers/{server}/networks:
+    $ref: "./paths/networks.yaml"
+
+  /servers/{server}/network/{net}:
+    $ref: "./paths/network.yaml"
+
 components:
   schemas:
     ServerFields:
@@ -132,6 +140,14 @@ components:
       $ref: './components/schemas.yaml#/User'
     UserResponse:
       $ref: './components/schemas.yaml#/UserResponse'
+    NetFields:
+      $ref: './components/schemas.yaml#/NetFields'
+    Net:
+      $ref: './components/schemas.yaml#/Net'
+    NewNet:
+      $ref: './components/schemas.yaml#/NewNet'
+    UpdateNet:
+      $ref: './components/schemas.yaml#/UpdateNet'
     Error:
       $ref: './components/schemas.yaml#/Error'
 
@@ -150,6 +166,8 @@ components:
       $ref: './components/parameters.yaml#/zone'
     hostname:
       $ref: './components/parameters.yaml#/hostname'
+    net:
+      $ref: './components/parameters.yaml#/net'
 
   securitySchemes:
     BearerAuth:

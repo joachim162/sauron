@@ -29,7 +29,7 @@ Listen 443
     SSLCompression off
 
     RequestHeader set X-Forwarded-Proto "https"
-    RequestHeader set X-Forwarded-Port "443"
+    RequestHeader set X-Forwarded-Port "${EXTERNAL_HTTPS_PORT:-443}"
 
     # Frontend static files
     <Location /app>
@@ -100,7 +100,7 @@ Listen 443
 
     # Tell backend that requests come via HTTPS
     RequestHeader set X-Forwarded-Proto "https"
-    RequestHeader set X-Forwarded-Port "443"
+    RequestHeader set X-Forwarded-Port "${EXTERNAL_HTTPS_PORT:-443}"
 
     # OIDC Configuration
     OIDCProviderMetadataURL OIDC_ISSUER_PLACEHOLDER/.well-known/openid-configuration

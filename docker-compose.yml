@@ -65,6 +65,7 @@ services:
       API_BACKEND: "http://sauron_api:3000"
       FRONTEND_BACKEND: "http://frontend:5173"
       SERVER_NAME: "${SERVER_NAME:-localhost}"
+      EXTERNAL_HTTPS_PORT: "${EXTERNAL_HTTPS_PORT:-4343}"
     env_file:
       - ".env"
     volumes:
