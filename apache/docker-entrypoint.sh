@@ -102,6 +102,10 @@ Listen 443
     RequestHeader set X-Forwarded-Proto "https"
     RequestHeader set X-Forwarded-Port "${EXTERNAL_HTTPS_PORT:-443}"
 
+    # Strip client-supplied X-Remote-User to prevent impersonation.
+    # Only mod_auth_openidc (or a trusted proxy) should set this header.
+    RequestHeader unset X-Remote-User
+
     # OIDC Configuration
     OIDCProviderMetadataURL OIDC_ISSUER_PLACEHOLDER/.well-known/openid-configuration
     OIDCClientID OIDC_CLIENT_ID_PLACEHOLDER
