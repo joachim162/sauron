@@ -125,9 +125,11 @@ sub list_nets ($self) {
   return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'R');
 
   my $subnets = $self->param('subnets');
-  my $alevel  = $self->param('alevel');
 
-  my $list = Sauron::BackEnd::get_net_list($server_id, $subnets, $alevel);
+  my $perms = $self->stash('api_perms');
+  my $user_alevel = $perms->{alevel} // 0;
+
+  my $list = Sauron::BackEnd::get_net_list($server_id, $subnets, $user_alevel);
   my @nets;
 
   for my $row (@$list) {
@@ -146,8 +148,8 @@ sub get_net ($self) {
   return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
-  my $net_id = $self->_resolve_net($server_id) or return;
   return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'R');
+  my $net_id = $self->_resolve_net($server_id) or return;
 
   my %net_data;
   if (Sauron::BackEnd::get_net($net_id, \%net_data) != 0) {
@@ -165,7 +167,7 @@ sub add_net ($self) {
   return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
-  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'RW');
+  return unless check_perms($self, type => 'superuser');
 
   my $json = $self->req->json;
 
@@ -236,8 +238,8 @@ sub update_net ($self) {
   return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
+  return unless check_perms($self, type => 'superuser');
   my $net_id = $self->_resolve_net($server_id) or return;
-  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'RW');
 
   my $json = $self->req->json;
 
@@ -281,8 +283,8 @@ sub delete_net ($self) {
   return unless $self->require_auth;
 
   my $server_id = $self->_resolve_server or return;
+  return unless check_perms($self, type => 'superuser');
   my $net_id = $self->_resolve_net($server_id) or return;
-  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'RWS');
 
   my $res = Sauron::BackEnd::delete_net($net_id);
   if ($res < 0) {

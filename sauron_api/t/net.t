@@ -33,21 +33,28 @@ END {
 my $srv = create_test_server(name => "srv-net-${pid}", comment => 'Net CRUD test');
 push @servers, $srv;
 
-my $super = create_test_user(username => "netsuper_${pid}", email => "netsuper_${pid}\@example.com", superuser => 1);
-my $user  = create_test_user(username => "netuser_${pid}",  email => "netuser_${pid}\@example.com");
-push @users, $super, $user;
-grant_server_access($user, $srv, 'RW');
+my $super  = create_test_user(username => "netsuper_${pid}",  email => "netsuper_${pid}\@example.com", superuser => 1);
+my $rwuser = create_test_user(username => "netrw_${pid}",    email => "netrw_${pid}\@example.com");
+my $ruser  = create_test_user(username => "netr_${pid}",     email => "netr_${pid}\@example.com");
+push @users, $super, $rwuser, $ruser;
+grant_server_access($rwuser, $srv, 'RW');
+grant_server_access($ruser,  $srv, 'R');
 
 sub _as_super {
   $t->reset_session;
   return { 'X-Remote-User' => "netsuper_${pid}\@example.com" };
 }
-sub _as_user {
+sub _as_rwuser {
   $t->reset_session;
-  return { 'X-Remote-User' => "netuser_${pid}\@example.com" };
+  return { 'X-Remote-User' => "netrw_${pid}\@example.com" };
 }
-my $SUPER = _as_super();
-my $USER  = _as_user();
+sub _as_ruser {
+  $t->reset_session;
+  return { 'X-Remote-User' => "netr_${pid}\@example.com" };
+}
+my $SUPER  = _as_super();
+my $RWUSER = _as_rwuser();
+my $RUSER  = _as_ruser();
 
 my $BASE = "/api/v1/servers/srv-net-${pid}";
 my $OCTET = $pid % 254 + 1;
@@ -109,20 +116,19 @@ subtest 'POST /servers/{server}/networks - missing required fields return 400' =
   })->status_is(400);
 };
 
-subtest 'POST /servers/{server}/networks - non-superuser with RW access' => sub {
+subtest 'POST /servers/{server}/networks - non-superuser with server RW is denied' => sub {
   my $octet2 = ($pid + 1) % 254 + 1;
   my $cidr2 = "10.88.${octet2}.0/24";
-  $t->post_ok("$BASE/networks" => $USER => json => {
+  $t->post_ok("$BASE/networks" => $RWUSER => json => {
     netname => "test-net-user-${pid}",
     name    => 'User Created Net',
     net     => $cidr2,
-  })->status_is(201);
-
-  my $json = $t->tx->res->json;
-  push @nets, $json->{id};
+  })->status_is(403)
+    ->json_is('/error' => 'Forbidden')
+    ->json_is('/message' => 'Administrator privileges required');
 };
 
-subtest 'POST /servers/{server}/networks - no access returns 403' => sub {
+subtest 'POST /servers/{server}/networks - no server access returns 403' => sub {
   my $noob = create_test_user(username => "netnoob_${pid}", email => "netnoob_${pid}\@example.com");
   push @users, $noob;
   my $headers = { 'X-Remote-User' => "netnoob_${pid}\@example.com" };
@@ -131,19 +137,29 @@ subtest 'POST /servers/{server}/networks - no access returns 403' => sub {
     netname => "${NETNAME}-noob",
     name    => 'Noob Net',
     net     => "10.${pid}.99.0/24",
-  })->status_is(403);
+  })->status_is(403)
+    ->json_is('/error' => 'Forbidden')
+    ->json_is('/message' => 'Administrator privileges required');
 };
 
 # ========================================================================
 # LIST
 # ========================================================================
 
-subtest 'GET /servers/{server}/networks - list all' => sub {
+subtest 'GET /servers/{server}/networks - list all (superuser)' => sub {
   $t->get_ok("$BASE/networks" => $SUPER)->status_is(200);
 
   my $json = $t->tx->res->json;
   ok(ref $json eq 'ARRAY', 'response is an array');
   cmp_ok(scalar @$json, '>=', 1, 'at least one network');
+};
+
+subtest 'GET /servers/{server}/networks - server-R user can list' => sub {
+  $t->get_ok("$BASE/networks" => $RUSER)->status_is(200);
+
+  my $json = $t->tx->res->json;
+  ok(ref $json eq 'ARRAY', 'response is an array');
+  cmp_ok(scalar @$json, '>=', 1, 'server-R user sees networks');
 };
 
 subtest 'GET /servers/{server}/networks - filter by subnets' => sub {
@@ -240,6 +256,43 @@ subtest 'DELETE /servers/{server}/network/{net} - 404 for non-existent' => sub {
 subtest 'Non-existent server returns 404' => sub {
   $t->get_ok("/api/v1/servers/nonexistent-${pid}/networks" => $SUPER)->status_is(404);
   $t->get_ok("/api/v1/servers/nonexistent-${pid}/network/1.2.3.0/24" => $SUPER)->status_is(404);
+};
+
+# ========================================================================
+# Authorization aligned with legacy CGI
+# ========================================================================
+
+subtest 'GET /servers/{server}/network/{net} - server-R user can read' => sub {
+  $t->get_ok("$BASE/network/$NETNAME" => $RUSER)->status_is(200);
+
+  my $json = $t->tx->res->json;
+  is($json->{net},     $CIDR,    'CIDR matches');
+  is($json->{netname}, $NETNAME, 'netname matches');
+};
+
+subtest 'PUT /servers/{server}/network/{net} - non-superuser is denied' => sub {
+  $t->put_ok("$BASE/network/$NETNAME" => $RWUSER => json => { comment => 'hacked' })
+    ->status_is(403)
+    ->json_is('/error' => 'Forbidden')
+    ->json_is('/message' => 'Administrator privileges required');
+};
+
+subtest 'DELETE /servers/{server}/network/{net} - non-superuser is denied' => sub {
+  $t->delete_ok("$BASE/network/$NETNAME" => $RWUSER)
+    ->status_is(403)
+    ->json_is('/error' => 'Forbidden')
+    ->json_is('/message' => 'Administrator privileges required');
+};
+
+subtest 'Network access - user without server access is denied' => sub {
+  my $noaccess = create_test_user(username => "netnoacc_${pid}", email => "netnoacc_${pid}\@example.com");
+  push @users, $noaccess;
+  my $HEADERS = { 'X-Remote-User' => "netnoacc_${pid}\@example.com" };
+
+  $t->get_ok("$BASE/networks" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
+  $t->get_ok("$BASE/network/${NETNAME}" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
+  $t->put_ok("$BASE/network/${NETNAME}" => $HEADERS => json => { comment => 'hack' })->status_is(403)->json_is('/error' => 'Forbidden');
+  $t->delete_ok("$BASE/network/${NETNAME}" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
 };
 
 done_testing();

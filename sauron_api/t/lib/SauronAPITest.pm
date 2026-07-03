@@ -27,6 +27,7 @@ our @EXPORT_OK = qw(
   delete_test_zone
   grant_server_access
   grant_zone_access
+  grant_net_access
   grant_rhf
   make_pat
   db_exec
@@ -153,6 +154,18 @@ sub grant_zone_access {
     rule  => $rule,
   });
   die "Failed to grant zone access: $res" unless $res > 0;
+}
+
+sub grant_net_access {
+  my ($user_id, $net_id, $rule) = @_;
+  my $res = Sauron::BackEnd::add_record('user_rights', {
+    type => 2,
+    ref  => $user_id,
+    rtype => 3,
+    rref  => $net_id,
+    rule  => $rule,
+  });
+  die "Failed to grant net access: $res" unless $res > 0;
 }
 
 sub grant_rhf {
