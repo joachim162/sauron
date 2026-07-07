@@ -3970,11 +3970,12 @@ sub get_net_list($$$) {
   $list=[];
   return $list unless ($serverid >= 0);
 
-  db_query("SELECT net,id,name FROM nets " .
+  db_query("SELECT net,id,name,netname,comment,no_dhcp,dummy,vlan,alevel FROM nets " .
 	   "WHERE server=$serverid $subnets $alevel ORDER BY net",\@q);
 
   for $i (0..$#q) {
-    push @{$list}, [ $q[$i][0], $q[$i][1], $q[$i][2] ];
+    push @{$list}, [ $q[$i][0], $q[$i][1], $q[$i][2], $q[$i][3], $q[$i][4],
+                     $q[$i][5], $q[$i][6], $q[$i][7], $q[$i][8] ];
   }
   return $list;
 }

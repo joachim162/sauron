@@ -3,6 +3,7 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
 use Sauron::DB ();
+use Sauron::Sauron ();
 use Sauron::Util ();
 use SauronAPI::AuthZ qw(check_perms);
 use SauronAPI::Codecs qw(value);
@@ -19,22 +20,6 @@ my @ARRAY_FIELDS = qw(dhcp_l);
 my %FIELDS = (
   dhcp_l => value(key => 'dhcp', label => 'DHCP'),
 );
-
-sub _resolve_server {
-  my ($self) = @_;
-
-  my $server_name = $self->param("server");
-  my $server_id = Sauron::BackEnd::get_server_id($server_name);
-  if ($server_id <= 0) {
-    $self->render(
-      openapi => { error => 'Not Found', message => "Server '$server_name' not found" },
-      status  => 404
-    );
-    return undef;
-  }
-
-  return $server_id;
-}
 
 sub _resolve_net {
   my ($self, $server_id) = @_;
@@ -76,7 +61,13 @@ sub _copy_scalar_fields {
 }
 
 sub _build_net_response {
-  my ($net_id, $net_data) = @_;
+  my ($net_id, $net_data, $vlan_map) = @_;
+
+  my $vlan_id = $net_data->{vlan} // -1;
+  my $vlan_name = undef;
+  if ($vlan_map && $vlan_id > 0) {
+    $vlan_name = $vlan_map->{$vlan_id};
+  }
 
   my $response = {
     id        => $net_id,
@@ -84,7 +75,8 @@ sub _build_net_response {
     netname   => $net_data->{netname},
     name      => $net_data->{name},
     net       => $net_data->{net},
-    vlan      => $net_data->{vlan} // -1,
+    vlan      => $vlan_id,
+    vlan_name => $vlan_name,
     alevel    => $net_data->{alevel} // 0,
     comment   => $net_data->{comment} // '',
     rp_mbox   => $net_data->{rp_mbox} // '',
@@ -117,27 +109,58 @@ sub _build_net_response {
   return $response;
 }
 
+sub _build_net_list_response {
+  my ($row, $vlan_map, $include_vlan_names) = @_;
+
+  my $dummy = (defined $row->[6] && ($row->[6] eq 't' || $row->[6] eq '1'));
+  my $no_dhcp = (defined $row->[5] && ($row->[5] eq 't' || $row->[5] eq '1'));
+
+  my $dhcp = $dummy ? undef : ($no_dhcp ? $JSON::PP::false : $JSON::PP::true);
+
+  my $vlan_id = $row->[7] // -1;
+  my $vlan_name = undef;
+  if ($include_vlan_names && $vlan_id > 0) {
+    $vlan_name = $vlan_map->{$vlan_id};
+  }
+
+  return {
+    id          => $row->[1],
+    net         => $row->[0],
+    netname     => $row->[3],
+    description => $row->[2],
+    dhcp        => $dhcp,
+    vlan        => $vlan_id,
+    vlan_name   => $vlan_name,
+    alevel      => $row->[8] // 0,
+  };
+}
+
 sub list_nets ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_id = $self->_resolve_server or return;
+  my $server_id = $self->get_server_id_or_404($self->param('server')) or return;
   return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'R');
 
-  my $subnets = $self->param('subnets');
+  # TODO: Add pagination (limit/offset) before this endpoint is used for
+  #       large servers. For now the list returns every visible network.
 
   my $perms = $self->stash('api_perms');
   my $user_alevel = $perms->{alevel} // 0;
 
-  my $list = Sauron::BackEnd::get_net_list($server_id, $subnets, $user_alevel);
+  my $net_list = Sauron::BackEnd::get_net_list($server_id, 0, $user_alevel);
   my @nets;
 
-  for my $row (@$list) {
-    next unless ref $row eq 'ARRAY' && @$row >= 3;
-    my %data;
-    if (Sauron::BackEnd::get_net($row->[1], \%data) == 0) {
-      push @nets, _build_net_response($row->[1], \%data);
-    }
+  my $include_vlan_names = ($self->stash('api_superuser')
+                            || ($user_alevel >= $main::ALEVEL_VLANS));
+  my %vlan_map;
+  if ($include_vlan_names) {
+    Sauron::BackEnd::get_vlan_list($server_id, \%vlan_map, \my @vlan_list);
+  }
+
+  for my $row (@$net_list) {
+    next unless ref $row eq 'ARRAY' && @$row >= 9;
+    push @nets, _build_net_list_response($row, \%vlan_map, $include_vlan_names);
   }
 
   $self->render(openapi => \@nets);
@@ -147,7 +170,7 @@ sub get_net ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_id = $self->_resolve_server or return;
+  my $server_id = $self->get_server_id_or_404($self->param('server')) or return;
   return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'R');
   my $net_id = $self->_resolve_net($server_id) or return;
 
@@ -159,14 +182,24 @@ sub get_net ($self) {
     );
   }
 
-  $self->render(openapi => _build_net_response($net_id, \%net_data));
+  my $perms = $self->stash('api_perms');
+  my $user_alevel = $perms->{alevel} // 0;
+  my $include_vlan_names = ($self->stash('api_superuser')
+                            || ($user_alevel >= $main::ALEVEL_VLANS));
+  my %vlan_map;
+  if ($include_vlan_names) {
+    Sauron::BackEnd::get_vlan_list($server_id, \%vlan_map, \my @vlan_list);
+  }
+
+  $self->render(openapi => _build_net_response($net_id, \%net_data,
+                                                $include_vlan_names ? \%vlan_map : undef));
 }
 
 sub add_net ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_id = $self->_resolve_server or return;
+  my $server_id = $self->get_server_id_or_404($self->param('server')) or return;
   return unless check_perms($self, type => 'superuser');
 
   my $json = $self->req->json;
@@ -237,7 +270,7 @@ sub update_net ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_id = $self->_resolve_server or return;
+  my $server_id = $self->get_server_id_or_404($self->param('server')) or return;
   return unless check_perms($self, type => 'superuser');
   my $net_id = $self->_resolve_net($server_id) or return;
 
@@ -282,7 +315,7 @@ sub delete_net ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_id = $self->_resolve_server or return;
+  my $server_id = $self->get_server_id_or_404($self->param('server')) or return;
   return unless check_perms($self, type => 'superuser');
   my $net_id = $self->_resolve_net($server_id) or return;
 

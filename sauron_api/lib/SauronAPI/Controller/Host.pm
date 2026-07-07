@@ -83,6 +83,8 @@ my %FIELDS = (
 
 # --- Helper functions ---
 
+# Resolve server and zone names to IDs, rendering 404 if not found.
+# TODO: Use the SauronAPI helper get_server_id_or_404 for server resolution.
 sub _resolve_server_zone {
   my ($self) = @_;
 

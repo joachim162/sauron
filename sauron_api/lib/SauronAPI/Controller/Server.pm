@@ -54,7 +54,7 @@ my %FIELDS = (
 
 # Resolve server name to ID, rendering 404 if not found.
 # Returns server_id on success, undef on failure (response already rendered).
-# TODO: Use helper instead
+# TODO: Use the SauronAPI helper get_server_id_or_404 instead.
 sub _resolve_server {
   my ($self) = @_;
 

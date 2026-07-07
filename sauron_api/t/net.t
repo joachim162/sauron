@@ -146,12 +146,23 @@ subtest 'POST /servers/{server}/networks - no server access returns 403' => sub 
 # LIST
 # ========================================================================
 
-subtest 'GET /servers/{server}/networks - list all (superuser)' => sub {
+subtest 'GET /servers/{server}/networks - summary list (superuser)' => sub {
   $t->get_ok("$BASE/networks" => $SUPER)->status_is(200);
 
   my $json = $t->tx->res->json;
   ok(ref $json eq 'ARRAY', 'response is an array');
   cmp_ok(scalar @$json, '>=', 1, 'at least one network');
+
+  my $found = (grep { $_->{id} == $nets[0] } @$json)[0];
+  ok($found, 'created network present in summary');
+  is($found->{net},         $CIDR,              'summary net');
+  is($found->{netname},     $NETNAME,           'summary netname');
+  is($found->{description}, 'Test Network',     'summary description');
+  is($found->{dhcp},        JSON::PP::true,     'summary dhcp enabled');
+  is($found->{vlan},        -1,                 'summary vlan none');
+  is($found->{alevel},      0,                  'summary alevel');
+  ok(!exists $found->{comment}, 'summary omits comment');
+  ok(!exists $found->{server_id}, 'summary omits server_id');
 };
 
 subtest 'GET /servers/{server}/networks - server-R user can list' => sub {
@@ -160,14 +171,6 @@ subtest 'GET /servers/{server}/networks - server-R user can list' => sub {
   my $json = $t->tx->res->json;
   ok(ref $json eq 'ARRAY', 'response is an array');
   cmp_ok(scalar @$json, '>=', 1, 'server-R user sees networks');
-};
-
-subtest 'GET /servers/{server}/networks - filter by subnets' => sub {
-  $t->get_ok("$BASE/networks?subnets=1" => $SUPER)->status_is(200);
-  my $json = $t->tx->res->json;
-  for my $net (@$json) {
-    is($net->{subnet}, JSON::PP::true, "filtered: $net->{netname} is a subnet");
-  }
 };
 
 # ========================================================================
@@ -256,6 +259,57 @@ subtest 'DELETE /servers/{server}/network/{net} - 404 for non-existent' => sub {
 subtest 'Non-existent server returns 404' => sub {
   $t->get_ok("/api/v1/servers/nonexistent-${pid}/networks" => $SUPER)->status_is(404);
   $t->get_ok("/api/v1/servers/nonexistent-${pid}/network/1.2.3.0/24" => $SUPER)->status_is(404);
+};
+
+# ========================================================================
+# VLAN name enrichment
+# ========================================================================
+
+subtest 'GET /servers/{server}/networks - vlan_name when authorized' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $vlan_id = Sauron::BackEnd::add_vlan({
+    server  => $srv,
+    name    => "test-vlan-${pid}",
+    vlanno  => 100 + ($pid % 899),
+    dhcp_l  => [],
+    dhcp_l6 => [],
+  });
+  ok($vlan_id > 0, 'vlan created');
+
+  Sauron::DB::db_exec("UPDATE nets SET vlan=$vlan_id WHERE id=$nets[0]");
+
+  my $vlanuser = create_test_user(
+    username => "netvlan_${pid}",
+    email    => "netvlan_${pid}\@example.com",
+  );
+  push @users, $vlanuser;
+  grant_server_access($vlanuser, $srv, 'R');
+  Sauron::BackEnd::add_record('user_rights', {
+    type => 2, ref => $vlanuser, rtype => 6, rref => 0, rule => 5,
+  });
+  my $VLANUSER = { 'X-Remote-User' => "netvlan_${pid}\@example.com" };
+
+  $t->get_ok("$BASE/networks" => $VLANUSER)->status_is(200);
+  my $json = $t->tx->res->json;
+  my ($found) = grep { $_->{id} == $nets[0] } @$json;
+  ok($found, 'found test net in list');
+  is($found->{vlan},      $vlan_id,           'vlan id present');
+  is($found->{vlan_name}, "test-vlan-${pid}", 'vlan_name enriched');
+
+  $t->get_ok("$BASE/network/$NETNAME" => $VLANUSER)->status_is(200);
+  $json = $t->tx->res->json;
+  is($json->{vlan},      $vlan_id,           'get_net vlan id present');
+  is($json->{vlan_name}, "test-vlan-${pid}", 'get_net vlan_name enriched');
+
+  $t->get_ok("$BASE/networks" => $RUSER)->status_is(200);
+  $json = $t->tx->res->json;
+  ($found) = grep { $_->{id} == $nets[0] } @$json;
+  ok($found, 'found test net as low-alevel user');
+  is($found->{vlan},      $vlan_id, 'vlan id still visible');
+  is($found->{vlan_name}, undef,    'vlan_name hidden without ALEVEL_VLANS');
+
+  Sauron::DB::db_exec("UPDATE nets SET vlan=-1 WHERE id=$nets[0]");
+  Sauron::DB::db_exec("DELETE FROM vlans WHERE id=$vlan_id");
 };
 
 # ========================================================================

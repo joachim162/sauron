@@ -1459,6 +1459,57 @@ NetFields:
             type: string
             nullable: true
 
+NetList:
+  type: object
+  description: Lightweight network record for list views.
+  required:
+    - id
+    - net
+    - netname
+    - description
+    - dhcp
+    - vlan
+    - vlan_name
+    - alevel
+  properties:
+    id:
+      type: integer
+      example: 5
+    net:
+      type: string
+      description: Network in CIDR notation
+      example: 192.168.1.0/24
+    netname:
+      type: string
+      nullable: true
+      description: Network handle
+      example: office-net
+    description:
+      type: string
+      nullable: true
+      description: Descriptive name (the nets.name column)
+      example: Office Network
+    dhcp:
+      type: boolean
+      nullable: true
+      description: >
+        true when DHCP is enabled, false when disabled, null for dummy/virtual
+        subnets where DHCP is not applicable
+    vlan:
+      type: integer
+      nullable: true
+      description: VLAN ID (-1 if none)
+      example: 3
+    vlan_name:
+      type: string
+      nullable: true
+      description: VLAN name, null when the user lacks VLAN authorization level
+      example: Office VLAN
+    alevel:
+      type: integer
+      description: Required authorization level
+      example: 0
+
 Net:
   allOf:
     - $ref: '#/NetFields'
@@ -1490,6 +1541,11 @@ Net:
           type: string
           nullable: true
           description: Last modified by user
+        vlan_name:
+          type: string
+          nullable: true
+          description: VLAN name, only present when the user has VLAN authorization level
+          example: Office VLAN
 
 NewNet:
   allOf:
