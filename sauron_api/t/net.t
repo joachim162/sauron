@@ -157,7 +157,7 @@ subtest 'GET /servers/{server}/networks - summary list (superuser)' => sub {
   ok($found, 'created network present in summary');
   is($found->{net},         $CIDR,              'summary net');
   is($found->{netname},     $NETNAME,           'summary netname');
-  is($found->{description}, 'Test Network',     'summary description');
+  is($found->{name},        'Test Network',     'summary name');
   is($found->{dhcp},        JSON::PP::true,     'summary dhcp enabled');
   is($found->{vlan},        -1,                 'summary vlan none');
   is($found->{alevel},      0,                  'summary alevel');
@@ -177,8 +177,8 @@ subtest 'GET /servers/{server}/networks - server-R user can list' => sub {
 # GET
 # ========================================================================
 
-subtest 'GET /servers/{server}/network/{net} - by netname' => sub {
-  $t->get_ok("$BASE/network/$NETNAME" => $SUPER)->status_is(200);
+subtest 'GET /servers/{server}/networks/{net} - by netname' => sub {
+  $t->get_ok("$BASE/networks/$NETNAME" => $SUPER)->status_is(200);
 
   my $json = $t->tx->res->json;
   is($json->{net},    $CIDR,    'CIDR matches');
@@ -190,17 +190,17 @@ subtest 'GET /servers/{server}/network/{net} - by netname' => sub {
 # x-mojo-placeholder: '#') but cannot be tested via Test::Mojo because
 # the client normalizes '/' in the path before the route engine sees it.
 
-subtest 'GET /servers/{server}/network/{net} - 404 for non-existent' => sub {
-  $t->get_ok("$BASE/network/999.999.999.0/24" => $SUPER)->status_is(404);
-  $t->get_ok("$BASE/network/nonexistent-net"   => $SUPER)->status_is(404);
+subtest 'GET /servers/{server}/networks/{net} - 404 for non-existent' => sub {
+  $t->get_ok("$BASE/networks/999.999.999.0/24" => $SUPER)->status_is(404);
+  $t->get_ok("$BASE/networks/nonexistent-net"   => $SUPER)->status_is(404);
 };
 
 # ========================================================================
 # UPDATE
 # ========================================================================
 
-subtest 'PUT /servers/{server}/network/{net} - update fields' => sub {
-  $t->put_ok("$BASE/network/$NETNAME" => $SUPER => json => {
+subtest 'PUT /servers/{server}/networks/{net} - update fields' => sub {
+  $t->put_ok("$BASE/networks/$NETNAME" => $SUPER => json => {
     comment => 'Updated comment',
     alevel  => 5,
     no_dhcp => JSON::PP::true,
@@ -214,8 +214,8 @@ subtest 'PUT /servers/{server}/network/{net} - update fields' => sub {
   is($json->{net},      $CIDR,               'unchanged CIDR preserved');
 };
 
-subtest 'PUT /servers/{server}/network/{net} - partial update' => sub {
-  $t->put_ok("$BASE/network/$NETNAME" => $SUPER => json => {
+subtest 'PUT /servers/{server}/networks/{net} - partial update' => sub {
+  $t->put_ok("$BASE/networks/$NETNAME" => $SUPER => json => {
     comment => 'Partial update only',
   })->status_is(200);
 
@@ -225,8 +225,8 @@ subtest 'PUT /servers/{server}/network/{net} - partial update' => sub {
   is($json->{no_dhcp}, JSON::PP::true, 'no_dhcp unchanged');
 };
 
-subtest 'PUT /servers/{server}/network/{net} - 404 for non-existent' => sub {
-  $t->put_ok("$BASE/network/999.999.999.0/24" => $SUPER => json => {
+subtest 'PUT /servers/{server}/networks/{net} - 404 for non-existent' => sub {
+  $t->put_ok("$BASE/networks/999.999.999.0/24" => $SUPER => json => {
     comment => 'nope',
   })->status_is(404);
 };
@@ -235,7 +235,7 @@ subtest 'PUT /servers/{server}/network/{net} - 404 for non-existent' => sub {
 # DELETE
 # ========================================================================
 
-subtest 'DELETE /servers/{server}/network/{net} - delete a network' => sub {
+subtest 'DELETE /servers/{server}/networks/{net} - delete a network' => sub {
   my $del_octet = ($pid + 2) % 254 + 1;
   $t->post_ok("$BASE/networks" => $SUPER => json => {
     netname => "delete-me-${pid}",
@@ -243,13 +243,13 @@ subtest 'DELETE /servers/{server}/network/{net} - delete a network' => sub {
     net     => "10.88.${del_octet}.0/24",
   })->status_is(201);
 
-  $t->delete_ok("$BASE/network/delete-me-${pid}" => $SUPER)->status_is(204);
+  $t->delete_ok("$BASE/networks/delete-me-${pid}" => $SUPER)->status_is(204);
 
-  $t->get_ok("$BASE/network/delete-me-${pid}" => $SUPER)->status_is(404);
+  $t->get_ok("$BASE/networks/delete-me-${pid}" => $SUPER)->status_is(404);
 };
 
-subtest 'DELETE /servers/{server}/network/{net} - 404 for non-existent' => sub {
-  $t->delete_ok("$BASE/network/999.999.999.0/24" => $SUPER)->status_is(404);
+subtest 'DELETE /servers/{server}/networks/{net} - 404 for non-existent' => sub {
+  $t->delete_ok("$BASE/networks/999.999.999.0/24" => $SUPER)->status_is(404);
 };
 
 # ========================================================================
@@ -258,7 +258,7 @@ subtest 'DELETE /servers/{server}/network/{net} - 404 for non-existent' => sub {
 
 subtest 'Non-existent server returns 404' => sub {
   $t->get_ok("/api/v1/servers/nonexistent-${pid}/networks" => $SUPER)->status_is(404);
-  $t->get_ok("/api/v1/servers/nonexistent-${pid}/network/1.2.3.0/24" => $SUPER)->status_is(404);
+  $t->get_ok("/api/v1/servers/nonexistent-${pid}/networks/1.2.3.0/24" => $SUPER)->status_is(404);
 };
 
 # ========================================================================
@@ -296,7 +296,7 @@ subtest 'GET /servers/{server}/networks - vlan_name when authorized' => sub {
   is($found->{vlan},      $vlan_id,           'vlan id present');
   is($found->{vlan_name}, "test-vlan-${pid}", 'vlan_name enriched');
 
-  $t->get_ok("$BASE/network/$NETNAME" => $VLANUSER)->status_is(200);
+  $t->get_ok("$BASE/networks/$NETNAME" => $VLANUSER)->status_is(200);
   $json = $t->tx->res->json;
   is($json->{vlan},      $vlan_id,           'get_net vlan id present');
   is($json->{vlan_name}, "test-vlan-${pid}", 'get_net vlan_name enriched');
@@ -316,23 +316,23 @@ subtest 'GET /servers/{server}/networks - vlan_name when authorized' => sub {
 # Authorization aligned with legacy CGI
 # ========================================================================
 
-subtest 'GET /servers/{server}/network/{net} - server-R user can read' => sub {
-  $t->get_ok("$BASE/network/$NETNAME" => $RUSER)->status_is(200);
+subtest 'GET /servers/{server}/networks/{net} - server-R user can read' => sub {
+  $t->get_ok("$BASE/networks/$NETNAME" => $RUSER)->status_is(200);
 
   my $json = $t->tx->res->json;
   is($json->{net},     $CIDR,    'CIDR matches');
   is($json->{netname}, $NETNAME, 'netname matches');
 };
 
-subtest 'PUT /servers/{server}/network/{net} - non-superuser is denied' => sub {
-  $t->put_ok("$BASE/network/$NETNAME" => $RWUSER => json => { comment => 'hacked' })
+subtest 'PUT /servers/{server}/networks/{net} - non-superuser is denied' => sub {
+  $t->put_ok("$BASE/networks/$NETNAME" => $RWUSER => json => { comment => 'hacked' })
     ->status_is(403)
     ->json_is('/error' => 'Forbidden')
     ->json_is('/message' => 'Administrator privileges required');
 };
 
-subtest 'DELETE /servers/{server}/network/{net} - non-superuser is denied' => sub {
-  $t->delete_ok("$BASE/network/$NETNAME" => $RWUSER)
+subtest 'DELETE /servers/{server}/networks/{net} - non-superuser is denied' => sub {
+  $t->delete_ok("$BASE/networks/$NETNAME" => $RWUSER)
     ->status_is(403)
     ->json_is('/error' => 'Forbidden')
     ->json_is('/message' => 'Administrator privileges required');
@@ -344,9 +344,9 @@ subtest 'Network access - user without server access is denied' => sub {
   my $HEADERS = { 'X-Remote-User' => "netnoacc_${pid}\@example.com" };
 
   $t->get_ok("$BASE/networks" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
-  $t->get_ok("$BASE/network/${NETNAME}" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
-  $t->put_ok("$BASE/network/${NETNAME}" => $HEADERS => json => { comment => 'hack' })->status_is(403)->json_is('/error' => 'Forbidden');
-  $t->delete_ok("$BASE/network/${NETNAME}" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
+  $t->get_ok("$BASE/networks/${NETNAME}" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
+  $t->put_ok("$BASE/networks/${NETNAME}" => $HEADERS => json => { comment => 'hack' })->status_is(403)->json_is('/error' => 'Forbidden');
+  $t->delete_ok("$BASE/networks/${NETNAME}" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
 };
 
 done_testing();

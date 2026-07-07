@@ -105,7 +105,7 @@ paths:
   /servers/{server}/networks:
     $ref: "./paths/networks.yaml"
 
-  /servers/{server}/network/{net}:
+  /servers/{server}/networks/{net}:
     $ref: "./paths/network.yaml"
 
 components:

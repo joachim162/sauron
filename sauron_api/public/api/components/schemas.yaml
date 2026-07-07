@@ -1466,7 +1466,7 @@ NetList:
     - id
     - net
     - netname
-    - description
+    - name
     - dhcp
     - vlan
     - vlan_name
@@ -1484,7 +1484,7 @@ NetList:
       nullable: true
       description: Network handle
       example: office-net
-    description:
+    name:
       type: string
       nullable: true
       description: Descriptive name (the nets.name column)

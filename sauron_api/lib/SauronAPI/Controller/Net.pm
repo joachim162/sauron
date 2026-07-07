@@ -98,7 +98,7 @@ sub _build_net_response {
 
   $response->{range_start} = $net_data->{range_start} || undef;
   $response->{range_end}   = $net_data->{range_end}   || undef;
-  $response->{ip_policy}   = $net_data->{ip_policy}   || undef;
+  $response->{ip_policy}   = $net_data->{ip_policy}   // undef;
 
   for my $field (@ARRAY_FIELDS) {
     if (ref $net_data->{$field} eq 'ARRAY') {
@@ -127,7 +127,7 @@ sub _build_net_list_response {
     id          => $row->[1],
     net         => $row->[0],
     netname     => $row->[3],
-    description => $row->[2],
+    name        => $row->[2],
     dhcp        => $dhcp,
     vlan        => $vlan_id,
     vlan_name   => $vlan_name,
