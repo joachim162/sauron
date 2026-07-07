@@ -18,8 +18,8 @@ Guidelines for agentic coding agents working on the Sauron codebase.
 
 - **`origin`** — `https://github.com/joachim162/sauron.git` (default, push here)
 - **`upstream`** — `https://github.com/tjko/sauron.git` (read-only upstream, never push)
-- **Current branch:** `modernize/rest-api-and-frontend`
-- **Create issues on:** `joachim162/sauron` (`gh issue create --repo joachim162/sauron`)
+- **Create issues on:** `joachim162/sauron` (`gh issue create --repo joachim162/sauron --label <label>`)
+- **Commit message format:** `type(scope): description` (e.g. `fix(ui): align nets list with hosts`, `feat(api): add vlan enrichment`, `docs: ...`)
 
 >>>>>>> 9431850 (Update AGENTS.md)
 ## Build & Run
@@ -59,12 +59,16 @@ docker-compose logs sauron_api-1     # View API logs
 >>>>>>> 9431850 (Update AGENTS.md)
 ```
 
-**Perl syntax checks require Sauron modules on path:**
+**Perl syntax checks** require Sauron modules on path. Mojolicious is not installed on the host — check API files inside Docker or skip:
 ```bash
+<<<<<<< HEAD
 PERL5LIB=/home/jachym/Documents/sauron perl -wc Sauron/BackEnd.pm
 >>>>>>> 8ee0faa (Refactor auth logic into shared helpers, consolidate proxy/session resolution)
+=======
+PERL5LIB=/srv/sauron:/srv/sauron/sauron_api/lib perl -wc Sauron/BackEnd.pm
+docker compose exec sauron_api bash -c "cd /srv/sauron && PERL5LIB=/srv/sauron:/srv/sauron/sauron_api/lib perl -wc sauron_api/lib/SauronAPI/Controller/Net.pm"
+>>>>>>> 66370af (docs: update AGENTS.md with current state and commit conventions)
 ```
-Mojolicious modules are not installed on the host — syntax-check API files inside Docker or skip them.
 
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -91,21 +95,29 @@ source sauron_api/test_api.sh  # Curl-based integration tests (requires running 
 =======
 **API tests (inside container):**
 ```bash
-docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/host.t"
+docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/net.t"
+# Run multiple: prove -l t/net.t t/host.t t/authz.t
 ```
+`t/basic.t` and `t/auth.t` have pre-existing failures unrelated to most changes.
 
 **Frontend:**
 ```bash
-cd frontend && npm run build   # TypeScript check + Vite build
+cd frontend && npm run build            # May fail on host due to node_modules perms; use Docker instead:
+docker compose exec frontend bash -c "cd /srv/sauron/frontend && npm run build"
 ```
-Vite dev server runs inside the `frontend` Docker container with HMR — source changes are picked up automatically.
+Vite dev server runs inside the `frontend` container with HMR.
 
 **OpenAPI spec bundling:**
-The API loads from `public/api/dist/openapi.yaml`, bundled from the split spec files. Regenerate after editing `paths/` or `components/` files:
+The API loads the bundled spec from `public/api/dist/openapi.yaml`. After editing `paths/` or `components/` files, regenerate it and **restart the API container**:
 ```bash
 docker compose exec sauron_api bash -c "cd /srv/sauron && npx @redocly/cli bundle sauron_api/public/api/openapi.yaml -o sauron_api/public/api/dist/openapi.yaml"
+<<<<<<< HEAD
 >>>>>>> 9431850 (Update AGENTS.md)
+=======
+docker compose restart sauron_api
+>>>>>>> 66370af (docs: update AGENTS.md with current state and commit conventions)
 ```
+The bundled spec is gitignored — don't commit it.
 
 ## Architecture
 
@@ -284,15 +296,18 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 
 **Key entry points:**
 - `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, `before_dispatch` hook
-- `sauron_api/lib/SauronAPI/Controller/` — One controller per resource (Auth, Host, Server, Zone)
+- `sauron_api/lib/SauronAPI/Controller/` — One controller per resource (Auth, Host, Server, Zone **Net**)
 - `Sauron/BackEnd.pm` — 4500+ lines, all database operations. Always use this instead of raw SQL.
 - `sauron_api/public/api/openapi.yaml` — Root OpenAPI spec (references `paths/` and `components/`)
 - `frontend/src/api/index.ts` — Frontend API client
 - `frontend/src/hooks/use-auth.tsx` — Auth context provider
 
-**OpenAPI spec ↔ code binding:** Routes use `x-mojo-to: "Controller#action"` to map spec operations to Perl methods. The OpenAPI plugin at `/api/v1` automatically routes based on these annotations.
+## API Known Quirks
 
-**`before_dispatch` hook:** Adjusts `url->base` from proxy headers, then resolves auth (proxy → session → none). Populates `api_user_id`, `api_perms`, `api_auth_method` in stash — available in every controller.
+- **Network singleton path** is `/networks/{net}` (not `/network/{net}`). Collection: `/networks`.
+- **`get_server_id_or_404` helper** is registered in `SauronAPI.pm` and should be used instead of duplicating server resolution in controllers.
+- `Sauron::BackEnd::add_net` does not handle `private_flag` correctly (see GitHub issue #12). Create endpoints do not send `private_flag` until it's fixed.
+- The `BackEnd::get_net_list` now returns extended columns (`net,id,name,netname,comment,no_dhcp,dummy,vlan,alevel`). The legacy [net,id,name] prefix is preserved for CGI callers.
 
 ## Code Style
 
@@ -302,6 +317,7 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 - **Perl BackEnd booleans:** Stored as `'t'`/`'f'` strings — convert when building API responses
 - **No comments unless requested**
 - **TypeScript:** shadcn/ui conventions, TanStack Query for data fetching, `lucide-react` for icons
+- **API client** is in `frontend/src/api/index.ts`. Use TanStack Query's `useQuery`/`useMutation` for data fetching.
 
 ## OpenAPI Pitfalls
 
@@ -310,6 +326,7 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 - **Auth method enum:** Use `proxy` (not `oidc`) — enum is `[password, proxy, pat]`.
 - **`security: []`** means no OpenAPI validation — `before_dispatch` still runs and may have set `api_user_id`.
 - **OpenAPI security** only declares `BearerAuth` — proxy and session auth handled procedurally in `before_dispatch`.
+- **`x-mojo-placeholder: '#'`** on path parameters allows slashes (used for CIDR in the `net` parameter).
 
 ## Docker Gotchas
 
@@ -324,7 +341,9 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 
 ## Frontend State
 
-- Host CRUD works. Other pages (Users, Groups, ACLs, Keys, Nets, VLANs, Templates) are "Coming Soon" placeholders.
+- **Networks CRUD** fully implemented (list with create dialog, detail/edit page mirroring legacy CGI).
+- **Host CRUD** works.
+- Other pages (Users, Groups, ACLs, Keys, VLANs, Templates) are "Coming Soon" placeholders.
 - RHF (Required Host Fields) is fully implemented: API enforces on POST/PUT, frontend shows red `*` markers, error messages display inline.
 - The frontend reads RHF from `permissions.rhf` in `/auth/me` response.
 
