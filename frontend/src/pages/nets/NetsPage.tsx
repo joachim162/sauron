@@ -19,8 +19,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Pencil, Trash2, Loader2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { useState } from "react";
+import { ApiRequestError } from "@/lib/api-client";
 
 function dhcpLabel(dhcp: boolean | null | undefined) {
   if (dhcp === null || dhcp === undefined) return "N/A";
@@ -80,7 +81,11 @@ export default function NetsPage() {
     {
       accessorKey: "subnet",
       header: "Type",
-      cell: ({ getValue }) => (getValue() ? "Subnet" : "Net"),
+      cell: ({ getValue }) => (
+        <Badge variant="outline" className="text-xs">
+          {getValue() ? "Subnet" : "Net"}
+        </Badge>
+      ),
     },
     {
       accessorKey: "dummy",
@@ -110,33 +115,29 @@ export default function NetsPage() {
       header: "",
       cell: ({ row }) => (
         <div className="flex items-center gap-1 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/nets/${encodeURIComponent(row.original.netname)}`);
+            }}
+          >
+            Detail
+          </Button>
           {isSuperuser && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/nets/${encodeURIComponent(row.original.netname)}`);
-                }}
-                title="Edit"
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-destructive"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteName(row.original.netname);
-                }}
-                title="Delete"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive"
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteName(row.original.netname);
+              }}
+              title="Delete"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           )}
         </div>
       ),
@@ -160,6 +161,16 @@ export default function NetsPage() {
         )}
       </div>
 
+      {/* Search bar — disabled until search API is available */}
+      <form onSubmit={(e) => e.preventDefault()} className="flex gap-2">
+        <div className="relative flex-1">
+          <Input value="" readOnly placeholder="Search coming soon..." className="pl-9 opacity-50" />
+        </div>
+        <Button type="submit" variant="secondary" disabled>
+          Search
+        </Button>
+      </form>
+
       <DataTable
         columns={columns}
         data={nets || []}
@@ -171,7 +182,7 @@ export default function NetsPage() {
       {/* Create dialog */}
       {createOpen && (
         <Dialog open={createOpen} onOpenChange={() => setCreateOpen(false)}>
-          <DialogContent>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>New Network</DialogTitle>
               <DialogDescription>Create a new network on {serverName}.</DialogDescription>
@@ -187,35 +198,44 @@ export default function NetsPage() {
                   comment: (fd.get("comment") as string) || undefined,
                 });
               }}
+              className="space-y-4"
             >
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="netname">Netname</Label>
-                  <Input id="netname" name="netname" required />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Description</Label>
-                  <Input id="name" name="name" required />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="type">Type</Label>
-                  <Input id="type" name="type" value="Net" disabled />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="net">Net (CIDR)</Label>
-                  <Input id="net" name="net" placeholder="192.168.1.0/24" required />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="comment">Comment</Label>
-                  <Textarea id="comment" name="comment" />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="netname">Netname</Label>
+                <Input id="netname" name="netname" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="name">Description</Label>
+                <Input id="name" name="name" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="type">Type</Label>
+                <Input id="type" name="type" value="Net" disabled />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="net">Net (CIDR)</Label>
+                <Input id="net" name="net" placeholder="192.168.1.0/24" required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="comment">Comment</Label>
+                <Textarea id="comment" name="comment" />
               </div>
               <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>
+                  Cancel
+                </Button>
                 <Button type="submit" disabled={createMutation.isPending}>
                   {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Create
                 </Button>
               </DialogFooter>
+              {createMutation.isError && (
+                <p className="text-sm text-destructive">
+                  {createMutation.error instanceof ApiRequestError
+                    ? createMutation.error.data.message || createMutation.error.message
+                    : "Failed to create network."}
+                </p>
+              )}
             </form>
           </DialogContent>
         </Dialog>
@@ -244,6 +264,13 @@ export default function NetsPage() {
                 Delete
               </Button>
             </DialogFooter>
+            {deleteMutation.isError && (
+              <p className="text-sm text-destructive">
+                {deleteMutation.error instanceof ApiRequestError
+                  ? deleteMutation.error.data.message || deleteMutation.error.message
+                  : "Failed to delete network."}
+              </p>
+            )}
           </DialogContent>
         </Dialog>
       )}

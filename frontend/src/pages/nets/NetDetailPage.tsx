@@ -30,7 +30,14 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, Plus } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, Plus, MoreHorizontal, Info, Zap, List } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useState, useEffect } from "react";
 
 const IP_POLICY_OPTIONS: Record<number, string> = {
@@ -48,6 +55,63 @@ function parseBoolean(value: string) {
   if (value === "true") return true;
   if (value === "false") return false;
   return undefined;
+}
+
+function computeNetInfo(cidr: string) {
+  const parts = cidr.split("/");
+  const ip = parts[0];
+  const prefix = parseInt(parts[1], 10);
+  const isV4 = ip.indexOf(":") === -1;
+  const size = isV4 ? Math.pow(2, 32 - prefix) : Math.pow(2, 128 - prefix);
+  if (isV4) {
+    const baseInt = ipToIntV4(ip);
+    const maskInt = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+    const netInt = (baseInt & maskInt) >>> 0;
+    const broadcastInt = (netInt | (~maskInt >>> 0)) >>> 0;
+    const netmask = intToIpV4(maskInt);
+    const base = intToIpV4(netInt);
+    const broadcast = intToIpV4(broadcastInt);
+    const first = size >= 2 ? intToIpV4(netInt + 1) : base;
+    const last = size > 2 ? intToIpV4(broadcastInt - 1) : broadcast;
+    const usable = size <= 2 ? 0 : size - 2;
+    return { base, netmask, broadcast, size, first, last, usable };
+  }
+  const baseInt = ipToIntV6(ip);
+  const maskInt = BigInt(~0 << (128 - prefix));
+  const netInt = baseInt & maskInt;
+  const broadcastInt = netInt | ~maskInt;
+  const netmask = intToIpV6(maskInt);
+  const base = intToIpV6(netInt);
+  const broadcast = intToIpV6(broadcastInt);
+  const first = base;
+  const last = broadcast;
+  const usable = size;
+  return { base, netmask, broadcast, size, first, last, usable };
+}
+
+function ipToIntV4(ip: string): number {
+  return ip.split(".").reduce((acc, oct) => (acc << 8) + parseInt(oct, 10), 0) >>> 0;
+}
+
+function ipToIntV6(ip: string): bigint {
+  const parts = ip.split(":");
+  let hex = "";
+  for (const p of parts) hex += p.padStart(4, "0");
+  return BigInt("0x" + hex);
+}
+
+function intToIpV4(val: number): string {
+  return [
+    (val >>> 24) & 255,
+    (val >>> 16) & 255,
+    (val >>> 8) & 255,
+    val & 255,
+  ].join(".");
+}
+
+function intToIpV6(val: bigint): string {
+  const hex = val.toString(16).padStart(32, "0");
+  return hex.match(/.{4}/g)!.join(":");
 }
 
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -68,6 +132,7 @@ export default function NetDetailPage() {
 
   const [editing, setEditing] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [netInfoOpen, setNetInfoOpen] = useState(false);
   const [form, setForm] = useState<Partial<Net>>({});
   const [dhcpRows, setDhcpRows] = useState<DhcpEntry[]>([]);
 
@@ -191,22 +256,42 @@ export default function NetDetailPage() {
         <div className="flex items-center gap-2">
           {isSuperuser && !editing && (
             <>
-              <Button variant="outline" onClick={() => setEditing(true)}>
+              <Button size="sm" onClick={() => setEditing(true)}>
                 <Pencil className="mr-2 h-4 w-4" />
                 Edit
               </Button>
-              <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    className="text-destructive"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" /> Delete
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setNetInfoOpen(true)}>
+                    <Info className="mr-2 h-4 w-4" /> Net Info
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled>
+                    <Zap className="mr-2 h-4 w-4" /> Ping Sweep
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate(`/hosts?net=${encodeURIComponent(net.net)}`)}>
+                    <List className="mr-2 h-4 w-4" /> Show Hosts
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           {editing && (
             <>
-              <Button variant="outline" onClick={() => { setEditing(false); setForm({ ...net }); setDhcpRows(net.dhcp_l ? [...net.dhcp_l] : []); }}>
+              <Button variant="outline" size="sm" onClick={() => { setEditing(false); setForm({ ...net }); setDhcpRows(net.dhcp_l ? [...net.dhcp_l] : []); }}>
                 Cancel
               </Button>
-              <Button onClick={handleSave} disabled={updateMutation.isPending}>
+              <Button size="sm" onClick={handleSave} disabled={updateMutation.isPending}>
                 {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 <Save className="mr-2 h-4 w-4" />
                 Save
@@ -439,6 +524,8 @@ export default function NetDetailPage() {
         </CardContent>
       </Card>
 
+      <Separator className="my-6" />
+
       {!editing && (
         <Card>
           <CardHeader>
@@ -453,6 +540,40 @@ export default function NetDetailPage() {
         </Card>
       )}
 
+      {/* Net info dialog */}
+      <Dialog open={netInfoOpen} onOpenChange={setNetInfoOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Net Info — {net.netname}</DialogTitle>
+            <DialogDescription>Read-only network information.</DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const info = computeNetInfo(net.net);
+            return (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Net (CIDR)" value={net.net} mono />
+                  <Field label="Base" value={info.base} mono />
+                  <Field label="Netmask" value={info.netmask} mono />
+                  <Field label="Broadcast" value={info.broadcast} mono />
+                  <Field label="Size" value={String(info.size)} />
+                  <Field label="Usable" value={String(info.usable)} />
+                  <Field label="Range start" value={info.first} mono />
+                  <Field label="Range end" value={info.last} mono />
+                </div>
+                <Separator />
+                {/* TODO: fetch actual address usage stats when the API exposes them */}
+                <p className="text-muted-foreground text-xs">Address usage statistics are not available via the API yet.</p>
+              </div>
+            );
+          })()}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNetInfoOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete dialog */}
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent>
           <DialogHeader>
