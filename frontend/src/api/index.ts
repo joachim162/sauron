@@ -5,6 +5,9 @@ import type {
   Server,
   Zone,
   Host,
+  Net,
+  NewNet,
+  UpdateNet,
 } from "@/lib/types";
 
 // ---- Auth ----
@@ -38,6 +41,20 @@ export const zonesApi = {
     api.put<Zone>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}`, data),
   delete: (serverName: string, zoneName: string) =>
     api.del(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}`),
+};
+
+// ---- Networks ----
+export const netsApi = {
+  list: (serverName: string) =>
+    api.get<Net[]>(`/servers/${encodeURIComponent(serverName)}/networks`),
+  get: (serverName: string, netname: string) =>
+    api.get<Net>(`/servers/${encodeURIComponent(serverName)}/networks/${encodeURIComponent(netname)}`),
+  create: (serverName: string, data: NewNet) =>
+    api.post<Net>(`/servers/${encodeURIComponent(serverName)}/networks`, data),
+  update: (serverName: string, netname: string, data: UpdateNet) =>
+    api.put<Net>(`/servers/${encodeURIComponent(serverName)}/networks/${encodeURIComponent(netname)}`, data),
+  delete: (serverName: string, netname: string) =>
+    api.del(`/servers/${encodeURIComponent(serverName)}/networks/${encodeURIComponent(netname)}`),
 };
 
 // ---- Hosts ----

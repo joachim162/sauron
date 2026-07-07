@@ -90,12 +90,59 @@ export const HOST_TYPES: Record<number, string> = {
   101: "Reservation",
 };
 
+export interface DhcpEntry {
+  dhcp: string;
+  comment?: string;
+}
+
 export interface Net {
   id: number;
-  name: string;
+  server_id: number;
+  netname: string;
+  name?: string;
+  net: string;
   comment?: string;
+  subnet?: boolean;
+  dummy?: boolean;
+  vlan?: number;
+  vlan_name?: string | null;
+  alevel?: number;
+  private_flag?: boolean;
+  range_start?: string;
+  range_end?: string;
+  ip_policy?: number;
+  no_dhcp?: boolean;
+  dhcp?: boolean | null;
+  dhcp_l?: DhcpEntry[];
+  rp_mbox?: string;
+  rp_txt?: string;
+  cdate?: number;
+  cuser?: string;
+  mdate?: number;
+  muser?: string;
   [key: string]: unknown;
 }
+
+export interface NewNet {
+  netname: string;
+  name: string;
+  net: string;
+  comment?: string;
+  subnet?: boolean;
+  dummy?: boolean;
+  vlan?: number;
+  alevel?: number;
+  private_flag?: boolean;
+  range_start?: string;
+  range_end?: string;
+  ip_policy?: number;
+  no_dhcp?: boolean;
+  dhcp_l?: DhcpEntry[];
+  rp_mbox?: string;
+  rp_txt?: string;
+}
+
+export interface UpdateNet extends Partial<NewNet> {}
 
 export interface Group {
   id: number;
