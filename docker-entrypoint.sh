@@ -119,7 +119,21 @@ EOF
   echo ""
 
 else
-  echo "=== Database already initialized ($DB_TABLES tables), skipping setup ==="
+  echo "=== Database already initialized ($DB_TABLES tables), applying schema migrations ==="
+fi
+
+# Apply any pending schema migrations (non-fatal — columns may already exist)
+# Matches both dbconvert_X.YtoZ.W.sql and dbconvert_X.YtoZ.W (no extension)
+for f in /srv/sauron/sql/dbconvert_*; do
+  [ -f "$f" ] || continue
+  echo "=== Applying migration: $(basename "$f") ==="
+  psql -f "$f" || true
+done
+
+# Apply unallocated_subnets function
+if [ -f /srv/sauron/sql/unallocated_subnets.sql ]; then
+  echo "=== Applying unallocated_subnets.sql ==="
+  psql -f /srv/sauron/sql/unallocated_subnets.sql || true
 fi
 
 echo "=== Bundling OpenAPI spec with Redocly ==="

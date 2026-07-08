@@ -41,6 +41,7 @@ Listen 443
     # API proxy — ProxyPass ! excludes /app/ from catch-all
     ProxyPass /app/ !
     ProxyPass /app !
+    ProxyPreserveHost On
     ProxyPass / http://sauron_api:3000/
     ProxyPassReverse / http://sauron_api:3000/
 
@@ -206,6 +207,7 @@ Listen 443
     # Exclude /app/ from API proxy
     ProxyPass /app/ !
     ProxyPass /app !
+    ProxyPreserveHost On
     ProxyPass / http://sauron_api:3000/
     ProxyPassReverse / http://sauron_api:3000/
 
