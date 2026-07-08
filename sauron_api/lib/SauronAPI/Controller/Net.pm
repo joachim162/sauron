@@ -114,8 +114,11 @@ sub _build_net_list_response {
 
   my $dummy = (defined $row->[6] && ($row->[6] eq 't' || $row->[6] eq '1'));
   my $no_dhcp = (defined $row->[5] && ($row->[5] eq 't' || $row->[5] eq '1'));
+  my $subnet = (defined $row->[9] && ($row->[9] eq 't' || $row->[9] eq '1'));
+  my $unallocated = (defined $row->[1] && $row->[1] == -1);
 
-  my $dhcp = $dummy ? undef : ($no_dhcp ? $JSON::PP::false : $JSON::PP::true);
+  my $dhcp = ($dummy || $unallocated)
+    ? undef : ($no_dhcp ? $JSON::PP::false : $JSON::PP::true);
 
   my $vlan_id = $row->[7] // -1;
   my $vlan_name = undef;
@@ -128,6 +131,8 @@ sub _build_net_list_response {
     net         => $row->[0],
     netname     => $row->[3],
     name        => $row->[2],
+    subnet      => ($subnet ? $JSON::PP::true : $JSON::PP::false),
+    dummy       => ($dummy ? $JSON::PP::true : $JSON::PP::false),
     dhcp        => $dhcp,
     vlan        => $vlan_id,
     vlan_name   => $vlan_name,
@@ -148,7 +153,17 @@ sub list_nets ($self) {
   my $perms = $self->stash('api_perms');
   my $user_alevel = $perms->{alevel} // 0;
 
-  my $net_list = Sauron::BackEnd::get_net_list($server_id, 0, $user_alevel);
+  # Unallocated address blocks are only shown to sufficiently
+  # authorized users (same gating as the legacy CGI menu entry);
+  # otherwise the flag is silently ignored.
+  my $free = $self->param('free');
+  $free = ($free && $free ne 'false') ? 1 : 0;
+  if ($free) {
+    $free = 0 unless ($self->stash('api_superuser')
+                      || ($user_alevel >= $main::ALEVEL_SHOW_UNALLOCATED_CIDRS));
+  }
+
+  my $net_list = Sauron::BackEnd::get_net_list($server_id, 0, $user_alevel, $free);
   my @nets;
 
   my $include_vlan_names = ($self->stash('api_superuser')
@@ -159,7 +174,7 @@ sub list_nets ($self) {
   }
 
   for my $row (@$net_list) {
-    next unless ref $row eq 'ARRAY' && @$row >= 9;
+    next unless ref $row eq 'ARRAY' && @$row >= 10;
     push @nets, _build_net_list_response($row, \%vlan_map, $include_vlan_names);
   }
 

@@ -39,6 +39,15 @@ const serverNav = [
   { to: "/mx-templates", icon: Mail, label: "MX Templates" },
 ];
 
+// Sub-categories of the Networks list, mirroring the legacy CGI menu
+// (Networks / + Subnets / + All / + Free)
+const netSubNav = [
+  { mode: "", label: "Networks" },
+  { mode: "sub", label: "+ Subnets" },
+  { mode: "all", label: "+ All" },
+  { mode: "free", label: "+ Free" },
+];
+
 const adminNav = [
   { to: "/users", icon: Users, label: "Users" },
 ];
@@ -122,13 +131,38 @@ export function Sidebar() {
               </div>
               <div className="space-y-1">
                 {serverNav.map((item) => (
-                  <NavItem
-                    key={item.to}
-                    to={item.to}
-                    icon={item.icon}
-                    label={item.label}
-                    active={location.pathname.startsWith(item.to)}
-                  />
+                  <div key={item.to}>
+                    <NavItem
+                      to={item.to}
+                      icon={item.icon}
+                      label={item.label}
+                      active={location.pathname.startsWith(item.to)}
+                    />
+                    {item.to === "/nets" && location.pathname.startsWith("/nets") && (
+                      <div className="ml-6 mt-1 space-y-1 border-l pl-2">
+                        {netSubNav.map((sub) => {
+                          const listParam =
+                            new URLSearchParams(location.search).get("list") ?? "";
+                          const active =
+                            location.pathname === "/nets" && listParam === sub.mode;
+                          return (
+                            <Link
+                              key={sub.mode}
+                              to={sub.mode ? `/nets?list=${sub.mode}` : "/nets"}
+                              className={cn(
+                                "block rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                                active
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                              )}
+                            >
+                              {sub.label}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </>

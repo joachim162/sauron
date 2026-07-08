@@ -3950,8 +3950,8 @@ sub get_net_cidr_by_ip($$) {
   return ($q[0][0] ? $q[0][0] : '');
 }
 
-sub get_net_list($$$) {
-  my ($serverid,$subnets,$alevel) = @_;
+sub get_net_list($$$;$) {
+  my ($serverid,$subnets,$alevel,$free) = @_;
   my (@q,$list,$i);
 
   if ($subnets) {
@@ -3967,15 +3967,26 @@ sub get_net_list($$$) {
     $alevel='';
   }
 
+  # Append unallocated address blocks as pseudo records (id=-1), one row
+  # per gap in each real top-level net (same union as CGI browse_nets).
+  if ($free) {
+    $free=" UNION SELECT unallocated_subnets($serverid,net) AS net,-1,''," .
+	  "'','',true,false,-1,-1,true FROM nets WHERE server=$serverid " .
+	  "AND subnet=false AND dummy=false ";
+  } else {
+    $free='';
+  }
+
   $list=[];
   return $list unless ($serverid >= 0);
 
-  db_query("SELECT net,id,name,netname,comment,no_dhcp,dummy,vlan,alevel FROM nets " .
-	   "WHERE server=$serverid $subnets $alevel ORDER BY net",\@q);
+  db_query("SELECT net,id,name,netname,comment,no_dhcp,dummy,vlan,alevel," .
+	   "subnet FROM nets " .
+	   "WHERE server=$serverid $subnets $alevel $free ORDER BY net",\@q);
 
   for $i (0..$#q) {
     push @{$list}, [ $q[$i][0], $q[$i][1], $q[$i][2], $q[$i][3], $q[$i][4],
-                     $q[$i][5], $q[$i][6], $q[$i][7], $q[$i][8] ];
+                     $q[$i][5], $q[$i][6], $q[$i][7], $q[$i][8], $q[$i][9] ];
   }
   return $list;
 }

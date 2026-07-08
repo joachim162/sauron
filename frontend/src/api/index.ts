@@ -45,8 +45,10 @@ export const zonesApi = {
 
 // ---- Networks ----
 export const netsApi = {
-  list: (serverName: string) =>
-    api.get<Net[]>(`/servers/${encodeURIComponent(serverName)}/networks`),
+  list: (serverName: string, opts?: { free?: boolean }) =>
+    api.get<Net[]>(
+      `/servers/${encodeURIComponent(serverName)}/networks${opts?.free ? "?free=true" : ""}`
+    ),
   get: (serverName: string, netname: string) =>
     api.get<Net>(`/servers/${encodeURIComponent(serverName)}/networks/${encodeURIComponent(netname)}`),
   create: (serverName: string, data: NewNet) =>

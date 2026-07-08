@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { ColumnDef } from "@tanstack/react-table";
 import { netsApi } from "@/api";
-import type { Net } from "@/lib/types";
+import type { Net, NewNet } from "@/lib/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useServerContext } from "@/hooks/use-server-context";
 import { DataTable } from "@/components/DataTable";
@@ -19,6 +19,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { ApiRequestError } from "@/lib/api-client";
@@ -28,24 +35,57 @@ function dhcpLabel(dhcp: boolean | null | undefined) {
   return dhcp ? "Enabled" : "Disabled";
 }
 
+// List sub-categories, mirroring the legacy CGI list modes:
+// "" = top-level nets, sub = + subnets, all = everything,
+// free = everything + unallocated blocks (id=-1 pseudo records)
+const LIST_MODES: Record<string, { title: string; filter: (n: Net) => boolean }> = {
+  "": { title: "Networks", filter: (n) => !n.subnet },
+  sub: { title: "Networks + Subnets", filter: (n) => !n.dummy },
+  all: { title: "All Networks", filter: () => true },
+  free: { title: "Networks + Free Blocks", filter: () => true },
+};
+
+function isUnallocated(net: Net) {
+  return net.id === -1;
+}
+
+function unallocatedLabel(cidr: string) {
+  const parts = cidr.split("/");
+  if (parts.length < 2) return "";
+  const [ip, maskStr] = parts;
+  const bits = ip.includes(":") ? 128 : 32;
+  const hostBits = bits - parseInt(maskStr, 10);
+  const count = 2n ** BigInt(hostBits);
+  const countLabel = count <= 65536n ? String(count) : `2^${hostBits}`;
+  return `${countLabel} unallocated address${count === 1n ? "" : "es"}`;
+}
+
 export default function NetsPage() {
   const { isSuperuser } = useAuth();
   const { serverName } = useServerContext();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+
+  const listParam = searchParams.get("list") ?? "";
+  const listMode = LIST_MODES[listParam] ? listParam : "";
+  const freeMode = listMode === "free";
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [createSubnet, setCreateSubnet] = useState(false);
+  const [createDummy, setCreateDummy] = useState(false);
   const [deleteName, setDeleteName] = useState<string | null>(null);
 
   const { data: nets, isLoading } = useQuery({
-    queryKey: ["nets", serverName],
-    queryFn: () => netsApi.list(serverName!),
+    queryKey: ["nets", serverName, freeMode ? "free" : "std"],
+    queryFn: () => netsApi.list(serverName!, { free: freeMode }),
     enabled: !!serverName,
   });
 
+  const visibleNets = (nets || []).filter(LIST_MODES[listMode].filter);
+
   const createMutation = useMutation({
-    mutationFn: (data: { netname: string; name: string; net: string; comment?: string }) =>
-      netsApi.create(serverName!, { ...data, subnet: false }),
+    mutationFn: (data: NewNet) => netsApi.create(serverName!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["nets", serverName] });
       setCreateOpen(false);
@@ -74,29 +114,47 @@ export default function NetsPage() {
   }
 
   const columns: ColumnDef<Net>[] = [
-    { accessorKey: "id", header: "ID", size: 60 },
+    {
+      accessorKey: "id",
+      header: "ID",
+      size: 60,
+      cell: ({ row }) => (isUnallocated(row.original) ? "—" : row.original.id),
+    },
     { accessorKey: "netname", header: "Netname" },
-    { accessorKey: "name", header: "Description" },
+    {
+      accessorKey: "name",
+      header: "Description",
+      cell: ({ row }) =>
+        isUnallocated(row.original) ? (
+          <span className="text-muted-foreground italic">
+            {unallocatedLabel(row.original.net)}
+          </span>
+        ) : (
+          row.original.name
+        ),
+    },
     { accessorKey: "net", header: "CIDR" },
     {
       accessorKey: "subnet",
       header: "Type",
-      cell: ({ getValue }) => (
+      cell: ({ row }) => (
         <Badge variant="outline" className="text-xs">
-          {getValue() ? "Subnet" : "Net"}
+          {isUnallocated(row.original) ? "Free" : row.original.subnet ? "Subnet" : "Net"}
         </Badge>
       ),
     },
     {
       accessorKey: "dummy",
       header: "Virtual",
-      cell: ({ getValue }) => (getValue() ? "Yes" : "No"),
+      cell: ({ row }) =>
+        isUnallocated(row.original) ? "—" : row.original.dummy ? "Yes" : "No",
     },
     {
       accessorKey: "dhcp",
       header: "DHCP",
-      cell: ({ getValue }) => {
-        const value = getValue() as boolean | null | undefined;
+      cell: ({ row }) => {
+        if (isUnallocated(row.original)) return "—";
+        const value = row.original.dhcp;
         return (
           <Badge variant={value === true ? "default" : value === false ? "secondary" : "outline"}>
             {dhcpLabel(value)}
@@ -107,40 +165,48 @@ export default function NetsPage() {
     {
       accessorKey: "vlan_name",
       header: "VLAN",
-      cell: ({ row }) => row.original.vlan_name || String(row.original.vlan ?? "") || "—",
+      cell: ({ row }) =>
+        isUnallocated(row.original)
+          ? "—"
+          : row.original.vlan_name || String(row.original.vlan ?? "") || "—",
     },
-    { accessorKey: "alevel", header: "Level" },
+    {
+      accessorKey: "alevel",
+      header: "Level",
+      cell: ({ row }) => (isUnallocated(row.original) ? "—" : row.original.alevel),
+    },
     {
       id: "actions",
       header: "",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1 justify-end">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/nets/${encodeURIComponent(row.original.netname)}`);
-            }}
-          >
-            Detail
-          </Button>
-          {isSuperuser && (
+      cell: ({ row }) =>
+        isUnallocated(row.original) ? null : (
+          <div className="flex items-center gap-1 justify-end">
             <Button
               variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-destructive"
+              size="sm"
               onClick={(e) => {
                 e.stopPropagation();
-                setDeleteName(row.original.netname);
+                navigate(`/nets/${encodeURIComponent(row.original.netname)}`);
               }}
-              title="Delete"
             >
-              <Trash2 className="h-4 w-4" />
+              Detail
             </Button>
-          )}
-        </div>
-      ),
+            {isSuperuser && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteName(row.original.netname);
+                }}
+                title="Delete"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        ),
     },
   ];
 
@@ -148,13 +214,19 @@ export default function NetsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Networks</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{LIST_MODES[listMode].title}</h1>
           <p className="text-muted-foreground">
-            {serverName} — {nets?.length ?? 0} network{nets?.length !== 1 ? "s" : ""}
+            {serverName} — {visibleNets.length} record{visibleNets.length !== 1 ? "s" : ""}
           </p>
         </div>
         {isSuperuser && (
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button
+            onClick={() => {
+              setCreateSubnet(false);
+              setCreateDummy(false);
+              setCreateOpen(true);
+            }}
+          >
             <Plus className="mr-2 h-4 w-4" />
             Add Network
           </Button>
@@ -173,10 +245,12 @@ export default function NetsPage() {
 
       <DataTable
         columns={columns}
-        data={nets || []}
+        data={visibleNets}
         isLoading={isLoading}
         emptyMessage="No networks found."
-        onRowClick={(net) => navigate(`/nets/${encodeURIComponent(net.netname)}`)}
+        onRowClick={(net) => {
+          if (!isUnallocated(net)) navigate(`/nets/${encodeURIComponent(net.netname)}`);
+        }}
       />
 
       {/* Create dialog */}
@@ -195,6 +269,8 @@ export default function NetsPage() {
                   netname: fd.get("netname") as string,
                   name: fd.get("name") as string,
                   net: fd.get("net") as string,
+                  subnet: createSubnet,
+                  dummy: createSubnet && createDummy,
                   comment: (fd.get("comment") as string) || undefined,
                 });
               }}
@@ -209,9 +285,41 @@ export default function NetsPage() {
                 <Input id="name" name="name" required />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <Input id="type" name="type" value="Net" disabled />
+                <Label>Type</Label>
+                <Select
+                  value={createSubnet ? "true" : "false"}
+                  onValueChange={(v) => {
+                    const subnet = v === "true";
+                    setCreateSubnet(subnet);
+                    if (!subnet) setCreateDummy(false);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="false">Net</SelectItem>
+                    <SelectItem value="true">Subnet</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
+              {createSubnet && (
+                <div className="space-y-2">
+                  <Label>Virtual subnet</Label>
+                  <Select
+                    value={createDummy ? "true" : "false"}
+                    onValueChange={(v) => setCreateDummy(v === "true")}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">No</SelectItem>
+                      <SelectItem value="true">Yes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="net">Net (CIDR)</Label>
                 <Input id="net" name="net" placeholder="192.168.1.0/24" required />

@@ -9,6 +9,16 @@ get:
   x-mojo-to: "Net#list_nets"
   parameters:
     - $ref: '../components/parameters.yaml#/server'
+    - name: free
+      in: query
+      required: false
+      description: >
+        When true, unallocated address blocks (gaps between subnets inside
+        each top-level net) are appended as pseudo records with id=-1.
+        Requires authorization level 3 or superuser; for other users the
+        flag is silently ignored.
+      schema:
+        type: boolean
   responses:
     '200':
       description: A list of networks
