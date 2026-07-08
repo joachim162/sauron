@@ -3,6 +3,8 @@ package SauronAPI::AuthZ;
 use strict;
 use warnings;
 use Exporter qw(import);
+use Net::IP qw(:PROC);
+use Sauron::Util qw(is_cidr);
 
 our @EXPORT_OK = qw(check_perms has_server_access has_zone_access filter_servers filter_zones);
 
@@ -115,6 +117,29 @@ sub check_perms {
       return 1;
     }
     $c->render(json => { error => 'Forbidden', message => "Not authorized for record type: $flag" }, status => 403);
+    return 0;
+  }
+
+  if ($type eq 'ip') {
+    my $ip = $args{rule};
+    my @net_ids = keys %{$perms->{net} // {}};
+    return 1 if @net_ids == 0;  # no net restrictions → allowed
+
+    my $ip_int;
+    eval { $ip_int = Net::IP->new($ip)->intip(); };
+    return 1 unless defined $ip_int;
+
+    for my $net_id (@net_ids) {
+      my ($range_start, $range_end) = @{$perms->{net}->{$net_id}};
+      next unless is_cidr($range_start) && is_cidr($range_end);
+      my $s = eval { Net::IP->new($range_start)->intip() };
+      my $e = eval { Net::IP->new($range_end)->intip() };
+      next unless defined $s && defined $e;
+      if ($s <= $ip_int && $ip_int <= $e) {
+        return 1;
+      }
+    }
+    $c->render(json => { error => 'Forbidden', message => "IP address '$ip' is outside your allowed ranges" }, status => 403);
     return 0;
   }
 

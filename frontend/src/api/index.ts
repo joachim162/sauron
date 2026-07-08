@@ -57,6 +57,8 @@ export const netsApi = {
     api.put<Net>(`/servers/${encodeURIComponent(serverName)}/networks/${encodeURIComponent(netname)}`, data),
   delete: (serverName: string, netname: string) =>
     api.del(`/servers/${encodeURIComponent(serverName)}/networks/${encodeURIComponent(netname)}`),
+  assignable: (serverName: string) =>
+    api.get<Net[]>(`/servers/${encodeURIComponent(serverName)}/assignable-subnets`),
 };
 
 // ---- Hosts ----

@@ -108,6 +108,9 @@ paths:
   /servers/{server}/networks/{net}:
     $ref: "./paths/network.yaml"
 
+  /servers/{server}/assignable-subnets:
+    $ref: "./paths/assignable-subnets.yaml"
+
 components:
   schemas:
     ServerFields:

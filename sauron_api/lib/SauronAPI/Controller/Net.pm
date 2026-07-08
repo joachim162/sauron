@@ -181,6 +181,39 @@ sub list_nets ($self) {
   $self->render(openapi => \@nets);
 }
 
+sub list_assignable_subnets ($self) {
+  return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
+
+  my $server_id = $self->get_server_id_or_404($self->param('server')) or return;
+  return unless check_perms($self, type => 'server', server_id => $server_id, rule => 'R');
+
+  my $perms = $self->stash('api_perms');
+  my $user_alevel = $perms->{alevel} // 0;
+  my $is_superuser = $self->stash('api_superuser');
+
+  my $net_list = Sauron::BackEnd::get_net_list($server_id, 1, $user_alevel);
+
+  my %net_perms = %{$perms->{net} // {}};
+  my $has_net_restrictions = !$is_superuser && keys %net_perms > 0;
+
+  my $include_vlan_names = ($is_superuser
+                            || ($user_alevel >= $main::ALEVEL_VLANS));
+  my %vlan_map;
+  if ($include_vlan_names) {
+    Sauron::BackEnd::get_vlan_list($server_id, \%vlan_map, \my @vlan_list);
+  }
+
+  my @subnets;
+  for my $row (@$net_list) {
+    next unless ref $row eq 'ARRAY' && @$row >= 10;
+    next if $has_net_restrictions && !$net_perms{$row->[1]};
+    push @subnets, _build_net_list_response($row, \%vlan_map, $include_vlan_names);
+  }
+
+  $self->render(openapi => \@subnets);
+}
+
 sub get_net ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;

@@ -1285,6 +1285,15 @@ NewHost:
             8=srv entry, 9=dhcp only, 10=zone, 11=sshfp entry,
             12=tlsa entry, 13=txt entry, 14=naptr entry, 101=host reservation
           example: 1
+        net:
+          type: string
+          nullable: true
+          description: >
+            Network identifier (CIDR or netname) for automatic IP assignment.
+            When provided, the API assigns a free IP from the specified
+            network instead of using the 'ips' field. Only valid for host
+            types that support IP addresses (1, 9, 101).
+          example: 192.168.1.0/24
 
 UpdateHost:
   allOf:

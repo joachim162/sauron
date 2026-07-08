@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import type { ColumnDef } from "@tanstack/react-table";
-import { hostsApi } from "@/api";
+import { hostsApi, netsApi } from "@/api";
 import type { Host } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { useServerContext } from "@/hooks/use-server-context";
@@ -56,6 +56,15 @@ export default function HostsPage() {
   const [selectedType, setSelectedType] = useState("1");
   const [typeTouched, setTypeTouched] = useState(false);
   const [deleteHostname, setDeleteHostname] = useState<string | null>(null);
+  const [selectedNet, setSelectedNet] = useState("manual");
+
+  const needsNet = ["1", "101"].includes(selectedType);
+
+  const { data: assignableNets } = useQuery({
+    queryKey: ["assignable-subnets", serverName],
+    queryFn: () => netsApi.assignable(serverName!),
+    enabled: !!serverName && createOpen && needsNet,
+  });
 
   const HOST_CREATE_FIELDS: Record<number, {
     inputs: Array<{ key: string; label: string; placeholder: string }>;
@@ -335,7 +344,7 @@ export default function HostsPage() {
 
       {/* Create dialog */}
       {createOpen && (
-        <Dialog open={createOpen} onOpenChange={() => setCreateOpen(false)}>
+        <Dialog open={createOpen} onOpenChange={(open) => { if (!open) setCreateOpen(false); }}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle>New Host</DialogTitle>
@@ -351,7 +360,18 @@ export default function HostsPage() {
                   type,
                 };
                 const cfg = HOST_CREATE_FIELDS[type];
-                if (cfg) Object.assign(payload, cfg.toPayload(fd));
+                if (type === 1 || type === 101) {
+                  if (selectedNet !== "manual") {
+                    payload.net = selectedNet;
+                    const ether = (fd.get("ether") as string) || "";
+                    if (ether) payload.ether = ether;
+                  } else {
+                    const ips = (fd.get("ips") as string) || "";
+                    if (ips) payload.ips = [ips];
+                  }
+                } else if (cfg) {
+                  Object.assign(payload, cfg.toPayload(fd));
+                }
                 for (const key of rhfRequired) {
                   const v = fd.get(key) as string;
                   if (v) payload[key] = v;
@@ -366,7 +386,7 @@ export default function HostsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="type">Type</Label>
-                <Select name="type" defaultValue="1" onValueChange={(v) => { setSelectedType(v); setTypeTouched(true); }}>
+                <Select name="type" defaultValue="1" onValueChange={(v) => { setSelectedType(v); setTypeTouched(true); setSelectedNet("manual"); }}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -379,7 +399,40 @@ export default function HostsPage() {
                   </SelectContent>
                 </Select>
               </div>
-              {typeTouched && HOST_CREATE_FIELDS[Number(selectedType)]?.inputs.map((field) => (
+              {needsNet && (
+                <div className="space-y-2">
+                  <Label htmlFor="net">Subnet</Label>
+                  <Select
+                    value={selectedNet}
+                    onValueChange={(v) => setSelectedNet(v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">Manual IP</SelectItem>
+                      {assignableNets?.map((n) => (
+                        <SelectItem key={n.net} value={n.net}>
+                          {n.net} - {n.name || ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {needsNet && selectedNet === "manual" && (
+                <div className="space-y-2">
+                  <Label htmlFor="ips">IP Address</Label>
+                  <Input id="ips" name="ips" placeholder="192.168.1.10" />
+                </div>
+              )}
+              {needsNet && selectedType === "101" && (
+                <div className="space-y-2">
+                  <Label htmlFor="ether">MAC Address</Label>
+                  <Input id="ether" name="ether" placeholder="aa:bb:cc:dd:ee:ff" />
+                </div>
+              )}
+              {typeTouched && !needsNet && HOST_CREATE_FIELDS[Number(selectedType)]?.inputs.map((field) => (
                 <div className="space-y-2" key={field.key}>
                   <Label htmlFor={field.key}>{field.label}</Label>
                   <Input id={field.key} name={field.key} placeholder={field.placeholder} />

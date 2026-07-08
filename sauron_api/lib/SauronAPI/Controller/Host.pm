@@ -345,9 +345,82 @@ sub add_host ($self) {
     );
   }
 
-  # Translate flat API format ["1.2.3.4"] -> BackEnd ip array field
-  if (exists $json->{ips}) {
-    my $data = $FIELDS{ip}->encode_create($json->{ips});
+  # Resolve IP: auto-assign from net, validate manual IPs, or leave empty
+  my $net = $json->{net};
+  my $ips = $json->{ips};
+
+  if ($net) {
+    return $self->render(
+      openapi => { error => 'Bad Request', message => "Auto-assignment ('net') is only valid for host types 1, 9, and 101" },
+      status  => 400
+    ) unless $type == 1 || $type == 9 || $type == 101;
+  }
+
+  if ($net and defined $ips) {
+    return $self->render(
+      openapi => { error => 'Bad Request', message => "Provide either 'net' (auto-assign) or 'ips' (manual), not both" },
+      status  => 400
+    );
+  }
+
+  if ($net) {
+    # Auto-assign: resolve net to CIDR, call get_free_ip_by_net
+    my $cidr;
+    my $net_id = Sauron::BackEnd::get_net_by_cidr($server_id, $net);
+    if ($net_id > 0) {
+      my %net_data;
+      Sauron::BackEnd::get_net($net_id, \%net_data);
+      $cidr = $net_data{net};
+    } else {
+      # Fallback: try netname lookup (same pattern as Net.pm _resolve_net)
+      Sauron::DB::db_query(
+        "SELECT net FROM nets WHERE server=$server_id AND netname=" .
+        Sauron::DB::db_encode_str($net), \my @q
+      );
+      $cidr = $q[0][0] if @q > 0;
+    }
+    unless ($cidr) {
+      return $self->render(
+        openapi => { error => 'Bad Request', message => "Network '$net' not found on this server" },
+        status  => 400
+      );
+    }
+
+    my $ip_policy = Sauron::BackEnd::get_net_ip_policy($server_id, $cidr);
+    my $ip = Sauron::BackEnd::get_free_ip_by_net($server_id, $cidr,
+                                                  $rec{ether} // '', undef, $ip_policy);
+    unless (Sauron::Util::is_cidr($ip)) {
+      return $self->render(
+        openapi => { error => 'Bad Request', message => "IP assignment failed: $ip" },
+        status  => 400
+      );
+    }
+    unless (check_perms($self, type => 'ip', rule => $ip)) {
+      return;
+    }
+    my $data = $FIELDS{ip}->encode_create([$ip]);
+    $rec{ip} = $data if ref $data eq 'ARRAY';
+  } elsif (defined $ips) {
+    # Manual IPs: validate each one
+    for my $ip (@$ips) {
+      next unless defined $ip && length $ip;
+      unless (Sauron::Util::is_cidr($ip)) {
+        return $self->render(
+          openapi => { error => 'Bad Request', message => "Invalid IP address '$ip'" },
+          status  => 400
+        );
+      }
+      if (Sauron::BackEnd::ip_in_use($server_id, $ip) > 0) {
+        return $self->render(
+          openapi => { error => 'Conflict', message => "IP address '$ip' is already in use" },
+          status  => 409
+        );
+      }
+      unless (check_perms($self, type => 'ip', rule => $ip)) {
+        return;
+      }
+    }
+    my $data = $FIELDS{ip}->encode_create($ips);
     $rec{ip} = $data if ref $data eq 'ARRAY';
   }
 
@@ -513,7 +586,7 @@ my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(
   hostname type comment ttl class grp expiration
   alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
   info location dept huser email model serial misc asset_id duid
-  iaid flags prn wks mx rp_mbox rp_txt domain
+  iaid flags prn wks mx rp_mbox rp_txt domain net
 );
 
 sub _validate_type_fields {
