@@ -78,6 +78,7 @@ sub startup {
     my $superuser = 0;
     if (Sauron::BackEnd::get_user_by_id($user_id, \%user) == 0) {
       $superuser = ($user{superuser} && $user{superuser} eq 't') ? 1 : 0;
+      Sauron::BackEnd::set_muser($user{username});
     }
     $c->stash(
       api_user_id     => $user_id,
