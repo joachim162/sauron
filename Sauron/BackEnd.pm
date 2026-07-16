@@ -4090,6 +4090,13 @@ sub add_net($) {
 
   }
 
+  # Encode private_flag in the legacy type bitmask and remove the synthetic key
+  # before insert, since the nets table has no private_flag column.
+  $rec->{type}=0;
+  if ($rec->{private_flag}) {
+    $rec->{type} = $rec->{type} | 0x01;
+  }
+  delete $rec->{private_flag};
 
   $res = add_record('nets',$rec);
   if ($res < 0) { db_rollback(); return -1; }

@@ -130,7 +130,8 @@ for f in /srv/sauron/sql/dbconvert_*; do
   psql -f "$f" || true
 done
 
-# Apply unallocated_subnets function
+# Apply unallocated_subnets helper function (used by the free-networks list).
+# Idempotent: safe to run on every startup.
 if [ -f /srv/sauron/sql/unallocated_subnets.sql ]; then
   echo "=== Applying unallocated_subnets.sql ==="
   psql -f /srv/sauron/sql/unallocated_subnets.sql || true

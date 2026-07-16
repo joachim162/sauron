@@ -30,7 +30,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, Plus, MoreHorizontal, Info, Zap, List } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, Plus, MoreHorizontal, Info, Zap } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import {
   DropdownMenu,
@@ -77,7 +77,7 @@ function computeNetInfo(cidr: string) {
     return { base, netmask, broadcast, size, first, last, usable };
   }
   const baseInt = ipToIntV6(ip);
-  const maskInt = BigInt(~0 << (128 - prefix));
+  const maskInt = BigInt(-1) << BigInt(128 - prefix);
   const netInt = baseInt & maskInt;
   const broadcastInt = netInt | ~maskInt;
   const netmask = intToIpV6(maskInt);
@@ -94,7 +94,16 @@ function ipToIntV4(ip: string): number {
 }
 
 function ipToIntV6(ip: string): bigint {
-  const parts = ip.split(":");
+  let parts: string[];
+  if (ip.includes("::")) {
+    const [left, right] = ip.split("::", 2);
+    const leftParts = left ? left.split(":") : [];
+    const rightParts = right ? right.split(":") : [];
+    const missing = 8 - (leftParts.length + rightParts.length);
+    parts = [...leftParts, ...Array(missing).fill("0"), ...rightParts];
+  } else {
+    parts = ip.split(":");
+  }
   let hex = "";
   for (const p of parts) hex += p.padStart(4, "0");
   return BigInt("0x" + hex);
@@ -278,9 +287,6 @@ export default function NetDetailPage() {
                   </DropdownMenuItem>
                   <DropdownMenuItem disabled>
                     <Zap className="mr-2 h-4 w-4" /> Ping Sweep
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate(`/hosts?net=${encodeURIComponent(net.net)}`)}>
-                    <List className="mr-2 h-4 w-4" /> Show Hosts
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
