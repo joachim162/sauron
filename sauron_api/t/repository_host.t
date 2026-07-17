@@ -10,10 +10,6 @@ use lib "$FindBin::Bin/../..";
 use Sauron::DB               ();
 use Sauron::BackEnd          ();
 use SauronAPI::Exception     ();
-use SauronAPI::Exception::NotFound;
-use SauronAPI::Exception::Conflict;
-use SauronAPI::Exception::Validation;
-use SauronAPI::Exception::Permission;
 use SauronAPI::Repository::Host qw(
   host_list host_find host_create host_update host_delete
 );
@@ -35,12 +31,15 @@ sub _mock_db {
   my (%queries) = @_;
   my $mod = Test::MockModule->new('Sauron::DB');
   $mod->mock('db_query', sub {
-    my ($sql, $out) = @_;
+    my ($sql, $out, @bind) = @_;
     for my $pattern (keys %queries) {
       if (index($sql, $pattern) >= 0) {
-        my $rows = $queries{$pattern};
-        @$out = @$rows;
-        return scalar @$rows;
+        my $handler = $queries{$pattern};
+        if (ref $handler eq 'CODE') {
+          return $handler->($sql, $out, @bind);
+        }
+        @$out = @$handler;
+        return scalar @$handler;
       }
     }
     @$out = ();
@@ -58,43 +57,63 @@ sub _reset_mocks {
   @MOCKS = ();
 }
 
-subtest 'Exception::NotFound throws and stringify works' => sub {
-  eval { SauronAPI::Exception::NotFound->throw(message => 'gone') };
+# 29 columns matching Repository::Host @LIST_COLUMNS order.
+sub _list_row {
+  my ($id, $domain) = @_;
+  return [
+    $id, $domain, 1, 3600, 'IN', -1, -1, undef, undef, undef,
+    0, undef, undef, undef, undef, undef, undef, undef, undef, undef,
+    undef, undef, undef, undef, 1000, 'test', 1000, 'test'
+  ];
+}
+
+subtest 'Exception carries status, kind and message' => sub {
+  eval { SauronAPI::Exception->throw(status => 404, kind => 'Not Found', message => 'gone') };
   ok $@, 'exception was thrown';
-  isa_ok $@, 'SauronAPI::Exception::NotFound';
-  is $@->http_status, 404, 'http_status is 404';
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 404, 'status is 404';
   is $@->kind, 'Not Found', 'kind is "Not Found"';
   is "$@", 'gone', 'stringifies to message';
 };
 
-subtest 'eval { } catches thrown exception and ref is preserved' => sub {
-  eval { SauronAPI::Exception::Conflict->throw(message => 'dup') };
-  isa_ok $@, 'SauronAPI::Exception::Conflict';
-  is $@->http_status, 409, 'http_status 409';
-  is $@->kind, 'Conflict', 'kind is Conflict';
+subtest 'Exception shortcut constructors' => sub {
+  eval { SauronAPI::Exception->not_found('x') };
+  is $@->status, 404, 'not_found -> 404';
+  is $@->kind, 'Not Found', 'not_found kind';
+
+  eval { SauronAPI::Exception->validation('x') };
+  is $@->status, 400, 'validation -> 400';
+  is $@->kind, 'Bad Request', 'validation kind';
+
+  eval { SauronAPI::Exception->forbidden('x') };
+  is $@->status, 403, 'forbidden -> 403';
+  is $@->kind, 'Forbidden', 'forbidden kind';
+
+  eval { SauronAPI::Exception->conflict('x') };
+  is $@->status, 409, 'conflict -> 409';
+  is $@->kind, 'Conflict', 'conflict kind';
+
+  eval { SauronAPI::Exception->persistence('x') };
+  is $@->status, 500, 'persistence -> 500';
+  is $@->kind, 'Internal Server Error', 'persistence kind';
 };
 
-subtest 'host_list returns paginated envelope' => sub {
+subtest 'host_list returns paginated envelope with scalar columns' => sub {
   _reset_mocks;
-  _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-  );
   _mock_db(
-    'SELECT id,domain,type FROM hosts' => [
-      [100, 'a.example', 1],
-      [101, 'b.example', 1],
-      [102, 'c.example', 1],
-    ],
-    'SELECT COUNT(*)' => [[3]],
+    'ORDER BY domain' => [ _list_row(100, 'a.example'), _list_row(101, 'b.example') ],
+    'COUNT(*)'        => [[2]],
   );
 
-  my ($data, $meta) = host_list('example', 'example.com');
+  my ($data, $meta) = host_list(7, 42);
   is ref $data, 'ARRAY', 'data is arrayref';
-  is scalar @$data, 3, 'three rows';
+  is scalar @$data, 2, 'two rows';
   is $data->[0]{domain}, 'a.example', 'first row domain';
   is $data->[0]{zone_id}, 42, 'zone_id propagated';
-  is $meta->{pagination}{total}, 3, 'total in metadata';
+  is $data->[0]{ttl}, 3600, 'scalar column ttl';
+  is $data->[0]{cuser}, 'test', 'scalar column cuser';
+  is $data->[0]{fqdn}, '', 'fqdn placeholder';
+  is $meta->{pagination}{total}, 2, 'total in metadata';
   is $meta->{pagination}{page}, 1, 'default page 1';
   is $meta->{pagination}{per_page}, 50, 'default per_page 50';
   is $meta->{pagination}{total_pages}, 1, 'total_pages';
@@ -102,149 +121,132 @@ subtest 'host_list returns paginated envelope' => sub {
   is_deeply $meta->{filters}, [], 'empty filters';
 };
 
-subtest 'host_list honours page and per_page' => sub {
+subtest 'host_list binds zone, limit and offset' => sub {
   _reset_mocks;
-  _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-  );
+  my (@list_bind, @count_bind);
   _mock_db(
-    'SELECT id,domain,type FROM hosts' => [
-      [100, 'a'], [101, 'b'], [102, 'c'],
-      [103, 'd'], [104, 'e'], [105, 'f'],
-    ],
-    'SELECT COUNT(*)' => [[6]],
+    'ORDER BY domain' => sub {
+      my ($sql, $out, @bind) = @_;
+      @list_bind = @bind;
+      @$out = ();
+      return 0;
+    },
+    'COUNT(*)' => sub {
+      my ($sql, $out, @bind) = @_;
+      @count_bind = @bind;
+      @$out = ([6]);
+      return 1;
+    },
   );
 
-  my ($data, $meta) = host_list('example', 'example.com', page => 2, per_page => 2);
-  is scalar @$data, 2, 'page 2 of 6 items, per_page 2 -> 2 rows';
-  is $meta->{pagination}{page}, 2, 'page in metadata';
+  my ($data, $meta) = host_list(7, 42, page => 3, per_page => 2);
+  is_deeply \@list_bind, [42, 2, 4], 'zone_id, limit, offset bound in list query';
+  is_deeply \@count_bind, [42], 'zone_id bound in count query';
+  is $meta->{pagination}{page}, 3, 'page in metadata';
   is $meta->{pagination}{per_page}, 2, 'per_page in metadata';
   is $meta->{pagination}{total_pages}, 3, 'total_pages is 3';
-  is $data->[0]{domain}, 'c', 'first item on page 2';
 };
 
-subtest 'host_list throws NotFound when server missing' => sub {
+subtest 'host_list empty zone gives zero totals' => sub {
   _reset_mocks;
-  _mock_back_end(
-    get_server_id       => sub { -1 },
-    get_zone_id_by_name => sub { 42 },
+  _mock_db(
+    'ORDER BY domain' => [],
+    'COUNT(*)'        => [[0]],
   );
-  eval { host_list('missing', 'example.com') };
-  isa_ok $@, 'SauronAPI::Exception::NotFound';
-  like $@->message, qr/Server 'missing' not found/, 'message mentions server';
+
+  my ($data, $meta) = host_list(7, 42);
+  is_deeply $data, [], 'empty data';
+  is $meta->{pagination}{total}, 0, 'total is 0';
+  is $meta->{pagination}{total_pages}, 0, 'total_pages is 0 for empty zone';
 };
 
-subtest 'host_list throws NotFound when zone missing' => sub {
+subtest 'host_find throws not_found when host missing' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { -1 },
+    get_host_id => sub { -1 },
   );
-  eval { host_list('example', 'missing') };
-  isa_ok $@, 'SauronAPI::Exception::NotFound';
-  like $@->message, qr/Zone 'missing' not found/, 'message mentions zone';
-};
-
-subtest 'host_find throws NotFound when host missing' => sub {
-  _reset_mocks;
-  _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-    get_host_id         => sub { -1 },
-  );
-  eval { host_find('example', 'example.com', 'absent') };
-  isa_ok $@, 'SauronAPI::Exception::NotFound';
+  eval { host_find(7, 42, 'absent') };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 404, 'status 404';
   like $@->message, qr/Host 'absent' not found/, 'message mentions host';
 };
 
-subtest 'host_create throws Validation when hostname missing' => sub {
+subtest 'host_create throws validation when hostname missing' => sub {
   _reset_mocks;
-  _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-  );
-  eval { host_create('example', 'example.com', { type => 1 }) };
-  isa_ok $@, 'SauronAPI::Exception::Validation';
+  eval { host_create(7, 42, { type => 1 }) };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 400, 'status 400';
   like $@->message, qr/hostname/, 'mentions hostname';
 };
 
-subtest 'host_create throws Conflict when hostname already exists' => sub {
+subtest 'host_create throws conflict when hostname already exists' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-    get_host_id         => sub { 99 },
+    get_host_id => sub { 99 },
   );
-  eval {
-    host_create('example', 'example.com', { hostname => 'dup', type => 1 });
-  };
-  isa_ok $@, 'SauronAPI::Exception::Conflict';
+  eval { host_create(7, 42, { hostname => 'dup', type => 1 }) };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 409, 'status 409';
   like $@->message, qr/already exists/, 'mentions existing host';
 };
 
-subtest 'host_create throws Validation on type-invalid field' => sub {
+subtest 'host_create throws validation on type-invalid field' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-    get_host_id         => sub { -1 },
+    get_host_id => sub { -1 },
   );
   eval {
-    host_create('example', 'example.com', {
+    host_create(7, 42, {
       hostname => 'newone', type => 4, srv_l => [{ pri => 1, weight => 1, port => 80, target => 'x', comment => '' }],
     });
   };
-  isa_ok $@, 'SauronAPI::Exception::Validation';
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 400, 'status 400';
   like $@->message, qr/srv_l/, 'mentions invalid field srv_l for type 4';
 };
 
-subtest 'host_delete throws NotFound when host missing' => sub {
+subtest 'host_delete throws not_found when host missing' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-    get_host_id         => sub { -1 },
+    get_host_id => sub { -1 },
   );
-  eval { host_delete('example', 'example.com', 'absent') };
-  isa_ok $@, 'SauronAPI::Exception::NotFound';
+  eval { host_delete(7, 42, 'absent') };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 404, 'status 404';
 };
 
-subtest 'host_delete throws Persistence on negative return' => sub {
+subtest 'host_delete throws persistence on negative return' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-    get_host_id         => sub { 99 },
-    delete_host         => sub { -1 },
+    get_host_id => sub { 99 },
+    delete_host => sub { -1 },
   );
-  eval { host_delete('example', 'example.com', 'h1') };
-  isa_ok $@, 'SauronAPI::Exception::Persistence';
+  eval { host_delete(7, 42, 'h1') };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 500, 'status 500';
   like $@->message, qr/Failed to delete host/, 'mentions delete failure';
 };
 
-subtest 'host_update throws NotFound when host missing' => sub {
+subtest 'host_update throws not_found when host missing' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-    get_host_id         => sub { -1 },
+    get_host_id => sub { -1 },
   );
-  eval { host_update('example', 'example.com', 'absent', { comment => 'x' }) };
-  isa_ok $@, 'SauronAPI::Exception::NotFound';
+  eval { host_update(7, 42, 'absent', { comment => 'x' }) };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 404, 'status 404';
 };
 
-subtest 'host_update throws Persistence on negative return' => sub {
+subtest 'host_update throws persistence on negative return' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id       => sub { 7 },
-    get_zone_id_by_name => sub { 42 },
-    get_host_id         => sub { 99 },
-    get_host            => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'h1'; return 0; },
-    update_host         => sub { -1 },
+    get_host_id => sub { 99 },
+    get_host    => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'h1'; return 0; },
+    update_host => sub { -1 },
   );
-  eval { host_update('example', 'example.com', 'h1', { comment => 'x' }) };
-  isa_ok $@, 'SauronAPI::Exception::Persistence';
+  eval { host_update(7, 42, 'h1', { comment => 'x' }) };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 500, 'status 500';
   like $@->message, qr/Failed to update host/, 'mentions update failure';
 };
 
@@ -252,47 +254,42 @@ subtest 'host_create auto-assign invokes on_ip callback' => sub {
   _reset_mocks;
   my $checked_ip;
   _mock_back_end(
-    get_server_id          => sub { 7 },
-    get_zone_id_by_name    => sub { 42 },
-    get_host_id            => sub { -1 },
-    get_net_by_cidr        => sub { 100 },
-    get_net                => sub { $_[1]{net} = '10.0.0.0/24'; return 0; },
-    get_net_ip_policy      => sub { 0 },
-    get_free_ip_by_net     => sub { '10.0.0.42' },
-    add_host               => sub { 200 },
-    get_host               => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'auto'; return 0; },
-    get_zone               => sub { $_[1]{server} = 7; return 0; },
-    get_server             => sub { $_[1]{name} = 'example'; return 0; },
+    get_host_id        => sub { -1 },
+    get_net_by_cidr    => sub { 100 },
+    get_net            => sub { $_[1]{net} = '10.0.0.0/24'; return 0; },
+    get_net_ip_policy  => sub { 0 },
+    get_free_ip_by_net => sub { '10.0.0.42' },
+    add_host           => sub { 200 },
+    get_host           => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'auto'; return 0; },
   );
-  _mock_db('SELECT net FROM nets' => []);
 
   my $on_ip = sub { $checked_ip = $_[0] };
   my $host = eval {
-    host_create('example', 'example.com',
+    host_create(7, 42,
       { hostname => 'auto', type => 1, net => '10.0.0.0/24' },
       on_ip => $on_ip);
   };
   ok !$@, 'no exception: ' . ($@ // '');
   is $checked_ip, '10.0.0.42', 'on_ip was called with assigned IP';
   is $host->{domain}, 'auto', 'created host returned';
+  is $host->{server_id}, 7, 'server_id propagated';
 };
 
-subtest 'host_create on_ip throwing Permission aborts create' => sub {
+subtest 'host_create on_ip throwing forbidden aborts create' => sub {
   _reset_mocks;
   _mock_back_end(
-    get_server_id          => sub { 7 },
-    get_zone_id_by_name    => sub { 42 },
-    get_host_id            => sub { -1 },
-    ip_in_use              => sub { 0 },
+    get_host_id => sub { -1 },
+    ip_in_use   => sub { 0 },
   );
-  my $on_ip = sub { SauronAPI::Exception::Permission->throw(message => 'denied') };
+  my $on_ip = sub { SauronAPI::Exception->forbidden('denied') };
   eval {
-    host_create('example', 'example.com',
+    host_create(7, 42,
       { hostname => 'x', type => 1, ips => ['10.0.0.5'] },
       on_ip => $on_ip);
   };
-  isa_ok $@, 'SauronAPI::Exception::Permission';
-  is $@->http_status, 403, '403 status';
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 403, 'status 403';
+  is $@->message, 'denied', 'message propagated';
 };
 
 _reset_mocks;

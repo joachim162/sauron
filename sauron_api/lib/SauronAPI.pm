@@ -220,6 +220,20 @@ sub startup {
     );
     return undef;
   });
+
+  $self->helper(get_zone_id_or_404 => sub ($c, $server_id, $name) {
+    my $id = Sauron::BackEnd::get_zone_id($name, $server_id);
+    return $id if $id > 0;
+
+    $c->render(
+      openapi => {
+        error   => 'Not Found',
+        message => "Zone '$name' not found"
+      },
+      status  => 404
+    );
+    return undef;
+  });
 }
 
 1;

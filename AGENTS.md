@@ -297,10 +297,17 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 **Key entry points:**
 - `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, `before_dispatch` hook
 - `sauron_api/lib/SauronAPI/Controller/` — One controller per resource (Auth, Host, Server, Zone **Net**)
-- `Sauron/BackEnd.pm` — 4500+ lines, all database operations. Always use this instead of raw SQL.
+- `sauron_api/lib/SauronAPI/Repository/` — One repository per resource. Data-access layer for API **reads** (own SQL, bind params) and **writes** (delegated to `Sauron::BackEnd`). See `docs/adr/0001-repository-layer.md`.
+- `Sauron/BackEnd.pm` — 4500+ lines, legacy database operations. Mandatory for CGI and for all writes. Do not add new functions; new API read logic goes in repositories.
 - `sauron_api/public/api/openapi.yaml` — Root OpenAPI spec (references `paths/` and `components/`)
 - `frontend/src/api/index.ts` — Frontend API client
 - `frontend/src/hooks/use-auth.tsx` — Auth context provider
+
+**Repository layer rules (ADR 0001):**
+- Once `SauronAPI::Repository::<X>` exists, controllers must not call `Sauron::BackEnd` or `Sauron::DB` for X. All DB access for X flows through the repository.
+- Repository functions take resolved IDs (`$server_id`, `$zone_id`), not names. Controllers resolve names via `get_server_id_or_404` / `get_zone_id_or_404` and run authz before calling the repository.
+- SQL in repositories: values always bound (`db_query($sql, \@out, @bind)`); identifiers (sort/filter columns) from hardcoded whitelist maps. No interpolated user input.
+- Repositories throw `SauronAPI::Exception` (single class, `status`/`kind`/`message`; shortcut constructors `not_found`, `validation`, `forbidden`, `conflict`, `persistence`). Controllers map exceptions to HTTP in one place.
 
 ## API Pagination Format
 

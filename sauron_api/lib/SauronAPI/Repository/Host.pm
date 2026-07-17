@@ -12,10 +12,6 @@ use Sauron::DB     ();
 use Sauron::Util   qw(is_cidr);
 use SauronAPI::Codecs       qw(mx value);
 use SauronAPI::Exception    ();
-use SauronAPI::Exception::NotFound;
-use SauronAPI::Exception::Conflict;
-use SauronAPI::Exception::Validation;
-use SauronAPI::Exception::Persistence;
 use SauronAPI::FieldCodec;
 
 # ---------------------------------------------------------------------------
@@ -138,48 +134,41 @@ sub _validate_type_fields {
 # Public API
 # ---------------------------------------------------------------------------
 
-sub host_list {
-  my ($server_name, $zone_name, %opts) = @_;
+my @LIST_COLUMNS = qw(
+  id domain type ttl class grp alias cname_txt hinfo_hw hinfo_sw
+  router ether info location dept huser email model serial misc
+  asset_id comment duid iaid cdate cuser mdate muser
+);
 
-  my $server_id = _server_id($server_name);
-  my $zone_id   = _zone_id($zone_name, $server_id);
+sub host_list {
+  my ($server_id, $zone_id, %opts) = @_;
 
   my $page     = $opts{page}     // 1;
   my $per_page = $opts{per_page} // 50;
-
-  my $offset = ($page - 1) * $per_page;
+  my $offset   = ($page - 1) * $per_page;
 
   my @rows;
+  Sauron::DB::db_query(
+    "SELECT " . join(',', @LIST_COLUMNS) . " FROM hosts " .
+    "WHERE zone=? ORDER BY domain LIMIT ? OFFSET ?",
+    \@rows, $zone_id, $per_page, $offset
+  );
+
   my @total_rows;
   Sauron::DB::db_query(
-    "SELECT id,domain,type FROM hosts WHERE zone=$zone_id ORDER BY domain",
-    \@rows
+    "SELECT COUNT(*) FROM hosts WHERE zone=?",
+    \@total_rows, $zone_id
   );
-  Sauron::DB::db_query(
-    "SELECT COUNT(*) FROM hosts WHERE zone=$zone_id",
-    \@total_rows
-  );
-
   my $total = $total_rows[0][0] // 0;
-  my $hi = $#rows < $offset + $per_page - 1 ? $#rows : $offset + $per_page - 1;
-  my @page_rows = $offset > $#rows ? () : @rows[$offset .. $hi];
 
   my @data;
-  for my $row (@page_rows) {
-    push @data, {
-      id      => $row->[0],
-      domain  => $row->[1],
-      type    => $row->[2],
-      zone_id => $zone_id,
-      fqdn    => '',
-    };
+  for my $row (@rows) {
+    push @data, _build_host_list_item($zone_id, $row);
   }
 
   my $total_pages = $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0;
-  $total_pages = 1 if $total_pages < 1;
 
-  my $data       = \@data;
-  my $metadata   = {
+  my $metadata = {
     pagination => {
       total       => $total,
       page        => $page,
@@ -190,14 +179,23 @@ sub host_list {
     filters => [],
   };
 
-  return ($data, $metadata);
+  return (\@data, $metadata);
+}
+
+sub _build_host_list_item {
+  my ($zone_id, $row) = @_;
+
+  my %item;
+  @item{@LIST_COLUMNS} = @$row;
+  $item{cuser} =~ s/\s+$// if defined $item{cuser};
+  $item{muser} =~ s/\s+$// if defined $item{muser};
+  $item{zone_id} = $zone_id;
+  $item{fqdn}    = '';
+  return \%item;
 }
 
 sub host_find {
-  my ($server_name, $zone_name, $hostname) = @_;
-
-  my $server_id = _server_id($server_name);
-  my $zone_id   = _zone_id($zone_name, $server_id);
+  my ($server_id, $zone_id, $hostname) = @_;
 
   my $host_id = _host_id($zone_id, $hostname);
   my %host_data;
@@ -208,25 +206,22 @@ sub host_find {
 }
 
 sub host_create {
-  my ($server_name, $zone_name, $input, %opts) = @_;
-
-  my $server_id = _server_id($server_name);
-  my $zone_id   = _zone_id($zone_name, $server_id);
+  my ($server_id, $zone_id, $input, %opts) = @_;
 
   my $hostname = $input->{hostname}
-    or SauronAPI::Exception::Validation->throw(message => "'hostname' is required");
+    or SauronAPI::Exception->validation("'hostname' is required");
 
   my $existing_id = Sauron::BackEnd::get_host_id($zone_id, $hostname);
   if ($existing_id > 0) {
-    SauronAPI::Exception::Conflict->throw(
-      message => "Host '$hostname' already exists in this zone (id=$existing_id)"
+    SauronAPI::Exception->conflict(
+      "Host '$hostname' already exists in this zone (id=$existing_id)"
     );
   }
 
   my $type = $input->{type} // 1;
 
   if (my $err = _validate_type_fields($input, $type)) {
-    SauronAPI::Exception::Validation->throw(message => $err);
+    SauronAPI::Exception->validation($err);
   }
 
   my %rec = (
@@ -248,8 +243,8 @@ sub host_create {
 
   my $host_id = Sauron::BackEnd::add_host(\%rec);
   if ($host_id < 0) {
-    SauronAPI::Exception::Persistence->throw(
-      message => "Failed to create host record (code: $host_id)"
+    SauronAPI::Exception->persistence(
+      "Failed to create host record (code: $host_id)"
     );
   }
 
@@ -261,10 +256,7 @@ sub host_create {
 }
 
 sub host_update {
-  my ($server_name, $zone_name, $hostname, $input) = @_;
-
-  my $server_id = _server_id($server_name);
-  my $zone_id   = _zone_id($zone_name, $server_id);
+  my ($server_id, $zone_id, $hostname, $input) = @_;
 
   my $host_id = _host_id($zone_id, $hostname);
 
@@ -273,7 +265,7 @@ sub host_update {
          'Failed to retrieve host data');
 
   if (my $err = _validate_type_fields($input, $host_data{type})) {
-    SauronAPI::Exception::Validation->throw(message => $err);
+    SauronAPI::Exception->validation($err);
   }
 
   my %rec = (
@@ -298,14 +290,14 @@ sub host_update {
 
   my $res = Sauron::BackEnd::update_host(\%rec);
   if ($res < 0) {
-    SauronAPI::Exception::Persistence->throw(
-      message => "Failed to update host (code: $res)"
+    SauronAPI::Exception->persistence(
+      "Failed to update host (code: $res)"
     );
   }
 
   if (Sauron::BackEnd::get_host($host_id, \%host_data) != 0) {
-    SauronAPI::Exception::Persistence->throw(
-      message => 'Host updated but failed to retrieve data'
+    SauronAPI::Exception->persistence(
+      'Host updated but failed to retrieve data'
     );
   }
 
@@ -313,17 +305,14 @@ sub host_update {
 }
 
 sub host_delete {
-  my ($server_name, $zone_name, $hostname) = @_;
-
-  my $server_id = _server_id($server_name);
-  my $zone_id   = _zone_id($zone_name, $server_id);
+  my ($server_id, $zone_id, $hostname) = @_;
 
   my $host_id = _host_id($zone_id, $hostname);
 
   my $res = Sauron::BackEnd::delete_host($host_id);
   if ($res < 0) {
-    SauronAPI::Exception::Persistence->throw(
-      message => "Failed to delete host (code: $res)"
+    SauronAPI::Exception->persistence(
+      "Failed to delete host (code: $res)"
     );
   }
   return;
@@ -333,27 +322,11 @@ sub host_delete {
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-sub _server_id {
-  my ($name) = @_;
-  my $id = Sauron::BackEnd::get_server_id($name);
-  SauronAPI::Exception::NotFound->throw(message => "Server '$name' not found")
-    if $id <= 0;
-  return $id;
-}
-
-sub _zone_id {
-  my ($name, $server_id) = @_;
-  my $id = Sauron::BackEnd::get_zone_id_by_name($name);
-  SauronAPI::Exception::NotFound->throw(message => "Zone '$name' not found")
-    if $id <= 0;
-  return $id;
-}
-
 sub _host_id {
   my ($zone_id, $hostname) = @_;
   my $id = Sauron::BackEnd::get_host_id($zone_id, $hostname);
-  SauronAPI::Exception::NotFound->throw(
-    message => "Host '$hostname' not found in zone"
+  SauronAPI::Exception->not_found(
+    "Host '$hostname' not found in zone"
   ) if $id <= 0;
   return $id;
 }
@@ -361,7 +334,7 @@ sub _host_id {
 sub _check {
   my ($rc, $err) = @_;
   return if $rc == 0;
-  SauronAPI::Exception::Persistence->throw(message => $err);
+  SauronAPI::Exception->persistence($err);
 }
 
 sub _copy_host_fields {
@@ -384,15 +357,15 @@ sub _resolve_ips_for_create {
 
   if ($net) {
     unless ($type == 1 || $type == 9 || $type == 101) {
-      SauronAPI::Exception::Validation->throw(
-        message => "Auto-assignment ('net') is only valid for host types 1, 9, and 101"
+      SauronAPI::Exception->validation(
+        "Auto-assignment ('net') is only valid for host types 1, 9, and 101"
       );
     }
   }
 
   if ($net and defined $ips) {
-    SauronAPI::Exception::Validation->throw(
-      message => "Provide either 'net' (auto-assign) or 'ips' (manual), not both"
+    SauronAPI::Exception->validation(
+      "Provide either 'net' (auto-assign) or 'ips' (manual), not both"
     );
   }
 
@@ -405,14 +378,14 @@ sub _resolve_ips_for_create {
       $cidr = $net_data{net};
     } else {
       Sauron::DB::db_query(
-        "SELECT net FROM nets WHERE server=$server_id AND netname=" .
-          Sauron::DB::db_encode_str($net), \my @q
+        "SELECT net FROM nets WHERE server=? AND netname=?",
+        \my @q, $server_id, $net
       );
       $cidr = $q[0][0] if @q > 0;
     }
     unless ($cidr) {
-      SauronAPI::Exception::Validation->throw(
-        message => "Network '$net' not found on this server"
+      SauronAPI::Exception->validation(
+        "Network '$net' not found on this server"
       );
     }
 
@@ -421,8 +394,8 @@ sub _resolve_ips_for_create {
       $server_id, $cidr, $rec->{ether} // '', undef, $ip_policy
     );
     unless (is_cidr($ip)) {
-      SauronAPI::Exception::Validation->throw(
-        message => "IP assignment failed: $ip"
+      SauronAPI::Exception->validation(
+        "IP assignment failed: $ip"
       );
     }
     $on_ip->($ip) if $on_ip;
@@ -435,13 +408,13 @@ sub _resolve_ips_for_create {
     for my $ip (@$ips) {
       next unless defined $ip && length $ip;
       unless (is_cidr($ip)) {
-        SauronAPI::Exception::Validation->throw(
-          message => "Invalid IP address '$ip'"
+        SauronAPI::Exception->validation(
+          "Invalid IP address '$ip'"
         );
       }
       if (Sauron::BackEnd::ip_in_use($server_id, $ip) > 0) {
-        SauronAPI::Exception::Conflict->throw(
-          message => "IP address '$ip' is already in use"
+        SauronAPI::Exception->conflict(
+          "IP address '$ip' is already in use"
         );
       }
       $on_ip->($ip) if $on_ip;

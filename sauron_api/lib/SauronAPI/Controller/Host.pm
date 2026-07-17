@@ -1,22 +1,29 @@
 package SauronAPI::Controller::Host;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
+use Scalar::Util qw(blessed);
+
 use SauronAPI::AuthZ qw(check_perms);
-use SauronAPI::Exception            ();
-use SauronAPI::Exception::NotFound;
-use SauronAPI::Exception::Conflict;
-use SauronAPI::Exception::Validation;
-use SauronAPI::Exception::Persistence;
+use SauronAPI::Exception ();
 use SauronAPI::Repository::Host qw(
   host_list host_find host_create host_update host_delete
 );
 
 # Render a typed exception as an OpenAPI-shaped error response.
+# Non-Exception dies (e.g. DBD::Pg) become a generic 500.
 sub _render_exception {
   my ($self, $e) = @_;
+
+  if (blessed $e && $e->isa('SauronAPI::Exception')) {
+    return $self->render(
+      openapi => { error => $e->kind, message => $e->message },
+      status  => $e->status,
+    );
+  }
+
   $self->render(
-    openapi => { error => $e->kind, message => "$e" },
-    status  => $e->http_status,
+    openapi => { error => 'Internal Server Error', message => "$e" },
+    status  => 500,
   );
 }
 
@@ -50,19 +57,14 @@ sub list_hosts ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_name = $self->param("server");
-  my $zone_name   = $self->param("zone");
-
   my $page     = $self->param("page")     // 1;
   my $per_page = $self->param("per_page") // 50;
 
-  # Authz: read access on zone. We do not have zone_id until the repo resolves
-  # server/zone, so we still need to resolve server/zone here for the perm check.
-  my $server_id = _server_id_or_render($self, $server_name) or return;
-  my $zone_id   = _zone_id_or_render($self, $zone_name)   or return;
+  my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
+  my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
 
-  my ($data, $meta) = eval { host_list($server_name, $zone_name, page => $page, per_page => $per_page) };
+  my ($data, $meta) = eval { host_list($server_id, $zone_id, page => $page, per_page => $per_page) };
   return $self->_render_exception($@) if $@;
 
   $self->render(openapi => { data => $data, metadata => $meta });
@@ -72,15 +74,13 @@ sub get_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_name = $self->param("server");
-  my $zone_name   = $self->param("zone");
-  my $hostname    = $self->param("hostname");
+  my $hostname = $self->param("hostname");
 
-  my $server_id = _server_id_or_render($self, $server_name) or return;
-  my $zone_id   = _zone_id_or_render($self, $zone_name)   or return;
+  my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
+  my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
 
-  my $host = eval { host_find($server_name, $zone_name, $hostname) };
+  my $host = eval { host_find($server_id, $zone_id, $hostname) };
   return $self->_render_exception($@) if $@;
 
   $self->render(openapi => $host);
@@ -90,11 +90,8 @@ sub add_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_name = $self->param("server");
-  my $zone_name   = $self->param("zone");
-
-  my $server_id = _server_id_or_render($self, $server_name) or return;
-  my $zone_id   = _zone_id_or_render($self, $zone_name)   or return;
+  my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
+  my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'RW');
 
   my $json = $self->req->json;
@@ -116,12 +113,10 @@ sub add_host ($self) {
   my $ip_allowed = sub {
     my ($ip) = @_;
     return 1 if check_perms($self, type => 'ip', rule => $ip);
-    SauronAPI::Exception::Permission->throw(
-      message => "Permission denied for IP '$ip'"
-    );
+    SauronAPI::Exception->forbidden("Permission denied for IP '$ip'");
   };
 
-  my $host = eval { host_create($server_name, $zone_name, $json, on_ip => $ip_allowed) };
+  my $host = eval { host_create($server_id, $zone_id, $json, on_ip => $ip_allowed) };
   return $self->_render_exception($@) if $@;
 
   $self->render(openapi => $host, status => 201);
@@ -131,15 +126,13 @@ sub delete_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_name = $self->param("server");
-  my $zone_name   = $self->param("zone");
-  my $hostname    = $self->param("hostname");
+  my $hostname = $self->param("hostname");
 
-  my $server_id = _server_id_or_render($self, $server_name) or return;
-  my $zone_id   = _zone_id_or_render($self, $zone_name)   or return;
+  my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
+  my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'delhost', hostname => $hostname, zone_id => $zone_id, server_id => $server_id);
 
-  eval { host_delete($server_name, $zone_name, $hostname) };
+  eval { host_delete($server_id, $zone_id, $hostname) };
   return $self->_render_exception($@) if $@;
 
   $self->render(openapi => undef, status => 204);
@@ -149,13 +142,11 @@ sub update_host ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $server_name = $self->param("server");
-  my $zone_name   = $self->param("zone");
-  my $hostname    = $self->param("hostname");
-  my $json        = $self->req->json;
+  my $hostname = $self->param("hostname");
+  my $json     = $self->req->json;
 
-  my $server_id = _server_id_or_render($self, $server_name) or return;
-  my $zone_id   = _zone_id_or_render($self, $zone_name)   or return;
+  my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
+  my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'host', hostname => $hostname, zone_id => $zone_id, server_id => $server_id);
 
   if (my $missing = _check_rhf($self, $json, 0)) {
@@ -165,38 +156,10 @@ sub update_host ($self) {
     );
   }
 
-  my $host = eval { host_update($server_name, $zone_name, $hostname, $json) };
+  my $host = eval { host_update($server_id, $zone_id, $hostname, $json) };
   return $self->_render_exception($@) if $@;
 
   $self->render(openapi => $host);
-}
-
-# --- Resolution helpers used only for authz (no DB writes) ---
-
-sub _server_id_or_render {
-  my ($self, $name) = @_;
-  my $id = Sauron::BackEnd::get_server_id($name);
-  if ($id <= 0) {
-    $self->render(
-      openapi => { error => 'Not Found', message => "Server '$name' not found" },
-      status  => 404
-    );
-    return undef;
-  }
-  return $id;
-}
-
-sub _zone_id_or_render {
-  my ($self, $name) = @_;
-  my $id = Sauron::BackEnd::get_zone_id_by_name($name);
-  if ($id <= 0) {
-    $self->render(
-      openapi => { error => 'Not Found', message => "Zone '$name' not found" },
-      status  => 404
-    );
-    return undef;
-  }
-  return $id;
 }
 
 1;
