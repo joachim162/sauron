@@ -302,6 +302,39 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 - `frontend/src/api/index.ts` — Frontend API client
 - `frontend/src/hooks/use-auth.tsx` — Auth context provider
 
+## API Pagination Format
+
+All paginated list endpoints return the same envelope so the frontend data layer can treat them uniformly:
+
+```json
+{
+  "data": [ ... ],
+  "metadata": {
+    "pagination": {
+      "total": 1250,
+      "page": 1,
+      "per_page": 50,
+      "total_pages": 25
+    },
+    "sort": [
+      { "name": "domain", "direction": "asc" }
+    ],
+    "filters": [
+      { "name": "host_type", "value": 1 }
+    ]
+  }
+}
+```
+
+- `data` is the array of resource objects for the requested page.
+- `metadata.pagination.total` is the total number of items matching the current query (after filters, before pagination).
+- `metadata.pagination.page` is 1-based.
+- `metadata.pagination.per_page` is the number of items per page.
+- `metadata.pagination.total_pages` is derived from `total` / `per_page`.
+- `metadata.sort` and `metadata.filters` echo the applied sort/filter parameters; they are empty arrays when none are applied, and may be extended as sorting/filtering is implemented per endpoint.
+- Pagination uses **exact `COUNT(*)` totals**. This is safe for indexed, zone-scoped host lists and moderately-sized network lists. If a list grows large enough that `COUNT(*)` becomes a bottleneck, consider estimated totals or cursor pagination instead.
+- Query parameters `page` and `per_page` are validated by OpenAPI: `page` must be `>= 1`, `per_page` must be `1..100`. Invalid values return `400`.
+
 ## API Known Quirks
 
 - **Network singleton path** is `/networks/{net}` (not `/network/{net}`). Collection: `/networks`.

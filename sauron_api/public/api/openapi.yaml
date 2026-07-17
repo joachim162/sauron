@@ -133,10 +133,22 @@ components:
       $ref: './components/schemas.yaml#/HostFields'
     Host:
       $ref: './components/schemas.yaml#/Host'
+    HostListItem:
+      $ref: './components/schemas.yaml#/HostListItem'
+    HostListResponse:
+      $ref: './components/schemas.yaml#/HostListResponse'
     NewHost:
       $ref: './components/schemas.yaml#/NewHost'
     UpdateHost:
       $ref: './components/schemas.yaml#/UpdateHost'
+    Pagination:
+      $ref: './components/schemas.yaml#/Pagination'
+    Sort:
+      $ref: './components/schemas.yaml#/Sort'
+    Filter:
+      $ref: './components/schemas.yaml#/Filter'
+    Metadata:
+      $ref: './components/schemas.yaml#/Metadata'
     LoginRequest:
       $ref: './components/schemas.yaml#/LoginRequest'
     User:
@@ -171,6 +183,10 @@ components:
       $ref: './components/parameters.yaml#/hostname'
     net:
       $ref: './components/parameters.yaml#/net'
+    page:
+      $ref: './components/parameters.yaml#/page'
+    per_page:
+      $ref: './components/parameters.yaml#/per_page'
 
   securitySchemes:
     BearerAuth:

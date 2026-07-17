@@ -1261,6 +1261,115 @@ Host:
           nullable: true
           description: Last modified by user
 
+HostListItem:
+  type: object
+  description: >
+    Lightweight host record returned by list endpoints. Includes scalar fields
+    from the hosts table only. Use GET /hosts/{hostname} for the full host.
+  required:
+    - id
+    - domain
+    - type
+    - zone_id
+    - fqdn
+  properties:
+    id:
+      type: integer
+      example: 100
+    domain:
+      type: string
+      example: www
+    fqdn:
+      type: string
+      example: www.example.com.
+    type:
+      type: integer
+      example: 1
+    zone_id:
+      type: integer
+      example: 10
+    ttl:
+      type: integer
+      nullable: true
+      example: 3600
+    class:
+      type: string
+      nullable: true
+      example: IN
+    grp:
+      type: integer
+      nullable: true
+      example: -1
+    alias:
+      type: integer
+      nullable: true
+      example: -1
+    cname_txt:
+      type: string
+      nullable: true
+    hinfo_hw:
+      type: string
+      nullable: true
+    hinfo_sw:
+      type: string
+      nullable: true
+    router:
+      type: integer
+      nullable: true
+      example: 0
+    ether:
+      type: string
+      nullable: true
+      example: "001122334455"
+    info:
+      type: string
+      nullable: true
+    location:
+      type: string
+      nullable: true
+    dept:
+      type: string
+      nullable: true
+    huser:
+      type: string
+      nullable: true
+    email:
+      type: string
+      nullable: true
+    model:
+      type: string
+      nullable: true
+    serial:
+      type: string
+      nullable: true
+    misc:
+      type: string
+      nullable: true
+    asset_id:
+      type: string
+      nullable: true
+    comment:
+      type: string
+      nullable: true
+    duid:
+      type: string
+      nullable: true
+    iaid:
+      type: integer
+      nullable: true
+    cdate:
+      type: integer
+      nullable: true
+    cuser:
+      type: string
+      nullable: true
+    mdate:
+      type: integer
+      nullable: true
+    muser:
+      type: string
+      nullable: true
+
 NewHost:
   allOf:
     - $ref: '#/HostFields'
@@ -1590,6 +1699,104 @@ UpdateNet:
         Schema for updating an existing network. All writable fields are
         optional; only provided fields are updated. Array fields use
         replace-all semantics.
+
+Pagination:
+  type: object
+  description: Pagination metadata for list endpoints.
+  required:
+    - total
+    - page
+    - per_page
+    - total_pages
+  properties:
+    total:
+      type: integer
+      description: Total number of items matching the current query.
+      example: 1250
+    page:
+      type: integer
+      description: Current 1-based page number.
+      example: 1
+    per_page:
+      type: integer
+      description: Number of items per page.
+      example: 50
+    total_pages:
+      type: integer
+      description: Total number of pages available.
+      example: 25
+
+Sort:
+  type: object
+  description: Applied sort criterion.
+  required:
+    - name
+    - direction
+  properties:
+    name:
+      type: string
+      example: domain
+    direction:
+      type: string
+      enum: [asc, desc]
+      example: asc
+
+Filter:
+  type: object
+  description: Applied filter criterion.
+  required:
+    - name
+  properties:
+    name:
+      type: string
+      example: host_type
+    value:
+      type: string
+      nullable: true
+      example: "1"
+    range:
+      type: object
+      nullable: true
+    enum:
+      type: array
+      nullable: true
+      items:
+        type: string
+
+Metadata:
+  type: object
+  description: Metadata wrapper for paginated list responses.
+  required:
+    - pagination
+    - sort
+    - filters
+  properties:
+    pagination:
+      $ref: '#/Pagination'
+    sort:
+      type: array
+      description: Applied sort parameters; empty when none are applied.
+      items:
+        $ref: '#/Sort'
+    filters:
+      type: array
+      description: Applied filter parameters; empty when none are applied.
+      items:
+        $ref: '#/Filter'
+
+HostListResponse:
+  type: object
+  description: Paginated list of hosts.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/HostListItem'
+    metadata:
+      $ref: '#/Metadata'
 
 Error:
   type: object

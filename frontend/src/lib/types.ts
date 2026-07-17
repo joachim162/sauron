@@ -181,11 +181,15 @@ export interface MxTemplate {
 
 export interface PaginatedResponse<T> {
   data: T[];
-  pagination: {
-    page: number;
-    per_page: number;
-    total: number;
-    total_pages: number;
+  metadata: {
+    pagination: {
+      total: number;
+      page: number;
+      per_page: number;
+      total_pages: number;
+    };
+    sort: Array<{ name: string; direction: string }>;
+    filters: Array<{ name: string; [key: string]: unknown }>;
   };
 }
 

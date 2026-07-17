@@ -10,15 +10,15 @@ get:
   parameters:
     - $ref: '../components/parameters.yaml#/server'
     - $ref: '../components/parameters.yaml#/zone'
+    - $ref: '../components/parameters.yaml#/page'
+    - $ref: '../components/parameters.yaml#/per_page'
   responses:
     '200':
-      description: A list of hosts
+      description: A paginated list of hosts
       content:
         application/json:
           schema:
-            type: array
-            items:
-              $ref: '../components/schemas.yaml#/Host'
+            $ref: '../components/schemas.yaml#/HostListResponse'
     '404':
       description: Server or zone not found
       content:
