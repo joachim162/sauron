@@ -5,6 +5,8 @@ import type {
   Server,
   Zone,
   Host,
+  HostListItem,
+  PaginatedResponse,
   Net,
   NewNet,
   UpdateNet,
@@ -63,8 +65,15 @@ export const netsApi = {
 
 // ---- Hosts ----
 export const hostsApi = {
-  list: (serverName: string, zoneName: string) =>
-    api.get<Host[]>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts`),
+  list: (serverName: string, zoneName: string, opts?: { page?: number; per_page?: number }) => {
+    const params = new URLSearchParams();
+    if (opts?.page !== undefined) params.set("page", String(opts.page));
+    if (opts?.per_page !== undefined) params.set("per_page", String(opts.per_page));
+    const qs = params.toString();
+    return api.get<PaginatedResponse<HostListItem>>(
+      `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts${qs ? `?${qs}` : ""}`
+    );
+  },
   get: (serverName: string, zoneName: string, hostname: string) =>
     api.get<Host>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts/${encodeURIComponent(hostname)}`),
   create: (serverName: string, zoneName: string, data: { hostname: string; type: number; ips?: string[]; [key: string]: unknown }) =>

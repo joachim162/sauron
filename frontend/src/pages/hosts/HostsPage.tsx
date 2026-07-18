@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import type { ColumnDef } from "@tanstack/react-table";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import type { ColumnDef, PaginationState } from "@tanstack/react-table";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { hostsApi, netsApi } from "@/api";
-import type { Host } from "@/lib/types";
+import type { HostListItem } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { useServerContext } from "@/hooks/use-server-context";
 import { useAuth } from "@/hooks/use-auth";
@@ -27,8 +28,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
-import { useState } from "react";
 import { ApiRequestError } from "@/lib/api-client";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const RHF_LABELS: Record<string, string> = {
   huser: "User",
@@ -57,6 +59,41 @@ export default function HostsPage() {
   const [typeTouched, setTypeTouched] = useState(false);
   const [deleteHostname, setDeleteHostname] = useState<string | null>(null);
   const [selectedNet, setSelectedNet] = useState("manual");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const pagination = useMemo<PaginationState>(() => {
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+    const perPageRaw = parseInt(searchParams.get("per_page") || "50", 10) || 50;
+    const perPage = Math.min(100, Math.max(1, perPageRaw));
+    return { pageIndex: page - 1, pageSize: perPage };
+  }, [searchParams]);
+
+  const updatePagination = (next: PaginationState) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("page", String(next.pageIndex + 1));
+        params.set("per_page", String(next.pageSize));
+        return params;
+      },
+      { replace: true }
+    );
+  };
+
+  const prevZoneRef = useRef<string | null>(zoneName);
+  useEffect(() => {
+    if (prevZoneRef.current === zoneName) return;
+    prevZoneRef.current = zoneName;
+    setSearchParams(
+      (prev) => {
+        const current = prev.get("page");
+        if (!current || current === "1") return prev;
+        const params = new URLSearchParams(prev);
+        params.set("page", "1");
+        return params;
+      },
+      { replace: true }
+    );
+  }, [zoneName, setSearchParams]);
 
   const needsNet = ["1", "101"].includes(selectedType);
 
@@ -185,15 +222,29 @@ export default function HostsPage() {
   };
 
   // List hosts in zone
-  const { data: hosts, isLoading } = useQuery({
-    queryKey: ["hosts", serverName, zoneName],
-    queryFn: () => hostsApi.list(serverName!, zoneName!),
+  const { data: hostsResponse, isLoading } = useQuery({
+    queryKey: ["hosts", serverName, zoneName, pagination.pageIndex, pagination.pageSize],
+    queryFn: () =>
+      hostsApi.list(serverName!, zoneName!, {
+        page: pagination.pageIndex + 1,
+        per_page: pagination.pageSize,
+      }),
     enabled: !!serverName && !!zoneName,
   });
+
+  const hosts = hostsResponse?.data ?? [];
+  const totalHosts = hostsResponse?.metadata.pagination.total ?? hosts.length;
+  const pageCount = hostsResponse?.metadata.pagination.total_pages ?? 1;
+  const pageSizeOptions = PAGE_SIZE_OPTIONS.includes(pagination.pageSize)
+    ? PAGE_SIZE_OPTIONS
+    : [...PAGE_SIZE_OPTIONS, pagination.pageSize].sort((a, b) => a - b);
 
   const deleteMutation = useMutation({
     mutationFn: (hostname: string) => hostsApi.delete(serverName!, zoneName!, hostname),
     onSuccess: () => {
+      if (hosts.length === 1 && pagination.pageIndex > 0) {
+        updatePagination({ ...pagination, pageIndex: pagination.pageIndex - 1 });
+      }
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
       setDeleteHostname(null);
     },
@@ -223,7 +274,7 @@ export default function HostsPage() {
     e.preventDefault();
   };
 
-  const columns: ColumnDef<Host>[] = [
+  const columns: ColumnDef<HostListItem>[] = [
     { accessorKey: "id", header: "ID", size: 60 },
     {
       accessorKey: "domain",
@@ -243,13 +294,6 @@ export default function HostsPage() {
           </Badge>
         );
       },
-    },
-    {
-      accessorKey: "ip",
-      header: "IP",
-      cell: ({ getValue }) => (
-        <span className="font-mono text-sm">{(getValue() as string) || "—"}</span>
-      ),
     },
     {
       accessorKey: "ether",
@@ -298,7 +342,7 @@ export default function HostsPage() {
           <h1 className="text-2xl font-bold tracking-tight">Hosts</h1>
           <p className="text-muted-foreground">
             {zoneName
-              ? `${zoneName} — ${(hosts as Host[] || []).length} hosts`
+              ? `${zoneName} — ${totalHosts} hosts`
               : `${serverName} — Select a zone`}
           </p>
         </div>
@@ -327,13 +371,38 @@ export default function HostsPage() {
 
       {/* Results */}
       {zoneId && (
-        <DataTable
-          columns={columns}
-          data={(hosts as Host[]) || []}
-          isLoading={isLoading}
-          emptyMessage="No hosts in this zone."
-          onRowClick={(host) => navigate(`/hosts/${encodeURIComponent(host.domain)}`)}
-        />
+        <div className="space-y-2">
+          <div className="flex items-center justify-end gap-2">
+            <span className="text-sm text-muted-foreground">Rows per page</span>
+            <Select
+              value={String(pagination.pageSize)}
+              onValueChange={(v) =>
+                updatePagination({ pageIndex: 0, pageSize: Number(v) })
+              }
+            >
+              <SelectTrigger className="w-24 h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {pageSizeOptions.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DataTable
+            columns={columns}
+            data={hosts}
+            isLoading={isLoading}
+            pageCount={pageCount}
+            pagination={pagination}
+            onPaginationChange={updatePagination}
+            emptyMessage="No hosts in this zone."
+            onRowClick={(host) => navigate(`/hosts/${encodeURIComponent(host.domain)}`)}
+          />
+        </div>
       )}
 
       {!zoneId && (

@@ -75,6 +75,40 @@ export interface Host {
   [key: string]: unknown;
 }
 
+export interface HostListItem {
+  id: number;
+  domain: string;
+  fqdn: string;
+  type: number;
+  zone_id: number;
+  ttl?: number | null;
+  class?: string | null;
+  grp?: number | null;
+  alias?: number | null;
+  cname_txt?: string | null;
+  hinfo_hw?: string | null;
+  hinfo_sw?: string | null;
+  router?: number | null;
+  ether?: string | null;
+  info?: string | null;
+  location?: string | null;
+  dept?: string | null;
+  huser?: string | null;
+  email?: string | null;
+  model?: string | null;
+  serial?: string | null;
+  misc?: string | null;
+  asset_id?: string | null;
+  comment?: string | null;
+  duid?: string | null;
+  iaid?: number | null;
+  cdate?: number | null;
+  cuser?: string | null;
+  mdate?: number | null;
+  muser?: string | null;
+  [key: string]: unknown;
+}
+
 export const HOST_TYPES: Record<number, string> = {
   0: "Misc",
   1: "Host",
