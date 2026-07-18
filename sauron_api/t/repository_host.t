@@ -102,6 +102,7 @@ subtest 'host_list returns paginated envelope with scalar columns' => sub {
   _reset_mocks;
   _mock_db(
     'ORDER BY domain' => [ _list_row(100, 'a.example'), _list_row(101, 'b.example') ],
+    'a_entries'       => [],
     'COUNT(*)'        => [[2]],
   );
 
@@ -112,7 +113,7 @@ subtest 'host_list returns paginated envelope with scalar columns' => sub {
   is $data->[0]{zone_id}, 42, 'zone_id propagated';
   is $data->[0]{ttl}, 3600, 'scalar column ttl';
   is $data->[0]{cuser}, 'test', 'scalar column cuser';
-  is $data->[0]{fqdn}, '', 'fqdn placeholder';
+  is_deeply $data->[0]{ips}, [], 'empty ips when no a_entries';
   is $meta->{pagination}{total}, 2, 'total in metadata';
   is $meta->{pagination}{page}, 1, 'default page 1';
   is $meta->{pagination}{per_page}, 50, 'default per_page 50';
@@ -261,6 +262,7 @@ subtest 'host_create auto-assign invokes on_ip callback' => sub {
     get_free_ip_by_net => sub { '10.0.0.42' },
     add_host           => sub { 200 },
     get_host           => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'auto'; return 0; },
+    get_server         => sub { $_[1]{name} = 'srv-host-test'; return 0; },
   );
 
   my $on_ip = sub { $checked_ip = $_[0] };

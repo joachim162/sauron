@@ -296,6 +296,18 @@ export default function HostsPage() {
       },
     },
     {
+      accessorKey: "ips",
+      header: "IP",
+      cell: ({ getValue }) => {
+        const v = getValue() as string[] | undefined;
+        return v && v.length > 0 ? (
+          <span className="font-mono text-sm">{v.join(", ")}</span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
+    },
+    {
       accessorKey: "ether",
       header: "MAC",
       cell: ({ getValue }) => {

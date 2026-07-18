@@ -154,17 +154,32 @@ sub host_list {
     \@rows, $zone_id, $per_page, $offset
   );
 
+  # Batch-fetch IPs from a_entries for the returned host IDs
+  my %host_ips;
+  if (@rows) {
+    my @host_ids = map $_->[0], @rows;
+    my $placeholders = join ',', ('?') x @host_ids;
+    my @ip_rows;
+    Sauron::DB::db_query(
+      "SELECT host, ip FROM a_entries WHERE host IN ($placeholders) ORDER BY host, ip",
+      \@ip_rows, @host_ids
+    );
+    for my $row (@ip_rows) {
+      push @{$host_ips{$row->[0]}}, $row->[1];
+    }
+  }
+
+  my @data;
+  for my $row (@rows) {
+    push @data, _build_host_list_item($zone_id, $server_id, $row, $host_ips{$row->[0]});
+  }
+
   my @total_rows;
   Sauron::DB::db_query(
     "SELECT COUNT(*) FROM hosts WHERE zone=?",
     \@total_rows, $zone_id
   );
   my $total = $total_rows[0][0] // 0;
-
-  my @data;
-  for my $row (@rows) {
-    push @data, _build_host_list_item($zone_id, $row);
-  }
 
   my $total_pages = $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0;
 
@@ -183,14 +198,15 @@ sub host_list {
 }
 
 sub _build_host_list_item {
-  my ($zone_id, $row) = @_;
+  my ($zone_id, $server_id, $row, $ips) = @_;
 
   my %item;
   @item{@LIST_COLUMNS} = @$row;
   $item{cuser} =~ s/\s+$// if defined $item{cuser};
   $item{muser} =~ s/\s+$// if defined $item{muser};
   $item{zone_id} = $zone_id;
-  $item{fqdn}    = '';
+  $item{server_id} = $server_id;
+  $item{ips} = $ips // [];
   return \%item;
 }
 
@@ -263,6 +279,10 @@ sub host_update {
   my %host_data;
   _check(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Failed to retrieve host data');
+
+  if (exists $input->{type} && $input->{type} != $host_data{type}) {
+    SauronAPI::Exception->validation("'type' is immutable after creation");
+  }
 
   if (my $err = _validate_type_fields($input, $host_data{type})) {
     SauronAPI::Exception->validation($err);
@@ -340,7 +360,7 @@ sub _check {
 sub _copy_host_fields {
   my ($rec, $json) = @_;
   my @scalar_fields = qw(
-    domain ttl class grp alias cname_txt hinfo_hw hinfo_hw hinfo_sw router ether ether_alias
+    domain ttl class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
     info location dept huser email model serial misc asset_id comment duid
     iaid flags expiration prn wks mx rp_mbox rp_txt
   );
@@ -432,13 +452,18 @@ sub _build_host_response {
   my ($host_id, $host_data, $zone_id, $server_id) = @_;
 
   my $server_name = '';
-  if (!$server_id && $zone_id > 0) {
+  if ($server_id) {
+    my %server_data;
+    if (Sauron::BackEnd::get_server($server_id, \%server_data) == 0) {
+      $server_name = $server_data{name};
+    }
+  } elsif ($zone_id > 0) {
     my %zone_data;
     if (Sauron::BackEnd::get_zone($zone_id, \%zone_data) == 0) {
-      $server_id = $zone_data{server};
-      if ($server_id > 0) {
+      my $sid = $zone_data{server};
+      if ($sid > 0) {
         my %server_data;
-        if (Sauron::BackEnd::get_server($server_id, \%server_data) == 0) {
+        if (Sauron::BackEnd::get_server($sid, \%server_data) == 0) {
           $server_name = $server_data{name};
         }
       }

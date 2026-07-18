@@ -1265,13 +1265,13 @@ HostListItem:
   type: object
   description: >
     Lightweight host record returned by list endpoints. Includes scalar fields
-    from the hosts table only. Use GET /hosts/{hostname} for the full host.
+    from the hosts table, the server_id, and IP addresses. Use
+    GET /hosts/{hostname} for the full host record.
   required:
     - id
     - domain
     - type
     - zone_id
-    - fqdn
   properties:
     id:
       type: integer
@@ -1279,15 +1279,21 @@ HostListItem:
     domain:
       type: string
       example: www
-    fqdn:
-      type: string
-      example: www.example.com.
     type:
       type: integer
       example: 1
     zone_id:
       type: integer
       example: 10
+    server_id:
+      type: integer
+      example: 1
+    ips:
+      type: array
+      items:
+        type: string
+      description: IP addresses assigned to this host
+      example: ["192.168.1.100", "2001:db8::1"]
     ttl:
       type: integer
       nullable: true

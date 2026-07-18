@@ -21,8 +21,9 @@ sub _render_exception {
     );
   }
 
+  # TODO: log $e via a proper logging framework once one is in place
   $self->render(
-    openapi => { error => 'Internal Server Error', message => "$e" },
+    openapi => { error => 'Internal Server Error', message => 'An unexpected error occurred' },
     status  => 500,
   );
 }
