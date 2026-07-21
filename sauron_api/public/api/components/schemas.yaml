@@ -1407,7 +1407,7 @@ NewHost:
             Network identifier (CIDR or netname) for automatic IP assignment.
             When provided, the API assigns a free IP from the specified
             network instead of using the 'ips' field. Only valid for host
-            types that support IP addresses (1, 9, 101).
+            types 1 (host) and 101 (host reservation).
           example: 192.168.1.0/24
 
 UpdateHost:

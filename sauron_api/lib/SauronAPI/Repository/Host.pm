@@ -376,9 +376,9 @@ sub _resolve_ips_for_create {
   my $ips = $input->{ips};
 
   if ($net) {
-    unless ($type == 1 || $type == 9 || $type == 101) {
+    unless ($type == 1 || $type == 101) {
       SauronAPI::Exception->validation(
-        "Auto-assignment ('net') is only valid for host types 1, 9, and 101"
+        "Auto-assignment ('net') is only valid for host types 1 and 101"
       );
     }
   }
