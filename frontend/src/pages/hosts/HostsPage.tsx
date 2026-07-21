@@ -109,7 +109,7 @@ export default function HostsPage() {
   }> = {
     1: {
       inputs: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10" }],
-      toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [v] } : {}; },
+      toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [{ ip: v }] } : {}; },
     },
     2: {
       inputs: [{ key: "ns", label: "NS Server", placeholder: "ns1.example.com" }],
@@ -136,7 +136,7 @@ export default function HostsPage() {
     },
     6: {
       inputs: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10" }],
-      toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [v] } : {}; },
+      toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [{ ip: v }] } : {}; },
     },
     7: {
       inputs: [{ key: "arec", label: "AREC Target", placeholder: "192.168.1.10" }],
@@ -167,7 +167,7 @@ export default function HostsPage() {
       toPayload: (fd) => {
         const p: Record<string, unknown> = {};
         const e = fd.get("ether") as string; if (e) p.ether = e;
-        const i = fd.get("ips") as string; if (i) p.ips = [i];
+        const i = fd.get("ips") as string; if (i) p.ips = [{ ip: i }];
         return p;
       },
     },
@@ -215,7 +215,7 @@ export default function HostsPage() {
       toPayload: (fd) => {
         const p: Record<string, unknown> = {};
         const e = fd.get("ether") as string; if (e) p.ether = e;
-        const i = fd.get("ips") as string; if (i) p.ips = [i];
+        const i = fd.get("ips") as string; if (i) p.ips = [{ ip: i }];
         return p;
       },
     },
@@ -448,7 +448,7 @@ export default function HostsPage() {
                     if (ether) payload.ether = ether;
                   } else {
                     const ips = (fd.get("ips") as string) || "";
-                    if (ips) payload.ips = [ips];
+                    if (ips) payload.ips = [{ ip: ips }];
                   }
                 } else if (cfg) {
                   Object.assign(payload, cfg.toPayload(fd));

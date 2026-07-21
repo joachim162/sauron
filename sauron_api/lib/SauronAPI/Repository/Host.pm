@@ -13,6 +13,7 @@ use Sauron::Util   qw(is_cidr);
 use SauronAPI::Codecs       qw(mx value);
 use SauronAPI::Exception    ();
 use SauronAPI::FieldCodec;
+use JSON::PP ();
 
 # ---------------------------------------------------------------------------
 # Array fields handled by FieldCodec. Controllers MUST NOT touch these.
@@ -297,7 +298,8 @@ sub host_update {
   _copy_host_fields(\%rec, $input);
 
   if (exists $input->{ips}) {
-    my $data = $FIELDS{ip}->encode_update($input->{ips}, $host_data{ip});
+    my $data = $FIELDS{ip}->encode_update(
+      _normalize_ip_entries($input->{ips}), $host_data{ip});
     $rec{ip} = $data if ref $data eq 'ARRAY';
   }
 
@@ -419,14 +421,15 @@ sub _resolve_ips_for_create {
       );
     }
     $on_ip->($ip) if $on_ip;
-    my $data = $FIELDS{ip}->encode_create([$ip]);
+    my $data = $FIELDS{ip}->encode_create([[$ip, 't', 't']]);
     $rec->{ip} = $data if ref $data eq 'ARRAY';
     return;
   }
 
   if (defined $ips) {
-    for my $ip (@$ips) {
-      next unless defined $ip && length $ip;
+    my $triples = _normalize_ip_entries($ips);
+    for my $triple (@$triples) {
+      my $ip = $triple->[0];
       unless (is_cidr($ip)) {
         SauronAPI::Exception->validation(
           "Invalid IP address '$ip'"
@@ -439,9 +442,28 @@ sub _resolve_ips_for_create {
       }
       $on_ip->($ip) if $on_ip;
     }
-    my $data = $FIELDS{ip}->encode_create($ips);
+    my $data = $FIELDS{ip}->encode_create($triples);
     $rec->{ip} = $data if ref $data eq 'ARRAY';
   }
+}
+
+# Normalize API ips input ([{ip, reverse?, forward?}, ...]) into marker
+# triples [ip, 't'/'f', 't'/'f']. Flags default to true when omitted.
+sub _normalize_ip_entries {
+  my ($ips) = @_;
+  SauronAPI::Exception->validation("'ips' must be an array")
+    unless ref $ips eq 'ARRAY';
+
+  my @out;
+  for my $entry (@$ips) {
+    SauronAPI::Exception->validation(
+      "Each 'ips' item must be an object with an 'ip' field"
+    ) unless ref $entry eq 'HASH' && defined $entry->{ip} && length $entry->{ip};
+    my $rev = exists $entry->{reverse} ? ($entry->{reverse} ? 't' : 'f') : 't';
+    my $fwd = exists $entry->{forward} ? ($entry->{forward} ? 't' : 'f') : 't';
+    push @out, [$entry->{ip}, $rev, $fwd];
+  }
+  return \@out;
 }
 
 # ---------------------------------------------------------------------------
@@ -473,7 +495,13 @@ sub _build_host_response {
   my @ips;
   if (ref $host_data->{ip} eq 'ARRAY' && @{$host_data->{ip}} > 1) {
     for my $i (1 .. $#{$host_data->{ip}}) {
-      push @ips, $host_data->{ip}[$i][1] if defined $host_data->{ip}[$i][1];
+      my $r = $host_data->{ip}[$i];
+      next unless defined $r->[1];
+      push @ips, {
+        ip      => $r->[1],
+        reverse => ($r->[2] // 'f') eq 't' ? JSON::PP::true : JSON::PP::false,
+        forward => ($r->[3] // 'f') eq 't' ? JSON::PP::true : JSON::PP::false,
+      };
     }
   }
 
@@ -549,7 +577,7 @@ sub _build_host_response {
 # Record builders (private)
 # ---------------------------------------------------------------------------
 
-sub _build_ip_record        { [0, $_[0], 't', 't', 2] }
+sub _build_ip_record        { [0, $_[0][0], $_[0][1], $_[0][2], 2] }
 sub _build_ns_record        { [0, $_[0]->{ns},      $_[0]->{comment} // '', 2] }
 sub _build_ds_record        { [0, $_[0]->{key_tag}, $_[0]->{algorithm}, $_[0]->{digest_type}, $_[0]->{digest}, $_[0]->{comment} // '', 2] }
 sub _build_wks_record       { [0, $_[0]->{proto},   $_[0]->{services}, $_[0]->{comment} // '', 2] }

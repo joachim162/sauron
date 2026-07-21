@@ -49,6 +49,12 @@ export interface Zone {
   [key: string]: unknown;
 }
 
+export interface IpEntry {
+  ip: string;
+  reverse: boolean;
+  forward: boolean;
+}
+
 export interface Host {
   id: number;
   domain: string;
@@ -57,7 +63,7 @@ export interface Host {
   server_id: number;
   server: string;
   type: number;
-  ips: string[];
+  ips: IpEntry[];
   ttl?: number;
   class?: string;
   grp?: number;

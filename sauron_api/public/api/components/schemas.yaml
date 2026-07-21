@@ -916,9 +916,32 @@ HostFields:
       type: array
       nullable: true
       items:
-        type: string
-      description: IP addresses assigned to this host
-      example: ["192.168.1.100", "2001:db8::1"]
+        type: object
+        required:
+          - ip
+        properties:
+          ip:
+            type: string
+            description: IP address (IPv4 or IPv6)
+          reverse:
+            type: boolean
+            description: >
+              Generate a reverse (PTR) record for this address.
+              Defaults to true when omitted.
+          forward:
+            type: boolean
+            description: >
+              Generate a forward (A) record for this address.
+              Defaults to true when omitted.
+      description: >
+        IP addresses assigned to this host. Each address carries per-address
+        reverse/forward DNS generation flags; both default to true when
+        omitted. Array fields use replace-all semantics on update.
+      example:
+        - ip: "192.168.1.100"
+          reverse: true
+          forward: true
+        - ip: "2001:db8::1"
     ether:
       type: string
       nullable: true

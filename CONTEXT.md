@@ -7,6 +7,8 @@
 - **Create dialog** — Compact modal form that shows `domain` + `type` always, plus extra meaningful fields per selected type. Mapping is hardcoded in the frontend.
 - **Domain rename** — Changing a host's `domain` field requires navigating the frontend to the new URL; the old hostname path becomes invalid immediately.
 - **Delete** — Removes the host record and all associated child entries (IPs, MX, NS, etc.). Returns 204 No Content.
+- **Forward flag** — Per-address boolean on a host's IP entry controlling whether a DNS A record is generated for that IP.
+- **Reverse flag** — Per-address boolean on a host's IP entry controlling whether a DNS PTR record is generated for that IP.
 
 ## Subdomain (Delegation)
 

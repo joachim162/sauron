@@ -286,12 +286,74 @@ subtest 'host_create on_ip throwing forbidden aborts create' => sub {
   my $on_ip = sub { SauronAPI::Exception->forbidden('denied') };
   eval {
     host_create(7, 42,
-      { hostname => 'x', type => 1, ips => ['10.0.0.5'] },
+      { hostname => 'x', type => 1, ips => [{ ip => '10.0.0.5' }] },
       on_ip => $on_ip);
   };
   isa_ok $@, 'SauronAPI::Exception';
   is $@->status, 403, 'status 403';
   is $@->message, 'denied', 'message propagated';
+};
+
+subtest 'host_create ips flags default to t,t and explicit flags preserved' => sub {
+  _reset_mocks;
+  my $captured;
+  _mock_back_end(
+    get_host_id => sub { -1 },
+    ip_in_use   => sub { 0 },
+    add_host    => sub { $captured = $_[0]; 200 },
+    get_host    => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'flags'; return 0; },
+    get_server  => sub { $_[1]{name} = 'srv'; return 0; },
+  );
+
+  my $host = eval {
+    host_create(7, 42, {
+      hostname => 'flags', type => 1,
+      ips => [
+        { ip => '10.0.0.1' },
+        { ip => '10.0.0.2', reverse => 0, forward => 0 },
+        { ip => '10.0.0.3', reverse => 1, forward => 0 },
+      ],
+    });
+  };
+  ok !$@, 'no exception: ' . ($@ // '');
+  is_deeply $captured->{ip}, [
+    [0, '10.0.0.1', 't', 't', 2],
+    [0, '10.0.0.2', 'f', 'f', 2],
+    [0, '10.0.0.3', 't', 'f', 2],
+  ], 'marker rows carry default and explicit flags';
+};
+
+subtest 'host_create rejects malformed ips items' => sub {
+  _reset_mocks;
+  _mock_back_end( get_host_id => sub { -1 } );
+  eval { host_create(7, 42, { hostname => 'x', type => 1, ips => ['10.0.0.5'] }) };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 400, 'plain string item rejected with 400';
+};
+
+subtest 'host_find decodes ips into objects with boolean flags' => sub {
+  _reset_mocks;
+  _mock_back_end(
+    get_host_id => sub { 42 },
+    get_host    => sub {
+      $_[1]{zone} = 10; $_[1]{type} = 1; $_[1]{domain} = 'web01';
+      $_[1]{ip} = [
+        ['IP', 'reverse', 'forward'],
+        [7, '10.0.0.9', 't', 'f', 0],
+        [8, '10.0.0.10', 'f', 'f', 0],
+      ];
+      return 0;
+    },
+    get_server => sub { $_[1]{name} = 'srv'; return 0; },
+  );
+
+  my $host = eval { host_find(7, 10, 'web01') };
+  ok !$@, 'no exception: ' . ($@ // '');
+  is scalar @{$host->{ips}}, 2, 'two ip entries';
+  is $host->{ips}[0]{ip}, '10.0.0.9', 'first ip';
+  ok $host->{ips}[0]{reverse}, 'first reverse true';
+  ok !$host->{ips}[0]{forward}, 'first forward false';
+  ok !$host->{ips}[1]{reverse} && !$host->{ips}[1]{forward}, 'second both false';
 };
 
 _reset_mocks;

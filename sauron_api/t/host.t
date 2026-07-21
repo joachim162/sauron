@@ -89,7 +89,7 @@ subtest 'POST with invalid field for host type' => sub {
 };
 
 subtest 'POST duplicate host' => sub {
-  $t->post_ok($URL => $SUPER => json => { hostname => "dup-${pid}", type => 1, ips => ['10.0.0.1'] })
+  $t->post_ok($URL => $SUPER => json => { hostname => "dup-${pid}", type => 1, ips => [{ ip => '10.0.0.1' }] })
     ->status_is(201);
   $t->post_ok($URL => $SUPER => json => { hostname => "dup-${pid}", type => 1 })
     ->status_is(409)
@@ -196,13 +196,16 @@ subtest 'POST create host with IPs' => sub {
   $t->post_ok($URL => $USER => json => {
     hostname => "full-${pid}",
     type     => 1,
-    ips      => ['10.0.0.10', '10.0.0.11'],
+    ips      => [{ ip => '10.0.0.10' }, { ip => '10.0.0.11' }],
     ttl      => 3600,
     comment  => 'test host with IPs',
   })
     ->status_is(201)
     ->json_is('/domain'  => "full-${pid}")
-    ->json_is('/ips'     => ['10.0.0.10', '10.0.0.11'])
+    ->json_is('/ips/0/ip' => '10.0.0.10')
+    ->json_is('/ips/0/reverse' => JSON::PP::true)
+    ->json_is('/ips/0/forward' => JSON::PP::true)
+    ->json_is('/ips/1/ip' => '10.0.0.11')
     ->json_is('/ttl'     => 3600)
     ->json_is('/comment' => 'test host with IPs');
 
@@ -215,7 +218,7 @@ subtest 'POST create host with scalar fields' => sub {
   $t->post_ok($URL => $USER => json => {
     hostname => "scalar-${pid}",
     type     => 1,
-    ips      => ['10.0.0.20'],
+    ips      => [{ ip => '10.0.0.20' }],
     ttl      => 7200,
     class    => 'IN',
     location => 'Building A',
@@ -267,7 +270,9 @@ subtest 'GET host with IPs' => sub {
   $t->get_ok("$URL/readip-${pid}" => $SUPER)
     ->status_is(200)
     ->json_is('/domain' => "readip-${pid}")
-    ->json_is('/ips'    => ['10.0.0.30']);
+    ->json_is('/ips/0/ip' => '10.0.0.30')
+    ->json_is('/ips/0/reverse' => JSON::PP::true)
+    ->json_is('/ips/0/forward' => JSON::PP::true);
 
   Sauron::BackEnd::delete_host($hid);
 };
@@ -282,14 +287,35 @@ subtest 'PUT update host' => sub {
     ttl      => 9999,
     comment  => 'updated by test',
     location => 'New Location',
-    ips      => ['10.0.0.100'],
+    ips      => [{ ip => '10.0.0.100' }],
   })
     ->status_is(200)
     ->json_is('/domain'   => "upd-${pid}")
     ->json_is('/ttl'      => 9999)
     ->json_is('/comment'  => 'updated by test')
     ->json_is('/location' => 'New Location')
-    ->json_is('/ips'      => ['10.0.0.100']);
+    ->json_is('/ips/0/ip' => '10.0.0.100')
+    ->json_is('/ips/0/reverse' => JSON::PP::true)
+    ->json_is('/ips/0/forward' => JSON::PP::true);
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'PUT update host ip flags' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "flags-${pid}", type => 1,
+    ip => [[0, '10.0.0.200', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->put_ok("$URL/flags-${pid}" => $USER => json => {
+    ips => [{ ip => '10.0.0.200', reverse => JSON::PP::false, forward => JSON::PP::true }],
+  })
+    ->status_is(200)
+    ->json_is('/ips/0/ip' => '10.0.0.200')
+    ->json_is('/ips/0/reverse' => JSON::PP::false)
+    ->json_is('/ips/0/forward' => JSON::PP::true);
 
   Sauron::BackEnd::delete_host($hid);
 };

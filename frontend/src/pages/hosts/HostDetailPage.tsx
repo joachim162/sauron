@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { hostsApi } from "@/api";
-import type { Host } from "@/lib/types";
+import type { Host, IpEntry } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { ApiRequestError } from "@/lib/api-client";
 import { useServerContext } from "@/hooks/use-server-context";
@@ -55,13 +55,13 @@ function objToERows(arr: unknown, keys: string[]): ERow[] {
   }));
 }
 
-/** Convert API ips string array to ERow[] for IpArrayCard. */
+/** Convert API ips entries to ERow[] for IpArrayCard. */
 function ipsToERows(ips: unknown): ERow[] {
   if (!Array.isArray(ips)) return [];
-  return (ips as string[]).map((ip) => ({
+  return (ips as IpEntry[]).map((e) => ({
     _dbId: 0,
     _deleted: false,
-    values: [ip, "t", "t"],
+    values: [e.ip, e.reverse ? "t" : "f", e.forward ? "t" : "f"],
   }));
 }
 
@@ -430,7 +430,11 @@ export default function HostDetailPage() {
     // Array fields — convert ERows to API object format
     const visibleIp = ipEdit.filter(r => !r._deleted);
     if (visibleIp.length > 0) {
-      data.ips = visibleIp.map(r => r.values[0]);
+      data.ips = visibleIp.map(r => ({
+        ip: r.values[0],
+        reverse: r.values[1] === "t",
+        forward: r.values[2] === "t",
+      }));
     }
     const visibleTxt = txtEdit.filter(r => !r._deleted);
     if (visibleTxt.length > 0) {
@@ -456,8 +460,8 @@ export default function HostDetailPage() {
   };
 
   // Read-only data
-  const ipList = (d.ips as string[]) || [];
-  const ipDisplay = ipList.join(", ");
+  const ipList = (d.ips as IpEntry[]) || [];
+  const ipDisplay = ipList.map((i) => i.ip).join(", ");
   const mxRows = objToERows(d.mx_l, ["pri", "mx", "comment"]);
   const nsRows = objToERows(d.ns_l, ["ns", "comment"]);
   const txtRows = objToERows(d.txt_l, ["txt", "comment"]);
