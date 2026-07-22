@@ -248,6 +248,10 @@ sub host_create {
   );
   _copy_host_fields(\%rec, $input);
 
+  # TODO: when creating an alias (alias > 0) and ttl is not provided,
+  # inherit the source host's TTL to match legacy CGI behaviour.
+  # The frontend currently sends ttl explicitly; move that rule here.
+
   _resolve_ips_for_create(\%rec, $input, $server_id, $type, $opts{on_ip});
 
   for my $field (@ARRAY_FIELDS) {
