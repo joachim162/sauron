@@ -308,6 +308,9 @@ export default function HostDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [aliasOpen, setAliasOpen] = useState(false);
+  const [aliasType, setAliasType] = useState<string>("4");
+  const [aliasError, setAliasError] = useState<string | null>(null);
 
   // Editable array state — initialised on entering edit mode
   const [ipEdit, setIpEdit] = useState<ERow[]>([]);
@@ -340,6 +343,26 @@ export default function HostDetailPage() {
     mutationFn: () => hostsApi.delete(serverName!, zoneName!, hostname!),
     onSuccess: () => {
       navigate("/hosts");
+    },
+  });
+
+  const aliasMutation = useMutation({
+    mutationFn: (data: { hostname: string; type: number; alias: number; ttl?: number }) =>
+      hostsApi.create(serverName!, zoneName!, data),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      queryClient.invalidateQueries({ queryKey: ["host", serverName, zoneName, hostname] });
+      setAliasOpen(false);
+      if (result?.domain) {
+        navigate(`/hosts/${encodeURIComponent(result.domain)}`);
+      }
+    },
+    onError: (err) => {
+      setAliasError(
+        err instanceof ApiRequestError
+          ? err.data.message || err.message
+          : "Failed to create alias."
+      );
     },
   });
 
@@ -541,7 +564,14 @@ export default function HostDetailPage() {
                   <DropdownMenuItem disabled>
                     <Copy className="mr-2 h-4 w-4" /> Copy
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled>
+                  <DropdownMenuItem
+                    disabled={host.type !== 1}
+                    onClick={() => {
+                      setAliasType("4");
+                      setAliasError(null);
+                      setAliasOpen(true);
+                    }}
+                  >
                     <Link className="mr-2 h-4 w-4" /> Add Alias
                   </DropdownMenuItem>
                   <DropdownMenuItem disabled>
@@ -957,6 +987,71 @@ export default function HostDetailPage() {
               Delete
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Alias dialog */}
+      <Dialog open={aliasOpen} onOpenChange={setAliasOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Alias</DialogTitle>
+            <DialogDescription>
+              Create an alias pointing to <strong>{host.domain}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setAliasError(null);
+              const fd = new FormData(e.currentTarget);
+              const aliasHostname = (fd.get("alias_hostname") as string).trim();
+              if (!aliasHostname) {
+                setAliasError("Hostname is required.");
+                return;
+              }
+              const data: { hostname: string; type: number; alias: number; ttl?: number } = {
+                hostname: aliasHostname,
+                type: Number(aliasType),
+                alias: host.id,
+              };
+              // TODO: move TTL inheritance to the API repository so the frontend
+              // doesn't need to know this domain rule.
+              if (host.ttl && Number(host.ttl) > 0) {
+                data.ttl = Number(host.ttl);
+              }
+              aliasMutation.mutate(data);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="alias_hostname">Hostname</Label>
+              <Input id="alias_hostname" name="alias_hostname" placeholder="www" className="font-mono" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="alias_type">Alias type</Label>
+              <Select name="alias_type" value={aliasType} onValueChange={setAliasType}>
+                <SelectTrigger id="alias_type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="4">CNAME alias</SelectItem>
+                  <SelectItem value="7">AREC alias</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {aliasError && (
+              <p className="text-sm text-destructive">{aliasError}</p>
+            )}
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAliasOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={aliasMutation.isPending}>
+                {aliasMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Create Alias
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>
