@@ -388,6 +388,7 @@ export default function HostDetailPage() {
       "domain", "ether", "huser", "dept", "location", "info", "email",
       "hinfo_hw", "hinfo_sw", "duid",
       "asset_id", "model", "serial", "misc",
+      "rp_mbox", "rp_txt",
     ]) {
       const v = fd.get(key) as string;
       if (v) {
@@ -396,8 +397,11 @@ export default function HostDetailPage() {
         data[key] = v ?? "";
       }
     }
+    // Bool fields
+    const prnVal = fd.get("prn") as string;
+    if (prnVal) data.prn = prnVal === "true";
     // Scalar fields (integer type)
-    for (const key of ["iaid", "expiration"] as const) {
+    for (const key of ["iaid", "expiration", "flags"] as const) {
       const v = fd.get(key) as string;
       if (v && v.trim() !== "") {
         const n = Number(v);
@@ -483,6 +487,8 @@ export default function HostDetailPage() {
     { key: "location", label: "Location" },
     { key: "email", label: "User Email" },
     { key: "info", label: "[Extra] Info" },
+    { key: "rp_mbox", label: "RP Mailbox" },
+    { key: "rp_txt", label: "RP TXT" },
   ];
 
   const EQUIP_FIELDS: { key: string; label: string; mono?: boolean; hint?: string }[] = [
@@ -604,6 +610,12 @@ export default function HostDetailPage() {
                         defaultValue={d.expiration && Number(d.expiration) > 0 ? String(d.expiration) : ""}
                         placeholder="0" className="h-8 text-sm" />
                     </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="flags" className="text-xs">Flags (bitfield)</Label>
+                      <Input id="flags" name="flags" type="number"
+                        defaultValue={d.flags ? String(d.flags) : "0"}
+                        className="h-8 text-sm" />
+                    </div>
                   <Separator />
                   {TEXT_FIELDS.slice(1).map((f) => (
                     <div key={f.key} className="space-y-1">
@@ -642,6 +654,10 @@ export default function HostDetailPage() {
                     <Field label="User Email" value={String(d.email || "")} />
                   </div>
                   <Field label="[Extra] Info" value={String(d.info || "")} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="RP Mailbox" value={String(d.rp_mbox || "")} />
+                    <Field label="RP TXT" value={String(d.rp_txt || "")} />
+                  </div>
                 </>
               )}
             </CardContent>
@@ -668,6 +684,18 @@ export default function HostDetailPage() {
                           className={`h-8 text-sm ${f.mono ? "font-mono" : ""}`} />
                       </div>
                     ))}
+                    <div className="space-y-1">
+                      <Label htmlFor="prn" className="text-xs">Virtual printer</Label>
+                      <Select name="prn" defaultValue={String(d.prn) === "true" || String(d.prn) === "t" ? "true" : "false"}>
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="false">No</SelectItem>
+                          <SelectItem value="true">Yes</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -691,6 +719,9 @@ export default function HostDetailPage() {
                         <Field label="Misc." value={String(d.misc || "")} />
                       </div>
                     )}
+                    <div className="mt-3">
+                      <Field label="Virtual printer" value={String(d.prn) === "true" || String(d.prn) === "t" ? "Yes" : "No"} />
+                    </div>
                   </>
                 )}
               </CardContent>
@@ -863,6 +894,12 @@ export default function HostDetailPage() {
                 <div className="text-muted-foreground">Last lease issued by DHCP server</div>
                 <div className="font-medium">
                   {String(d.dhcp_date_str || "").trim() || "—"}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Flags</div>
+                <div className="font-medium">
+                  {d.flags !== undefined && Number(d.flags) > 0 ? String(d.flags) : "0"}
                 </div>
               </div>
             </div>

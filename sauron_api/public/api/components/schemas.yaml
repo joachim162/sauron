@@ -997,6 +997,20 @@ HostFields:
       type: string
       nullable: true
       example: "Web server"
+    rp_mbox:
+      type: string
+      nullable: true
+      description: RP mailbox
+      example: admin.example.com
+    rp_txt:
+      type: string
+      nullable: true
+      description: RP TXT record
+    prn:
+      type: boolean
+      nullable: true
+      description: Virtual printer flag
+      example: false
     duid:
       type: string
       nullable: true

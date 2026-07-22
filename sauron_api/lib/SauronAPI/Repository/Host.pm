@@ -525,7 +525,7 @@ sub _build_host_response {
     rp_mbox           => $host_data->{rp_mbox},
     rp_txt            => $host_data->{rp_txt},
     router            => $host_data->{router},
-    prn               => $host_data->{prn},
+    prn               => defined $host_data->{prn} ? ($host_data->{prn} eq 't' ? JSON::PP::true : JSON::PP::false) : JSON::PP::false,
     ips               => \@ips,
     ether             => $host_data->{ether},
     ether_alias       => $host_data->{ether_alias},
