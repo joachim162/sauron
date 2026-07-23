@@ -16,8 +16,8 @@ Guidelines for agentic coding agents working on the Sauron codebase.
 =======
 ## Git & Remotes
 
-- **`origin`** — `https://github.com/joachim162/sauron.git` (default, push here)
-- **`upstream`** — `https://github.com/tjko/sauron.git` (read-only upstream, never push)
+- **`origin`** — `https://github.com/joachim162/sauron.git` (default, push here). Branches under `origin/` belong to this forked repo and are used to implement the new REST API and frontend.
+- **`upstream`** — `https://github.com/tjko/sauron.git` (read-only upstream, never push). Branches under `upstream/` are the original Sauron project, including the legacy CGI implementation.
 - **Create issues on:** `joachim162/sauron` (`gh issue create --repo joachim162/sauron --label <label>`)
 - **Commit message format:** `type(scope): description` (e.g. `fix(ui): align nets list with hosts`, `feat(api): add vlan enrichment`, `docs: ...`)
 
@@ -296,7 +296,7 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 
 **Key entry points:**
 - `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, `before_dispatch` hook
-- `sauron_api/lib/SauronAPI/Controller/` — One controller per resource (Auth, Host, Server, Zone **Net**)
+- `sauron_api/lib/SauronAPI/Controller/` — One controller per resource (Auth, Host, Server, Zone, Net)
 - `sauron_api/lib/SauronAPI/Repository/` — One repository per resource. Data-access layer for API **reads** (own SQL, bind params) and **writes** (delegated to `Sauron::BackEnd`). See `docs/adr/0001-repository-layer.md`.
 - `Sauron/BackEnd.pm` — 4500+ lines, legacy database operations. Mandatory for CGI and for all writes. Do not add new functions; new API read logic goes in repositories.
 - `sauron_api/public/api/openapi.yaml` — Root OpenAPI spec (references `paths/` and `components/`)
