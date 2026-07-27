@@ -286,7 +286,11 @@ sub host_update {
          'Failed to retrieve host data');
 
   if (exists $input->{type} && $input->{type} != $host_data{type}) {
-    SauronAPI::Exception->validation("'type' is immutable after creation");
+    my $from = $host_data{type};
+    my $to   = $input->{type};
+    unless (($from == 1 && $to == 101) || ($from == 101 && $to == 1)) {
+      SauronAPI::Exception->validation("'type' is immutable after creation");
+    }
   }
 
   if (my $err = _validate_type_fields($input, $host_data{type})) {

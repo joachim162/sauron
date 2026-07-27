@@ -1455,6 +1455,13 @@ UpdateHost:
         Schema for updating an existing host. All fields are optional;
         only provided fields are updated. Array fields use replace-all
         semantics (all existing records of the same type are replaced).
+      properties:
+        type:
+          type: integer
+          description: >
+            Host type. Only the 1↔101 transition (host ↔ reservation) is
+            allowed after creation; any other type change is rejected.
+          example: 101
 
 LoginRequest:
   type: object
