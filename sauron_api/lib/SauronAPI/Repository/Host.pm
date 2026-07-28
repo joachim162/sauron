@@ -399,22 +399,32 @@ sub host_copy {
   if (exists $input->{ips} || exists $input->{net}) {
     _resolve_ips_for_create(\%rec, $input, $server_id, $rec{type}, $opts{on_ip});
   } elsif ($source{type} == 1 || $source{type} == 6 || $source{type} == 9 || $source{type} == 101) {
+    # Auto-assign IP from source's network (CGI copy behaviour).
     my $first_ip;
     if (ref $source{ip} eq 'ARRAY' && @{$source{ip}} > 1) {
       $first_ip = $source{ip}[1][1];
     }
-    if ($first_ip) {
-      my $cidr = Sauron::BackEnd::get_net_cidr_by_ip($server_id, $first_ip);
-      if ($cidr) {
-        my $policy = Sauron::BackEnd::get_net_ip_policy($server_id, $cidr);
-        my $ip = Sauron::BackEnd::get_free_ip_by_net($server_id, $cidr, '', '', $policy);
-        if (is_cidr($ip)) {
-          $opts{on_ip}->($ip) if $opts{on_ip};
-          my $data = $FIELDS{ip}->encode_create([[$ip, 't', 't']]);
-          $rec{ip} = $data if ref $data eq 'ARRAY';
-        }
-      }
+    unless ($first_ip) {
+      SauronAPI::Exception->validation(
+        "Cannot auto-assign IP: source host has no IP addresses; provide 'ips' or 'net' explicitly"
+      );
     }
+    my $cidr = Sauron::BackEnd::get_net_cidr_by_ip($server_id, $first_ip);
+    unless ($cidr) {
+      SauronAPI::Exception->validation(
+        "Cannot auto-assign IP: source IP '$first_ip' is not in any known network; provide 'ips' or 'net' explicitly"
+      );
+    }
+    my $policy = Sauron::BackEnd::get_net_ip_policy($server_id, $cidr);
+    my $ip = Sauron::BackEnd::get_free_ip_by_net($server_id, $cidr, '', '', $policy);
+    unless (is_cidr($ip)) {
+      SauronAPI::Exception->validation(
+        "Cannot auto-assign IP from network '$cidr': $ip"
+      );
+    }
+    $opts{on_ip}->($ip) if $opts{on_ip};
+    my $data = $FIELDS{ip}->encode_create([[$ip, 't', 't']]);
+    $rec{ip} = $data if ref $data eq 'ARRAY';
   }
 
   # Array fields from source, overridden by input
