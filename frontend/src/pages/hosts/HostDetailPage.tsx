@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { hostsApi, netsApi } from "@/api";
+import { hostsApi, netsApi, zonesApi } from "@/api";
 import type { Host, IpEntry } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { ApiRequestError } from "@/lib/api-client";
@@ -31,7 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, MoreHorizontal, Copy, Link, Ban, Play, Plus } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, MoreHorizontal, Copy, Link, Ban, Play, Plus, ArrowRightLeft } from "lucide-react";
 import { FormHint } from "@/components/FormHint";
 import {
   Dialog,
@@ -316,6 +316,12 @@ export default function HostDetailPage() {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [selectedNet, setSelectedNet] = useState("manual");
   const [copyManualIp, setCopyManualIp] = useState("");
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
+  const [moveNet, setMoveNet] = useState("manual");
+  const [moveIp, setMoveIp] = useState("");
+  const [moveFromIp, setMoveFromIp] = useState("");
+  const [moveZone, setMoveZone] = useState("");
 
   // Editable array state — initialised on entering edit mode
   const [ipEdit, setIpEdit] = useState<ERow[]>([]);
@@ -334,7 +340,36 @@ export default function HostDetailPage() {
   const { data: assignableNets } = useQuery({
     queryKey: ["assignable-subnets", serverName],
     queryFn: () => netsApi.assignable(serverName!),
-    enabled: !!serverName && copyOpen && (host?.type === 1 || host?.type === 101),
+    enabled: !!serverName && (copyOpen || moveOpen) && (host?.type === 1 || host?.type === 101),
+  });
+
+  const { data: zones } = useQuery({
+    queryKey: ["zones", serverName],
+    queryFn: () => zonesApi.list(serverName!),
+    enabled: !!serverName && moveOpen,
+  });
+
+  const otherZones = zones?.filter((z) => z.name !== zoneName) ?? [];
+
+  const moveMutation = useMutation({
+    mutationFn: (data: { ip?: string; net?: string; from_ip?: string; zone?: string }) =>
+      hostsApi.move(serverName!, zoneName!, hostname!, data),
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      setMoveOpen(false);
+      if (variables.zone) {
+        navigate("/hosts");
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["host", serverName, zoneName, hostname] });
+      }
+    },
+    onError: (err) => {
+      setMoveError(
+        err instanceof ApiRequestError
+          ? err.data.message || err.message
+          : "Failed to move host."
+      );
+    },
   });
 
   const updateMutation = useMutation({
@@ -622,6 +657,21 @@ export default function HostDetailPage() {
                     }}
                   >
                     <Link className="mr-2 h-4 w-4" /> Add Alias
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={host.type !== 1}
+                    onClick={() => {
+                      const d = host as Record<string, unknown>;
+                      const ips = (d.ips as { ip: string }[] | undefined) ?? [];
+                      setMoveFromIp(ips.length > 0 ? ips[0].ip : "");
+                      setMoveIp("");
+                      setMoveNet("manual");
+                      setMoveZone("");
+                      setMoveError(null);
+                      setMoveOpen(true);
+                    }}
+                  >
+                    <ArrowRightLeft className="mr-2 h-4 w-4" /> Move
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={host.type !== 1 && host.type !== 101}
@@ -1252,6 +1302,130 @@ export default function HostDetailPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Move dialog */}
+      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Move Host</DialogTitle>
+            <DialogDescription>
+              Move <strong>{host.domain}</strong> to a different subnet or zone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Subnet move */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setMoveError(null);
+              const fd = new FormData(e.currentTarget);
+              const data: { ip?: string; net?: string; from_ip?: string } = {};
+              const fromIp = (fd.get("move_from_ip") as string) || moveFromIp;
+              const ipCount = ((host as Record<string, unknown>).ips as { ip: string }[] | undefined)?.length ?? 0;
+              if (ipCount > 1 && fromIp) data.from_ip = fromIp;
+              if (moveNet === "manual") {
+                const ip = moveIp.trim();
+                if (!ip) { setMoveError("IP address is required for manual IP."); return; }
+                data.ip = ip;
+              } else {
+                data.net = moveNet;
+              }
+              moveMutation.mutate(data);
+            }}
+            className="space-y-3 border rounded-md p-4"
+          >
+            <h3 className="text-sm font-medium">Move to another subnet</h3>
+
+            {(() => {
+              const ips = ((host as Record<string, unknown>).ips as { ip: string }[] | undefined) ?? [];
+              return ips.length > 1 ? (
+                <div className="space-y-1">
+                  <Label htmlFor="move_from_ip" className="text-xs">IP to move</Label>
+                  <Select name="move_from_ip" value={moveFromIp} onValueChange={setMoveFromIp}>
+                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {ips.map((e) => (
+                        <SelectItem key={e.ip} value={e.ip}>{e.ip}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null;
+            })()}
+
+            <div className="space-y-1">
+              <Label htmlFor="move_net" className="text-xs">Subnet</Label>
+              <Select value={moveNet} onValueChange={setMoveNet}>
+                <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual IP</SelectItem>
+                  {assignableNets?.map((n: { net: string; name?: string }) => (
+                    <SelectItem key={n.net} value={n.net}>
+                      {n.net} - {n.name || ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {moveNet === "manual" && (
+              <div className="space-y-1">
+                <Label htmlFor="move_ip" className="text-xs">New IP</Label>
+                <Input id="move_ip" name="move_ip" value={moveIp} onChange={(e) => setMoveIp(e.target.value)} placeholder="10.0.0.50" className="h-8 text-sm font-mono" />
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <Button type="submit" size="sm" disabled={moveMutation.isPending}>
+                {moveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Move to subnet
+              </Button>
+            </div>
+          </form>
+
+          {/* Zone move */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setMoveError(null);
+              const fd = new FormData(e.currentTarget);
+              const zone = fd.get("move_zone") as string;
+              if (!zone) { setMoveError("Zone is required."); return; }
+              moveMutation.mutate({ zone });
+            }}
+            className="space-y-3 border rounded-md p-4 mt-4"
+          >
+            <h3 className="text-sm font-medium">Move to another zone</h3>
+
+            <div className="space-y-1">
+              <Label htmlFor="move_zone" className="text-xs">Zone</Label>
+              <Select name="move_zone" value={moveZone} onValueChange={setMoveZone}>
+                <SelectTrigger className="h-8"><SelectValue placeholder="Select zone..." /></SelectTrigger>
+                <SelectContent>
+                  {otherZones.map((z) => (
+                    <SelectItem key={z.name} value={z.name}>{z.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex justify-end">
+              <Button type="submit" size="sm" disabled={moveMutation.isPending}>
+                {moveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Move to zone
+              </Button>
+            </div>
+          </form>
+
+          {moveError && <p className="text-sm text-destructive mt-2">{moveError}</p>}
+
+          <DialogFooter className="mt-4">
+            <Button type="button" variant="outline" onClick={() => setMoveOpen(false)}>
+              Cancel
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
