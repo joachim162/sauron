@@ -99,6 +99,9 @@ paths:
   /servers/{server}/zones/{zone}/hosts/{hostname}/copies:
     $ref: "./paths/host-copy.yaml"
 
+  /servers/{server}/zones/{zone}/hosts/{hostname}/move:
+    $ref: "./paths/host-move.yaml"
+
   /servers/{server}/zones:
     $ref: "./paths/zones.yaml"
 

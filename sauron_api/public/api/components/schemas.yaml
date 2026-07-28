@@ -1486,6 +1486,33 @@ CopyHost:
             overrides both explicit ips and auto-assignment from source.
           example: 192.168.1.0/24
 
+MoveHost:
+  type: object
+  description: >
+    Schema for moving a host to a different subnet (IP move) or zone.
+    The presence of ip/net vs zone discriminates the mode.
+  properties:
+    ip:
+      type: string
+      description: >
+        New IP address for subnet move. Mutually exclusive with net.
+      example: 10.0.0.50
+    net:
+      type: string
+      description: >
+        Network CIDR for auto-assigning a free IP. Mutually exclusive with ip.
+      example: 10.0.0.0/24
+    from_ip:
+      type: string
+      description: >
+        The existing IP to replace. Required when the host has multiple IPs.
+      example: 10.0.0.10
+    zone:
+      type: string
+      description: >
+        Target zone name for zone move. Mutually exclusive with ip/net.
+      example: uk.example.com
+
 LoginRequest:
   type: object
   required:

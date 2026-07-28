@@ -1,0 +1,59 @@
+post:
+  security:
+    - BearerAuth: []
+  summary: Move a host
+  tags: [ hosts ]
+  description: |
+    Moves a host to a different subnet (IP move) or zone (zone move).
+
+    **IP move**: Provide `ip` (explicit) or `net` (auto-assign free IP).
+    For multi-homed hosts, `from_ip` specifies which existing IP to replace.
+
+    **Zone move**: Provide `zone` (target zone name). MX template is cleared
+    (`mx = -1`). Hostname stays unchanged.
+
+    Only available for host type 1.
+  operationId: move_host
+  x-mojo-name: move_host
+  x-mojo-to: "Host#move_host"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+    - $ref: '../components/parameters.yaml#/hostname'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/MoveHost'
+  responses:
+    '200':
+      description: Host moved successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Host'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server, zone, or host not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '409':
+      description: IP already in use or hostname conflict in target zone
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

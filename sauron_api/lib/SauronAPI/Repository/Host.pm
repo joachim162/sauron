@@ -4,7 +4,7 @@ use warnings;
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-  host_list host_find host_create host_update host_delete host_copy
+  host_list host_find host_create host_update host_delete host_copy host_move
 );
 
 use Sauron::BackEnd ();
@@ -474,6 +474,155 @@ sub _auto_hostname {
   }
 
   return $candidate;
+}
+
+sub host_move {
+  my ($server_id, $zone_id, $hostname, $input, %opts) = @_;
+
+  my $host_id = _host_id($zone_id, $hostname);
+  my %host;
+  _check(Sauron::BackEnd::get_host($host_id, \%host),
+         'Failed to retrieve host data');
+
+  if ($host{type} != 1) {
+    SauronAPI::Exception->validation("Move is only available for host type 1");
+  }
+
+  my $has_ip   = exists $input->{ip};
+  my $has_net  = exists $input->{net};
+  my $has_zone = exists $input->{zone};
+
+  if ($has_zone && ($has_ip || $has_net)) {
+    SauronAPI::Exception->validation("Cannot combine zone move with ip/net");
+  }
+  if ($has_ip && $has_net) {
+    SauronAPI::Exception->validation("'ip' and 'net' are mutually exclusive");
+  }
+  unless ($has_ip || $has_net || $has_zone) {
+    SauronAPI::Exception->validation("One of 'ip', 'net', or 'zone' is required");
+  }
+
+  if ($has_ip || $has_net) {
+    return _move_ip($server_id, $zone_id, $host_id, \%host, $input, \%opts);
+  } else {
+    return _move_zone($server_id, $zone_id, $host_id, \%host, $input, \%opts);
+  }
+}
+
+sub _move_ip {
+  my ($server_id, $zone_id, $host_id, $host, $input, $opts) = @_;
+
+  my $new_ip;
+  if (exists $input->{net}) {
+    my $net = $input->{net};
+    my $cidr;
+    my $net_id = Sauron::BackEnd::get_net_by_cidr($server_id, $net);
+    if ($net_id > 0) {
+      my %net_data;
+      Sauron::BackEnd::get_net($net_id, \%net_data);
+      $cidr = $net_data{net};
+    } else {
+      Sauron::DB::db_query(
+        "SELECT net FROM nets WHERE server=? AND netname=?",
+        \my @q, $server_id, $net
+      );
+      $cidr = $q[0][0] if @q > 0;
+    }
+    unless ($cidr) {
+      SauronAPI::Exception->validation("Network '$net' not found on this server");
+    }
+    my $policy = Sauron::BackEnd::get_net_ip_policy($server_id, $cidr);
+    $new_ip = Sauron::BackEnd::get_free_ip_by_net(
+      $server_id, $cidr, $host->{ether} // '', undef, $policy
+    );
+    unless (is_cidr($new_ip)) {
+      SauronAPI::Exception->validation("IP assignment failed: $new_ip");
+    }
+  } else {
+    $new_ip = $input->{ip};
+    unless (is_cidr($new_ip)) {
+      SauronAPI::Exception->validation("Invalid IP address '$new_ip'");
+    }
+  }
+
+  $opts->{on_ip}->($new_ip) if $opts->{on_ip};
+
+  if (Sauron::BackEnd::ip_in_use($server_id, $new_ip) > 0) {
+    SauronAPI::Exception->conflict("IP '$new_ip' is already in use");
+  }
+
+  my @ips = @{$host->{ip}};
+  my $from_ip = $input->{from_ip};
+  my $found_idx;
+  if ($from_ip) {
+    for my $i (1 .. $#ips) {
+      if ($ips[$i][1] eq $from_ip) { $found_idx = $i; last; }
+    }
+    SauronAPI::Exception->validation("IP '$from_ip' not found on this host")
+      unless $found_idx;
+  } else {
+    if (@ips > 2) {
+      SauronAPI::Exception->validation(
+        "Host has multiple IPs; 'from_ip' is required to specify which to move"
+      );
+    }
+    $found_idx = 1;
+  }
+
+  $ips[$found_idx][1] = $new_ip;
+  $ips[$found_idx][4] = 1;
+
+  my %rec = (
+    id     => $host_id,
+    zone   => $host->{zone},
+    type   => $host->{type},
+    domain => $host->{domain},
+    ip     => \@ips,
+  );
+
+  my $res = Sauron::BackEnd::update_host(\%rec);
+  if ($res < 0) {
+    SauronAPI::Exception->persistence("Failed to move host (code: $res)");
+  }
+
+  my %updated;
+  _check(Sauron::BackEnd::get_host($host_id, \%updated),
+         'Host moved but failed to retrieve data');
+  return _build_host_response($host_id, \%updated, $host->{zone}, $server_id);
+}
+
+sub _move_zone {
+  my ($server_id, $zone_id, $host_id, $host, $input, $opts) = @_;
+
+  my $target_zone = $input->{zone};
+  my $new_zone_id = Sauron::BackEnd::get_zone_id($target_zone, $server_id);
+  if ($new_zone_id <= 0) {
+    SauronAPI::Exception->not_found("Zone '$target_zone' not found on this server");
+  }
+
+  if ($new_zone_id == $zone_id) {
+    SauronAPI::Exception->validation("Cannot move to the same zone");
+  }
+
+  my %rec = (
+    id     => $host_id,
+    zone   => $new_zone_id,
+    type   => $host->{type},
+    domain => $host->{domain},
+    mx     => -1,
+  );
+
+  $rec{ip} = $host->{ip} if ref $host->{ip} eq 'ARRAY';
+
+  my $res = Sauron::BackEnd::update_host(\%rec);
+  if ($res < 0) {
+    SauronAPI::Exception->persistence("Failed to move host (code: $res)");
+  }
+
+  my %updated;
+  _check(Sauron::BackEnd::get_host($host_id, \%updated),
+         'Host moved but failed to retrieve data');
+  return _build_host_response($host_id, \%updated, $new_zone_id, $server_id);
 }
 
 # ---------------------------------------------------------------------------
