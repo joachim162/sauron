@@ -40,8 +40,9 @@ END {
 
 my $srv = create_test_server(name => "srv-host-${pid}", comment => 'Host CRUD test');
 my $z1  = create_test_zone(server_id => $srv, name => "zone-host1-${pid}.example.com");
+my $z2  = create_test_zone(server_id => $srv, name => "zone-host2-${pid}.example.com");
 push @servers, $srv;
-push @zones, $z1;
+push @zones, $z1, $z2;
 
 # Create a test network for copy-IP auto-assignment tests
 Sauron::BackEnd::set_muser('test');
@@ -59,6 +60,7 @@ my $user  = create_test_user(username => "hostuser_${pid}",  email => "hostuser_
 my $nozone_user = create_test_user(username => "nocopy_${pid}", email => "nocopy_${pid}\@example.com");
 push @users, $super, $user, $nozone_user;
 grant_zone_access($user, $z1, 'RW');
+grant_zone_access($user, $z2, 'RW');
 
 sub _as_super {
   $t->reset_session;
@@ -468,6 +470,135 @@ subtest 'POST copy with field overrides' => sub {
   my $new_id = $t->tx->res->json->{id};
   Sauron::BackEnd::delete_host($hid);
   Sauron::BackEnd::delete_host($new_id);
+};
+
+# ========================================================================
+# Move tests
+# ========================================================================
+
+subtest 'POST move IP (explicit)' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvip-${pid}", type => 1,
+    ip => [[0, '10.0.0.50', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->post_ok("$URL/mvip-${pid}/move" => $USER => json => { ip => '10.0.0.60' })
+    ->status_is(200)
+    ->json_is('/ips/0/ip' => '10.0.0.60');
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'POST move IP (net auto-assign)' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvnet-${pid}", type => 1,
+    ip => [[0, '10.0.0.51', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->post_ok("$URL/mvnet-${pid}/move" => $USER => json => { net => '10.0.0.0/24' })
+    ->status_is(200)
+    ->json_has('/ips/0/ip');
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'POST move IP conflict' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvcon-${pid}", type => 1,
+    ip => [[0, '10.0.0.52', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+  my $hid2 = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvconother-${pid}", type => 1,
+    ip => [[0, '10.0.0.70', 't', 't', 2]],
+  });
+
+  $t->post_ok("$URL/mvcon-${pid}/move" => $USER => json => { ip => '10.0.0.70' })
+    ->status_is(409);
+
+  Sauron::BackEnd::delete_host($hid);
+  Sauron::BackEnd::delete_host($hid2);
+};
+
+subtest 'POST move zone' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvzone-${pid}", type => 1,
+    ip => [[0, '10.0.0.53', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->post_ok("$URL/mvzone-${pid}/move" => $USER => json => { zone => "zone-host2-${pid}.example.com" })
+    ->status_is(200)
+    ->json_is('/domain' => "mvzone-${pid}")
+    ->json_is('/zone_id' => $z2);
+
+  # Verify MX cleared
+  my %h;
+  Sauron::BackEnd::get_host($hid, \%h);
+  is($h{mx}, -1, 'MX template cleared on zone move');
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'POST move to same zone' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvsame-${pid}", type => 1,
+    ip => [[0, '10.0.0.54', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->post_ok("$URL/mvsame-${pid}/move" => $USER => json => { zone => "zone-host1-${pid}.example.com" })
+    ->status_is(400);
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'POST move empty body' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvempty-${pid}", type => 1,
+    ip => [[0, '10.0.0.55', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->post_ok("$URL/mvempty-${pid}/move" => $USER => json => {})
+    ->status_is(400);
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'POST move with both ip and zone' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvboth-${pid}", type => 1,
+    ip => [[0, '10.0.0.56', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->post_ok("$URL/mvboth-${pid}/move" => $USER => json => { ip => '10.0.0.90', zone => "zone-host2-${pid}.example.com" })
+    ->status_is(400);
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'POST move non-type-1 host' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvtype-${pid}", type => 3, mx => 1,
+  });
+  ok($hid > 0, "Created host id=$hid");
+
+  $t->post_ok("$URL/mvtype-${pid}/move" => $USER => json => { ip => '10.0.0.91' })
+    ->status_is(400);
+
+  Sauron::BackEnd::delete_host($hid);
 };
 
 done_testing();
