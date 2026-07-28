@@ -23,6 +23,7 @@ my $t = setup_test_app();
 
 my $pid = $$;
 my (@users, @servers, @zones);
+my $test_net_id;
 
 END {
   for my $uid (@users) {
@@ -34,6 +35,7 @@ END {
   for my $sid (@servers) {
     eval { delete_test_server($sid); };
   }
+  eval { Sauron::BackEnd::delete_net($test_net_id) } if $test_net_id > 0;
 }
 
 my $srv = create_test_server(name => "srv-host-${pid}", comment => 'Host CRUD test');
@@ -41,9 +43,21 @@ my $z1  = create_test_zone(server_id => $srv, name => "zone-host1-${pid}.example
 push @servers, $srv;
 push @zones, $z1;
 
+# Create a test network for copy-IP auto-assignment tests
+Sauron::BackEnd::set_muser('test');
+$test_net_id = Sauron::BackEnd::add_net({
+  server   => $srv,
+  net      => '10.0.0.0/24',
+  netname  => "testnet-${pid}",
+  name     => 'Test network for host tests',
+  subnet   => 't',
+  dummy    => 'f',
+});
+
 my $super = create_test_user(username => "hostsuper_${pid}", email => "hostsuper_${pid}\@example.com", superuser => 1);
 my $user  = create_test_user(username => "hostuser_${pid}",  email => "hostuser_${pid}\@example.com");
-push @users, $super, $user;
+my $nozone_user = create_test_user(username => "nocopy_${pid}", email => "nocopy_${pid}\@example.com");
+push @users, $super, $user, $nozone_user;
 grant_zone_access($user, $z1, 'RW');
 
 sub _as_super {
@@ -56,6 +70,12 @@ sub _as_user {
 }
 my $SUPER = _as_super();
 my $USER  = _as_user();
+
+sub _as_nozone {
+  $t->reset_session;
+  return { 'X-Remote-User' => "nocopy_${pid}\@example.com" };
+}
+my $NOZONE = _as_nozone();
 
 my $URL = "/api/v1/servers/srv-host-${pid}/zones/zone-host1-${pid}.example.com/hosts";
 
@@ -344,6 +364,110 @@ subtest 'DELETE non-existent host' => sub {
   $t->delete_ok("$URL/nonexistent" => $SUPER)
     ->status_is(404)
     ->json_is('/error' => 'Not Found');
+};
+
+# ========================================================================
+# Copy tests
+# ========================================================================
+
+subtest 'POST copy non-existent host' => sub {
+  $t->post_ok("$URL/nosuchhost/copies" => $SUPER => json => {})
+    ->status_is(404)
+    ->json_is('/error' => 'Not Found');
+};
+
+subtest 'POST copy without zone RW permission' => sub {
+  # Create source host first
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "copsrc-${pid}", type => 1,
+    ip => [[0, '10.0.0.77', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created source host id=$hid");
+
+  # A user with no zone access tries to copy
+  $t->post_ok("$URL/copsrc-${pid}/copies" => $NOZONE => json => {})
+    ->status_is(403);
+
+  Sauron::BackEnd::delete_host($hid);
+};
+
+subtest 'POST copy empty body' => sub {
+  # Create source host with fields to copy
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "src1-${pid}", type => 1,
+    ttl => 3600, comment => 'copy me',
+    info => 'original info',
+    ip => [[0, '10.0.0.80', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created source host id=$hid");
+
+  $t->post_ok("$URL/src1-${pid}/copies" => $SUPER => json => {})
+    ->status_is(201)
+    ->json_is('/type' => 1)
+    ->json_is('/comment' => 'copy me')
+    ->json_is('/info' => 'original info')
+    ->json_is('/ether' => undef)
+    ->json_is('/duid' => undef)
+    ->json_is('/iaid' => undef)
+    ->json_is('/serial' => undef)
+    ->json_is('/asset_id' => undef)
+    ->json_has('/id')
+    ->json_has('/ips');
+
+  my $new_id = $t->tx->res->json->{id};
+  my $new_domain = $t->tx->res->json->{domain};
+  isnt($new_domain, "src1-${pid}", 'copy has different hostname');
+  like($new_domain, qr/src1/, 'hostname derived from source');
+
+  # Cleanup
+  Sauron::BackEnd::delete_host($hid);
+  Sauron::BackEnd::delete_host($new_id);
+};
+
+subtest 'POST copy with explicit hostname' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "src2-${pid}", type => 1,
+    ttl => 3600,
+    ip => [[0, '10.0.0.81', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created source host id=$hid");
+
+  $t->post_ok("$URL/src2-${pid}/copies" => $SUPER => json => {
+    hostname => "explicit-copy-${pid}",
+  })
+    ->status_is(201)
+    ->json_is('/domain' => "explicit-copy-${pid}");
+
+  my $new_id = $t->tx->res->json->{id};
+  Sauron::BackEnd::delete_host($hid);
+  Sauron::BackEnd::delete_host($new_id);
+};
+
+subtest 'POST copy with field overrides' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "src3-${pid}", type => 1,
+    ttl => 3600, location => 'Old Location', comment => 'old comment',
+    ip => [[0, '10.0.0.82', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created source host id=$hid");
+
+  $t->post_ok("$URL/src3-${pid}/copies" => $SUPER => json => {
+    ttl      => 7200,
+    comment  => 'overridden',
+    location => 'New Location',
+  })
+    ->status_is(201)
+    ->json_is('/ttl'      => 7200)
+    ->json_is('/comment'  => 'overridden')
+    ->json_is('/location' => 'New Location');
+
+  my $new_id = $t->tx->res->json->{id};
+  Sauron::BackEnd::delete_host($hid);
+  Sauron::BackEnd::delete_host($new_id);
 };
 
 done_testing();
