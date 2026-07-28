@@ -41,7 +41,7 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 /* ── helpers ─────────────────────────────────────────── */
 
@@ -63,6 +63,20 @@ function ipsToERows(ips: unknown): ERow[] {
     _deleted: false,
     values: [e.ip, e.reverse ? "t" : "f", e.forward ? "t" : "f"],
   }));
+}
+
+/** Check if an IPv4 address is inside a CIDR block. */
+function ipInCidr(ip: string, cidr: string): boolean {
+  try {
+    const [addr, bitsStr] = cidr.split("/");
+    const bits = Number(bitsStr ?? 32);
+    const toInt = (s: string) =>
+      s.split(".").reduce((acc, o) => ((acc << 8) + Number(o)) >>> 0, 0) >>> 0;
+    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+    return ((toInt(ip) & mask) >>> 0) === ((toInt(addr) & mask) >>> 0);
+  } catch {
+    return false;
+  }
 }
 
 /** Parse cdate_str / mdate_str — strip HTML, extract pending flag. */
@@ -316,6 +330,7 @@ export default function HostDetailPage() {
   const [copyError, setCopyError] = useState<string | null>(null);
   const [selectedNet, setSelectedNet] = useState("manual");
   const [copyManualIp, setCopyManualIp] = useState("");
+  const [copyNetTouched, setCopyNetTouched] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [moveNet, setMoveNet] = useState("manual");
@@ -342,6 +357,20 @@ export default function HostDetailPage() {
     queryFn: () => netsApi.assignable(serverName!),
     enabled: !!serverName && (copyOpen || moveOpen) && (host?.type === 1 || host?.type === 101),
   });
+
+  // Pre-select the source host's subnet in the copy dialog (matches CGI
+  // behaviour: auto-assign a free IP from the source's network by default).
+  useEffect(() => {
+    if (!copyOpen || copyNetTouched || !assignableNets || !host) return;
+    const ips = (host as Record<string, unknown>).ips as { ip: string }[] | undefined;
+    const srcIp = ips?.[0]?.ip;
+    if (!srcIp) return;
+    const match = assignableNets.find((n: { net: string; name?: string }) => ipInCidr(srcIp, n.net));
+    if (match) {
+      setSelectedNet(match.net);
+      setCopyManualIp("");
+    }
+  }, [copyOpen, copyNetTouched, assignableNets, host]);
 
   const { data: zones } = useQuery({
     queryKey: ["zones", serverName],
@@ -640,9 +669,9 @@ export default function HostDetailPage() {
                         : prefix + "2" + suffix;
                       setCopyHostname(autoHostname);
                       setCopyError(null);
-                      const srcIp = ((d.ips as { ip: string }[] | undefined)?.[0]?.ip) ?? "";
-                      setCopyManualIp(srcIp);
+                      setCopyManualIp("");
                       setSelectedNet("manual");
+                      setCopyNetTouched(false);
                       setCopyOpen(true);
                     }}
                   >
@@ -1214,7 +1243,7 @@ export default function HostDetailPage() {
 
             <div className="space-y-2">
               <Label htmlFor="copy_net">Subnet</Label>
-              <Select value={selectedNet} onValueChange={(v) => setSelectedNet(v)}>
+              <Select value={selectedNet} onValueChange={(v) => { setSelectedNet(v); setCopyNetTouched(true); }}>
                 <SelectTrigger id="copy_net">
                   <SelectValue />
                 </SelectTrigger>
