@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { hostsApi } from "@/api";
+import { hostsApi, netsApi } from "@/api";
 import type { Host, IpEntry } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { ApiRequestError } from "@/lib/api-client";
@@ -314,6 +314,8 @@ export default function HostDetailPage() {
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyHostname, setCopyHostname] = useState("");
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [selectedNet, setSelectedNet] = useState("manual");
+  const [copyManualIp, setCopyManualIp] = useState("");
 
   // Editable array state — initialised on entering edit mode
   const [ipEdit, setIpEdit] = useState<ERow[]>([]);
@@ -327,6 +329,12 @@ export default function HostDetailPage() {
     queryKey: ["host", serverName, zoneName, hostname],
     queryFn: () => hostsApi.get(serverName!, zoneName!, hostname!),
     enabled: !!serverName && !!zoneName && !!hostname,
+  });
+
+  const { data: assignableNets } = useQuery({
+    queryKey: ["assignable-subnets", serverName],
+    queryFn: () => netsApi.assignable(serverName!),
+    enabled: !!serverName && copyOpen && (host?.type === 1 || host?.type === 101),
   });
 
   const updateMutation = useMutation({
@@ -597,6 +605,9 @@ export default function HostDetailPage() {
                         : prefix + "2" + suffix;
                       setCopyHostname(autoHostname);
                       setCopyError(null);
+                      const srcIp = ((d.ips as { ip: string }[] | undefined)?.[0]?.ip) ?? "";
+                      setCopyManualIp(srcIp);
+                      setSelectedNet("manual");
                       setCopyOpen(true);
                     }}
                   >
@@ -1134,13 +1145,17 @@ export default function HostDetailPage() {
               }
               const prn = fd.get("copy_prn") as string;
               if (prn) data.prn = prn === "true";
-              const ip = fd.get("copy_ip") as string;
-              if (ip && ip.trim()) data.ips = [{ ip }];
+              if (selectedNet === "manual") {
+                const ip = copyManualIp.trim();
+                if (ip) data.ips = [{ ip }];
+              } else {
+                data.net = selectedNet;
+              }
               copyMutation.mutate(data);
             }}
             className="space-y-4"
           >
-            <div className="space-y-2">
+            <div className="space-y-1">
               <Label htmlFor="copy_hn">Hostname</Label>
               <Input id="copy_hn" name="copy_hn" value={copyHostname}
                 onChange={(e) => setCopyHostname(e.target.value)}
@@ -1148,15 +1163,30 @@ export default function HostDetailPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="copy_ip">IP Address</Label>
-              <Input id="copy_ip" name="copy_ip" placeholder="10.0.0.1"
-                defaultValue={(() => {
-                  const d = host as Record<string, unknown>;
-                  const ips = d.ips as { ip: string }[] | undefined;
-                  return ips && ips.length > 0 ? ips[0].ip : "";
-                })()}
-                className="font-mono" />
+              <Label htmlFor="copy_net">Subnet</Label>
+              <Select value={selectedNet} onValueChange={(v) => setSelectedNet(v)}>
+                <SelectTrigger id="copy_net">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="manual">Manual IP</SelectItem>
+                  {assignableNets?.map((n: { net: string; name?: string }) => (
+                    <SelectItem key={n.net} value={n.net}>
+                      {n.net} - {n.name || ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+
+            {selectedNet === "manual" && (
+              <div className="space-y-1">
+                <Label htmlFor="copy_ip">IP Address</Label>
+                <Input id="copy_ip" name="copy_ip" value={copyManualIp}
+                  onChange={(e) => setCopyManualIp(e.target.value)}
+                  className="font-mono" />
+              </div>
+            )}
 
             <details className="text-sm">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
