@@ -305,6 +305,9 @@ sub host_update {
   );
   _copy_host_fields(\%rec, $input);
 
+  # Always carry existing IPs so BackEnd validation (host_required_data_error)
+  # does not reject the update when ip field is absent from the request body.
+  $rec{ip} = $host_data{ip};
   if (exists $input->{ips}) {
     my $data = $FIELDS{ip}->encode_update(
       _normalize_ip_entries($input->{ips}), $host_data{ip});
