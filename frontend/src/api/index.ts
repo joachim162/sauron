@@ -83,4 +83,6 @@ export const hostsApi = {
     api.put<Host>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts/${encodeURIComponent(hostname)}`, data),
   delete: (serverName: string, zoneName: string, hostname: string) =>
     api.del(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts/${encodeURIComponent(hostname)}`),
+  copy: (serverName: string, zoneName: string, hostname: string, data?: Record<string, unknown>) =>
+    api.post<Host>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts/${encodeURIComponent(hostname)}/copies`, data ?? {}),
 };

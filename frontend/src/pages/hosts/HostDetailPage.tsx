@@ -366,6 +366,16 @@ export default function HostDetailPage() {
     },
   });
 
+  const copyMutation = useMutation({
+    mutationFn: () => hostsApi.copy(serverName!, zoneName!, hostname!),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      if (result?.domain) {
+        navigate(`/hosts/${encodeURIComponent(result.domain)}`);
+      }
+    },
+  });
+
   // Enter edit mode: snapshot array data into editable state
   const enterEdit = useCallback(() => {
     if (!host) return;
@@ -561,8 +571,15 @@ export default function HostDetailPage() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled>
-                    <Copy className="mr-2 h-4 w-4" /> Copy
+                  <DropdownMenuItem
+                    onClick={() => copyMutation.mutate()}
+                    disabled={copyMutation.isPending}
+                  >
+                    {copyMutation.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Copy className="mr-2 h-4 w-4" />
+                    )} Copy
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={host.type !== 1}
