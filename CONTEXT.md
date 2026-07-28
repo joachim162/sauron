@@ -6,6 +6,9 @@
 - **Host type** — Integer code (0–13, 101) that determines which DNS record fields are valid. Defined in `Sauron::BackEnd::get_host_types()` and mirrored in the frontend as `HOST_TYPES`.
 - **Create dialog** — Compact modal form that shows `domain` + `type` always, plus extra meaningful fields per selected type. Mapping is hardcoded in the frontend.
 - **Domain rename** — Changing a host's `domain` field requires navigating the frontend to the new URL; the old hostname path becomes invalid immediately.
+- **Disable** — Changes a host's type from 1 to 101 (host → reservation). The `delhost` permission is required, same as Delete.
+- **Enable** — Changes a host's type from 101 to 1 (reservation → host). The `host` permission is required, same as Edit.
+- **Reservation** — Host type 101. A host record that no longer has DNS entries but retains its DHCP configuration (MAC, DUID, IAID). Used instead of deletion to preserve lease history.
 - **Delete** — Removes the host record and all associated child entries (IPs, MX, NS, etc.). Returns 204 No Content.
 - **Forward flag** — Per-address boolean on a host's IP entry controlling whether a DNS A record is generated for that IP.
 - **Reverse flag** — Per-address boolean on a host's IP entry controlling whether a DNS PTR record is generated for that IP.

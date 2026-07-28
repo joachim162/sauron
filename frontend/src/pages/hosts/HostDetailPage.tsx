@@ -31,7 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, MoreHorizontal, Copy, Link, Ban, Plus } from "lucide-react";
+import { ArrowLeft, Save, Loader2, Trash2, Pencil, X, MoreHorizontal, Copy, Link, Ban, Play, Plus } from "lucide-react";
 import { FormHint } from "@/components/FormHint";
 import {
   Dialog,
@@ -574,8 +574,21 @@ export default function HostDetailPage() {
                   >
                     <Link className="mr-2 h-4 w-4" /> Add Alias
                   </DropdownMenuItem>
-                  <DropdownMenuItem disabled>
-                    <Ban className="mr-2 h-4 w-4" /> Disable
+                  <DropdownMenuItem
+                    disabled={host.type !== 1 && host.type !== 101}
+                    onClick={() => {
+                      if (host.type === 1) {
+                        updateMutation.mutate({ type: 101 } as Partial<Host>);
+                      } else {
+                        updateMutation.mutate({ type: 1 } as Partial<Host>);
+                      }
+                    }}
+                  >
+                    {host.type === 101 ? (
+                      <><Play className="mr-2 h-4 w-4" /> Enable</>
+                    ) : (
+                      <><Ban className="mr-2 h-4 w-4" /> Disable</>
+                    )}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive"
