@@ -311,6 +311,9 @@ export default function HostDetailPage() {
   const [aliasOpen, setAliasOpen] = useState(false);
   const [aliasType, setAliasType] = useState<string>("4");
   const [aliasError, setAliasError] = useState<string | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyHostname, setCopyHostname] = useState("");
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   // Editable array state — initialised on entering edit mode
   const [ipEdit, setIpEdit] = useState<ERow[]>([]);
@@ -367,12 +370,21 @@ export default function HostDetailPage() {
   });
 
   const copyMutation = useMutation({
-    mutationFn: () => hostsApi.copy(serverName!, zoneName!, hostname!),
+    mutationFn: (data: Record<string, unknown>) =>
+      hostsApi.copy(serverName!, zoneName!, hostname!, data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
+      setCopyOpen(false);
       if (result?.domain) {
         navigate(`/hosts/${encodeURIComponent(result.domain)}`);
       }
+    },
+    onError: (err) => {
+      setCopyError(
+        err instanceof ApiRequestError
+          ? err.data.message || err.message
+          : "Failed to copy host."
+      );
     },
   });
 
@@ -572,14 +584,23 @@ export default function HostDetailPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    onClick={() => copyMutation.mutate()}
-                    disabled={copyMutation.isPending}
+                    disabled={host.type !== 1}
+                    onClick={() => {
+                      const d = host as Record<string, unknown>;
+                      const domain = d.domain as string;
+                      const dot = domain.indexOf(".");
+                      const prefix = dot >= 0 ? domain.slice(0, dot) : domain;
+                      const suffix = dot >= 0 ? domain.slice(dot) : "";
+                      const numMatch = prefix.match(/(\d+)$/);
+                      const autoHostname = numMatch
+                        ? prefix.replace(/\d+$/, String(Number(numMatch[1]) + 1).padStart(numMatch[1].length, "0")) + suffix
+                        : prefix + "2" + suffix;
+                      setCopyHostname(autoHostname);
+                      setCopyError(null);
+                      setCopyOpen(true);
+                    }}
                   >
-                    {copyMutation.isPending ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Copy className="mr-2 h-4 w-4" />
-                    )} Copy
+                    <Copy className="mr-2 h-4 w-4" /> Copy
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     disabled={host.type !== 1}
@@ -1079,6 +1100,125 @@ export default function HostDetailPage() {
               <Button type="submit" disabled={aliasMutation.isPending}>
                 {aliasMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Create Alias
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Copy dialog */}
+      <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+        <DialogContent className="max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Copy Host</DialogTitle>
+            <DialogDescription>
+              Create a copy of <strong>{(host as Record<string, unknown>).domain as string}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setCopyError(null);
+              const fd = new FormData(e.currentTarget);
+              const data: Record<string, unknown> = {};
+              const hn = (fd.get("copy_hn") as string).trim();
+              if (!hn) { setCopyError("Hostname is required."); return; }
+              data.hostname = hn;
+              for (const key of ["ttl", "class", "huser", "dept", "location", "email", "info",
+                "hinfo_hw", "hinfo_sw", "ether", "duid", "iaid",
+                "asset_id", "model", "serial", "misc",
+                "grp", "mx", "wks", "router", "flags", "expiration",
+                "rp_mbox", "rp_txt", "comment"]) {
+                const v = fd.get("copy_" + key) as string;
+                if (v && v.trim() !== "") data[key] = v;
+              }
+              const prn = fd.get("copy_prn") as string;
+              if (prn) data.prn = prn === "true";
+              const ip = fd.get("copy_ip") as string;
+              if (ip && ip.trim()) data.ips = [{ ip }];
+              copyMutation.mutate(data);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="copy_hn">Hostname</Label>
+              <Input id="copy_hn" name="copy_hn" value={copyHostname}
+                onChange={(e) => setCopyHostname(e.target.value)}
+                className="font-mono" />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="copy_ip">IP Address</Label>
+              <Input id="copy_ip" name="copy_ip" placeholder="10.0.0.1"
+                defaultValue={(() => {
+                  const d = host as Record<string, unknown>;
+                  const ips = d.ips as { ip: string }[] | undefined;
+                  return ips && ips.length > 0 ? ips[0].ip : "";
+                })()}
+                className="font-mono" />
+            </div>
+
+            <details className="text-sm">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                Additional fields
+              </summary>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                {[
+                  ["ttl", "TTL"],
+                  ["class", "Class"],
+                  ["huser", "User"],
+                  ["dept", "Dept."],
+                  ["location", "Location"],
+                  ["email", "User Email"],
+                  ["info", "Info"],
+                  ["hinfo_hw", "HINFO HW"],
+                  ["hinfo_sw", "HINFO SW"],
+                  ["ether", "MAC"],
+                  ["duid", "DUID"],
+                  ["iaid", "IAID"],
+                  ["asset_id", "Asset ID"],
+                  ["model", "Model"],
+                  ["serial", "Serial"],
+                  ["misc", "Misc."],
+                  ["grp", "Group ID"],
+                  ["mx", "MX Template"],
+                  ["wks", "WKS Template"],
+                  ["router", "Router"],
+                  ["flags", "Flags"],
+                  ["expiration", "Expiration"],
+                  ["rp_mbox", "RP Mailbox"],
+                  ["rp_txt", "RP TXT"],
+                  ["comment", "Comment"],
+                ].map(([k, label]) => (
+                  <div key={k} className="space-y-1">
+                    <Label htmlFor={"copy_" + k} className="text-xs">{label}</Label>
+                    <Input id={"copy_" + k} name={"copy_" + k} type={k === "flags" || k === "expiration" || k === "grp" || k === "mx" || k === "wks" || k === "router" ? "number" : "text"}
+                      defaultValue={String((host as Record<string, unknown>)[k] ?? "")}
+                      className="h-8 text-sm font-mono" />
+                  </div>
+                ))}
+                <div className="space-y-1">
+                  <Label htmlFor="copy_prn" className="text-xs">Virtual printer</Label>
+                  <Select name="copy_prn" defaultValue={String((host as Record<string, unknown>).prn) === "true" || String((host as Record<string, unknown>).prn) === "t" ? "true" : "false"}>
+                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="false">No</SelectItem>
+                      <SelectItem value="true">Yes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </details>
+
+            {copyError && <p className="text-sm text-destructive">{copyError}</p>}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCopyOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={copyMutation.isPending}>
+                {copyMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Copy Host
               </Button>
             </DialogFooter>
           </form>
