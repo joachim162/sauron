@@ -4,7 +4,7 @@ use warnings;
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-  host_list host_find host_create host_update host_delete
+  host_list host_find host_create host_update host_delete host_copy
 );
 
 use Sauron::BackEnd ();
@@ -351,8 +351,133 @@ sub host_delete {
   return;
 }
 
+sub host_copy {
+  my ($server_id, $zone_id, $source_hostname, $input, %opts) = @_;
+
+  my $source_id = _host_id($zone_id, $source_hostname);
+  my %source;
+  _check(Sauron::BackEnd::get_host($source_id, \%source),
+         'Failed to retrieve source host data');
+
+  # Build new record from source + overrides
+  my %rec = (
+    zone   => $zone_id,
+    domain => $source{domain},
+    type   => $source{type},
+  );
+
+  # Copy scalar fields from source, apply overrides; skip device-specific fields
+  my %clear = map { $_ => 1 } qw(ether duid iaid serial asset_id);
+  my @scalar = qw(
+    domain ttl type class grp alias cname_txt hinfo_hw hinfo_sw router
+    info location dept huser email model misc comment
+    flags expiration prn wks mx rp_mbox rp_txt
+  );
+  for my $f (@scalar) {
+    next if $clear{$f};
+    if (exists $input->{$f}) {
+      $rec{$f} = $input->{$f};
+    } elsif (defined $source{$f}) {
+      $rec{$f} = $source{$f};
+    }
+  }
+
+  # Hostname: auto-generate or use input
+  if (my $hn = $input->{hostname}) {
+    my $existing = Sauron::BackEnd::get_host_id($zone_id, $hn);
+    if ($existing > 0) {
+      SauronAPI::Exception->conflict(
+        "Host '$hn' already exists in this zone (id=$existing)"
+      );
+    }
+    $rec{domain} = $hn;
+  } else {
+    $rec{domain} = _auto_hostname($zone_id, $source{domain});
+  }
+
+  # IPs: use input, or auto-assign from source's first IP network
+  if (exists $input->{ips} || exists $input->{net}) {
+    _resolve_ips_for_create(\%rec, $input, $server_id, $rec{type}, $opts{on_ip});
+  } elsif ($source{type} == 1 || $source{type} == 6 || $source{type} == 9 || $source{type} == 101) {
+    my $first_ip;
+    if (ref $source{ip} eq 'ARRAY' && @{$source{ip}} > 1) {
+      $first_ip = $source{ip}[1][1];
+    }
+    if ($first_ip) {
+      my $cidr = Sauron::BackEnd::get_net_cidr_by_ip($server_id, $first_ip);
+      if ($cidr) {
+        my $policy = Sauron::BackEnd::get_net_ip_policy($server_id, $cidr);
+        my $ip = Sauron::BackEnd::get_free_ip_by_net($server_id, $cidr, '', '', $policy);
+        if (is_cidr($ip)) {
+          $opts{on_ip}->($ip) if $opts{on_ip};
+          my $data = $FIELDS{ip}->encode_create([[$ip, 't', 't']]);
+          $rec{ip} = $data if ref $data eq 'ARRAY';
+        }
+      }
+    }
+  }
+
+  # Array fields from source, overridden by input
+  for my $field (@ARRAY_FIELDS) {
+    next if $field eq 'ip';
+    if (exists $input->{$field}) {
+      my $data = $FIELDS{$field}->encode_create($input->{$field});
+      $rec{$field} = $data if ref $data eq 'ARRAY';
+    } elsif (ref $source{$field} eq 'ARRAY' && @{$source{$field}} > 1) {
+      my $decoded = $FIELDS{$field}->decode($source{$field});
+      my $data = $FIELDS{$field}->encode_create($decoded);
+      $rec{$field} = $data if ref $data eq 'ARRAY';
+    }
+  }
+
+  my $host_id = Sauron::BackEnd::add_host(\%rec);
+  if ($host_id < 0) {
+    SauronAPI::Exception->persistence(
+      "Failed to create host (code: $host_id)"
+    );
+  }
+
+  my %host_data;
+  _check(Sauron::BackEnd::get_host($host_id, \%host_data),
+         'Host created but failed to retrieve data');
+
+  return _build_host_response($host_id, \%host_data, $zone_id, $server_id);
+}
+
+sub _auto_hostname {
+  my ($zone_id, $domain) = @_;
+
+  my ($prefix, $suffix);
+  if ($domain =~ /^([^\.]+)(\..*)?$/) {
+    $prefix = $1;
+    $suffix = $2 // '';
+  } else {
+    $prefix = $domain;
+    $suffix = '';
+  }
+
+  my $candidate;
+  if ($prefix =~ /(\d+)$/) {
+    my $num = $1;
+    my $fmt = '%0' . length($num) . 'd';
+    do {
+      $num++;
+      (my $new_prefix = $prefix) =~ s/\Q$1\E$/sprintf($fmt, $num)/e;
+      $candidate = $new_prefix . $suffix;
+    } while (Sauron::BackEnd::get_host_id($zone_id, $candidate) > 0);
+  } else {
+    my $n = 2;
+    do {
+      $candidate = $prefix . $n . $suffix;
+      $n++;
+    } while (Sauron::BackEnd::get_host_id($zone_id, $candidate) > 0);
+  }
+
+  return $candidate;
+}
+
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Internal helpers (continued)
 # ---------------------------------------------------------------------------
 
 sub _host_id {

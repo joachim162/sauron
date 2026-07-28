@@ -1,0 +1,54 @@
+post:
+  security:
+    - BearerAuth: []
+  summary: Copy a host
+  tags: [ hosts ]
+  description: |
+    Creates a new host record by copying an existing host. Device-specific
+    fields (ether, duid, iaid, serial, asset_id) are cleared; hostname and
+    IP are auto-generated to avoid conflicts. Every field in the request
+    body overrides the corresponding value from the source host.
+  operationId: copy_host
+  x-mojo-name: copy_host
+  x-mojo-to: "Host#copy_host"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/zone'
+    - $ref: '../components/parameters.yaml#/hostname'
+  requestBody:
+    required: false
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/CopyHost'
+  responses:
+    '201':
+      description: Host copied successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Host'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server, zone, or source host not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: Target hostname already exists
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

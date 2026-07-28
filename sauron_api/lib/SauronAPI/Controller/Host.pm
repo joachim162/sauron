@@ -6,7 +6,7 @@ use Scalar::Util qw(blessed);
 use SauronAPI::AuthZ qw(check_perms);
 use SauronAPI::Exception ();
 use SauronAPI::Repository::Host qw(
-  host_list host_find host_create host_update host_delete
+  host_list host_find host_create host_update host_delete host_copy
 );
 
 # Render a typed exception as an OpenAPI-shaped error response.
@@ -118,6 +118,29 @@ sub add_host ($self) {
   };
 
   my $host = eval { host_create($server_id, $zone_id, $json, on_ip => $ip_allowed) };
+  return $self->_render_exception($@) if $@;
+
+  $self->render(openapi => $host, status => 201);
+}
+
+sub copy_host ($self) {
+  return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
+
+  my $source_hostname = $self->param("hostname");
+  my $json = $self->req->json // {};
+
+  my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
+  my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
+  return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'RW');
+
+  my $ip_allowed = sub {
+    my ($ip) = @_;
+    return 1 if check_perms($self, type => 'ip', rule => $ip);
+    SauronAPI::Exception->forbidden("Permission denied for IP '$ip'");
+  };
+
+  my $host = eval { host_copy($server_id, $zone_id, $source_hostname, $json, on_ip => $ip_allowed) };
   return $self->_render_exception($@) if $@;
 
   $self->render(openapi => $host, status => 201);
