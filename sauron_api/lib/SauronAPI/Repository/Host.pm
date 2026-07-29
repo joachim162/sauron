@@ -614,6 +614,14 @@ sub _move_zone {
     SauronAPI::Exception->validation("Cannot move to the same zone");
   }
 
+  # Pre-check: hostname must not conflict in the target zone (409 per spec).
+  my $existing = Sauron::BackEnd::get_host_id($new_zone_id, $host->{domain});
+  if ($existing > 0 && $existing != $host_id) {
+    SauronAPI::Exception->conflict(
+      "Host '$host->{domain}' already exists in zone '$target_zone' (id=$existing)"
+    );
+  }
+
   my %rec = (
     id     => $host_id,
     zone   => $new_zone_id,

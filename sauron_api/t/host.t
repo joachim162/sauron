@@ -560,6 +560,29 @@ subtest 'POST move to same zone' => sub {
   Sauron::BackEnd::delete_host($hid);
 };
 
+subtest 'POST move zone with hostname conflict in target' => sub {
+  Sauron::BackEnd::set_muser('test');
+  # Host in source zone
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "mvconfzone-${pid}", type => 1,
+    ip => [[0, '10.0.0.58', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created source host id=$hid");
+  # Conflicting host with same domain in target zone
+  my $hid2 = Sauron::BackEnd::add_host({
+    zone => $z2, domain => "mvconfzone-${pid}", type => 1,
+    ip => [[0, '10.0.0.59', 't', 't', 2]],
+  });
+  ok($hid2 > 0, "Created conflicting host id=$hid2");
+
+  $t->post_ok("$URL/mvconfzone-${pid}/move" => $USER => json => { zone => "zone-host2-${pid}.example.com" })
+    ->status_is(409)
+    ->json_is('/error' => 'Conflict');
+
+  Sauron::BackEnd::delete_host($hid);
+  Sauron::BackEnd::delete_host($hid2);
+};
+
 subtest 'POST move empty body' => sub {
   Sauron::BackEnd::set_muser('test');
   my $hid = Sauron::BackEnd::add_host({
