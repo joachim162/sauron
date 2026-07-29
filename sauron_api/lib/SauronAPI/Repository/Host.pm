@@ -366,20 +366,25 @@ sub host_copy {
     type   => $source{type},
   );
 
-  # Copy scalar fields from source, apply overrides; skip device-specific fields
-  my %clear = map { $_ => 1 } qw(ether duid iaid serial asset_id);
+  # Copy scalar fields from source, apply overrides
   my @scalar = qw(
     domain ttl type class grp alias cname_txt hinfo_hw hinfo_sw router
     info location dept huser email model misc comment
     flags expiration prn wks mx rp_mbox rp_txt
   );
   for my $f (@scalar) {
-    next if $clear{$f};
     if (exists $input->{$f}) {
       $rec{$f} = $input->{$f};
     } elsif (defined $source{$f}) {
       $rec{$f} = $source{$f};
     }
+  }
+
+  # Device-specific fields are never copied from source (matching CGI's
+  # copy behaviour), but an explicit value in the request is honoured.
+  for my $f (qw(ether duid iaid serial asset_id)) {
+    $rec{$f} = $input->{$f}
+      if defined $input->{$f} && $input->{$f} ne '';
   }
 
   # Hostname: auto-generate or use input

@@ -624,4 +624,40 @@ subtest 'POST move non-type-1 host' => sub {
   Sauron::BackEnd::delete_host($hid);
 };
 
+subtest 'POST copy with device-field overrides' => sub {
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "srcdev-${pid}", type => 1,
+    ether => 'AABBCCDDEEFF', serial => 'SRC-SERIAL',
+    ip => [[0, '10.0.0.83', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created source host id=$hid");
+
+  # Empty body: device fields must NOT be copied from source
+  $t->post_ok("$URL/srcdev-${pid}/copies" => $SUPER => json => {})
+    ->status_is(201)
+    ->json_is('/ether' => undef)
+    ->json_is('/serial' => undef);
+  my $cid1 = $t->tx->res->json->{id};
+  Sauron::BackEnd::delete_host($cid1) if $cid1;
+
+  # Explicit overrides: device fields accepted
+  $t->post_ok("$URL/srcdev-${pid}/copies" => $SUPER => json => {
+    hostname => "devcopy-${pid}",
+    ether    => '001122334455',
+    duid     => '00:01:00:01:aa',
+    serial   => 'NEW-SERIAL',
+    asset_id => 'ASSET-42',
+  })
+    ->status_is(201)
+    ->json_is('/ether'    => '001122334455')
+    ->json_is('/duid'     => '00:01:00:01:aa')
+    ->json_is('/serial'   => 'NEW-SERIAL')
+    ->json_is('/asset_id' => 'ASSET-42');
+
+  my $cid2 = $t->tx->res->json->{id};
+  Sauron::BackEnd::delete_host($cid2) if $cid2;
+  Sauron::BackEnd::delete_host($hid);
+};
+
 done_testing();
