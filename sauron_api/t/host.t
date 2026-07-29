@@ -660,4 +660,29 @@ subtest 'POST copy with device-field overrides' => sub {
   Sauron::BackEnd::delete_host($hid);
 };
 
+subtest 'POST copy enforces RHF on merged record' => sub {
+  # Source has no dept (created via BackEnd, bypassing RHF)
+  Sauron::BackEnd::set_muser('test');
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "rhfsrc-${pid}", type => 1,
+    ip => [[0, '10.0.0.84', 't', 't', 2]],
+  });
+  ok($hid > 0, "Created source host id=$hid");
+
+  # RHF user copies without dept -> rejected
+  $t->post_ok("$URL/rhfsrc-${pid}/copies" => $RHF => json => {})
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request')
+    ->json_like('/message' => qr/dept/);
+
+  # RHF user copies with dept override -> accepted
+  $t->post_ok("$URL/rhfsrc-${pid}/copies" => $RHF => json => { dept => 'Engineering' })
+    ->status_is(201)
+    ->json_is('/dept' => 'Engineering');
+
+  my $cid = $t->tx->res->json->{id};
+  Sauron::BackEnd::delete_host($cid) if $cid;
+  Sauron::BackEnd::delete_host($hid);
+};
+
 done_testing();

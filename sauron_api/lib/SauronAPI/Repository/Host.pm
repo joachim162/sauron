@@ -445,6 +445,9 @@ sub host_copy {
     }
   }
 
+  # Let the controller inspect the final merged record (e.g. RHF check).
+  $opts{on_merged}->(\%rec) if $opts{on_merged};
+
   my $host_id = Sauron::BackEnd::add_host(\%rec);
   if ($host_id < 0) {
     SauronAPI::Exception->persistence(

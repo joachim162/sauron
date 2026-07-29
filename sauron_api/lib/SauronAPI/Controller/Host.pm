@@ -141,7 +141,18 @@ sub copy_host ($self) {
     SauronAPI::Exception->forbidden("Permission denied for IP '$ip'");
   };
 
-  my $host = eval { host_copy($server_id, $zone_id, $source_hostname, $json, on_ip => $ip_allowed) };
+  # RHF check on the merged record (source fields + overrides).
+  my $check_rhf = sub {
+    my ($merged) = @_;
+    if (my $missing = _check_rhf($self, $merged, 1)) {
+      SauronAPI::Exception->validation(
+        'Required fields missing: ' . join(', ', @$missing)
+      );
+    }
+  };
+
+  my $host = eval { host_copy($server_id, $zone_id, $source_hostname, $json,
+                               on_ip => $ip_allowed, on_merged => $check_rhf) };
   return $self->_render_exception($@) if $@;
 
   $self->render(openapi => $host, status => 201);
