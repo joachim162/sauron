@@ -1903,6 +1903,20 @@ HostListResponse:
     metadata:
       $ref: '#/Metadata'
 
+NetListResponse:
+  type: object
+  description: Paginated list of networks.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/NetList'
+    metadata:
+      $ref: '#/Metadata'
+
 Error:
   type: object
   required:

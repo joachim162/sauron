@@ -9,6 +9,7 @@ use lib "$FindBin::Bin/../.."; # Path to Sauron legacy modules
 use Sauron::Sauron;
 use Sauron::DB;
 use Sauron::BackEnd;
+use SauronAPI::Repository::Net ();
 use Net::Netmask;
 
 # This method will run once at server start
@@ -230,6 +231,20 @@ sub startup {
       openapi => {
         error   => 'Not Found',
         message => "Zone '$name' not found"
+      },
+      status  => 404
+    );
+    return undef;
+  });
+
+  $self->helper(get_net_id_or_404 => sub ($c, $server_id, $param) {
+    my $id = SauronAPI::Repository::Net::net_id_for($server_id, $param);
+    return $id if $id > 0;
+
+    $c->render(
+      openapi => {
+        error   => 'Not Found',
+        message => "Network '$param' not found on this server"
       },
       status  => 404
     );

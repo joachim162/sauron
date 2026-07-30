@@ -349,4 +349,76 @@ subtest 'Network access - user without server access is denied' => sub {
   $t->delete_ok("$BASE/networks/${NETNAME}" => $HEADERS)->status_is(403)->json_is('/error' => 'Forbidden');
 };
 
+# ========================================================================
+# PAGINATION (opt-in envelope)
+# ========================================================================
+
+subtest 'GET networks - pagination envelope and opt-in semantics' => sub {
+  # Baseline over whatever nets exist on the fixture server
+  $t->get_ok("$BASE/networks?page=1&per_page=1" => $SUPER)->status_is(200);
+  my $baseline = $t->tx->res->json->{metadata}{pagination}{total};
+
+  # Add 5 non-overlapping networks
+  Sauron::BackEnd::set_muser('test');
+  my @new_ids;
+  for my $n (1 .. 5) {
+    my $id = Sauron::BackEnd::add_net({
+      server => $srv,
+      net    => "10.${\(150 + $n)}.${OCTET}.0/24",
+      netname => "page-net${n}-${pid}",
+      name   => "Pagination net $n",
+      subnet => 'f',
+      dummy  => 'f',
+    });
+    ok($id > 0, "created pagination net $n (id=$id)");
+    push @new_ids, $id;
+  }
+  push @nets, @new_ids;
+
+  # Legacy shape without params: bare array containing all new nets
+  $t->get_ok("$BASE/networks" => $SUPER)->status_is(200);
+  my $body = $t->tx->res->json;
+  ok(ref $body eq 'ARRAY', 'no params: bare array, no envelope');
+  is(scalar(grep { $_->{netname} =~ /^page-net\d-${pid}$/ } @$body), 5, 'all 5 nets in legacy list');
+
+  # Only page without per_page: still the legacy bare array
+  $t->get_ok("$BASE/networks?page=1" => $SUPER)->status_is(200);
+  ok(ref $t->tx->res->json eq 'ARRAY', 'page alone does not trigger the envelope');
+
+  # Envelope with both params
+  $t->get_ok("$BASE/networks?page=1&per_page=2" => $SUPER)
+    ->status_is(200)
+    ->json_is('/metadata/pagination/page'        => 1)
+    ->json_is('/metadata/pagination/per_page'    => 2)
+    ->json_is('/metadata/pagination/total'       => $baseline + 5)
+    ->json_is('/metadata/pagination/total_pages' => int(($baseline + 5 + 1) / 2))
+    ->json_is('/metadata/sort'                   => [])
+    ->json_is('/metadata/filters'                => []);
+  is(scalar @{$t->tx->res->json->{data}}, 2, 'page 1 holds 2 rows');
+
+  # Pages cover the full filtered set exactly, without duplicates;
+  # the paged set matches the legacy bare-array set (order-insensitive).
+  my @paged;
+  my $pages = $t->tx->res->json->{metadata}{pagination}{total_pages};
+  for my $p (1 .. $pages) {
+    $t->get_ok("$BASE/networks?page=$p&per_page=2" => $SUPER)->status_is(200);
+    push @paged, @{$t->tx->res->json->{data}};
+  }
+  is(scalar @paged, $baseline + 5, 'pages cover the full filtered set exactly');
+  my %seen;
+  $seen{$_->{id} . '/' . $_->{net}}++ for @paged;
+  is(scalar(grep { $_ != 1 } values %seen), 0, 'no duplicate rows across pages');
+
+  my %legacy = map { $_->{id} . '/' . $_->{net} => 1 } @$body;
+  is_deeply(\%seen, \%legacy, 'paged set equals legacy bare-array set');
+
+  # New nets are reachable through paging
+  my ($found) = grep { $_->{netname} && $_->{netname} eq "page-net3-${pid}" } @paged;
+  ok($found, 'page-net3 present across pages');
+
+  # Bounds validation
+  $t->get_ok("$BASE/networks?page=0&per_page=2" => $SUPER)->status_is(400);
+  $t->get_ok("$BASE/networks?page=1&per_page=101" => $SUPER)->status_is(400);
+};
+
 done_testing();
