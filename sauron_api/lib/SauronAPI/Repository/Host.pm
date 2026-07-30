@@ -359,6 +359,14 @@ sub host_copy {
   _check(Sauron::BackEnd::get_host($source_id, \%source),
          'Failed to retrieve source host data');
 
+  # Determine effective type for validation
+  my $effective_type = exists $input->{type} ? $input->{type} : $source{type};
+
+  # Validate array fields against the effective type (parity with host_create)
+  if (my $err = _validate_type_fields($input, $effective_type)) {
+    SauronAPI::Exception->validation($err);
+  }
+
   # Build new record from source + overrides
   my %rec = (
     zone   => $zone_id,
