@@ -171,11 +171,13 @@ sub move_host ($self) {
   # Source host permission (both modes)
   return unless check_perms($self, type => 'host', hostname => $hostname, zone_id => $zone_id, server_id => $server_id);
 
-  # Zone move: check target zone RW
+  # Zone move: check target zone RW and hostname mask
   if (exists $json->{zone}) {
     my $target_zone_id = Sauron::BackEnd::get_zone_id($json->{zone}, $server_id);
     if ($target_zone_id > 0) {
       return unless check_perms($self, type => 'zone', zone_id => $target_zone_id, server_id => $server_id, rule => 'RW');
+      # Also check hostname mask in the target zone (matching CGI)
+      return unless check_perms($self, type => 'host', hostname => $hostname, zone_id => $target_zone_id, server_id => $server_id);
     }
   }
 
