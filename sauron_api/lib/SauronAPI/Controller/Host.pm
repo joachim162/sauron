@@ -219,14 +219,17 @@ sub update_host ($self) {
   my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
   my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
 
-  # Fetch current host to determine the right authz for type transitions.
-  my $current = eval { host_find($server_id, $zone_id, $hostname) };
-  return $self->_render_exception($@) if $@;
-
+  # Only a type transition needs the current host's type for authz; fetching
+  # unconditionally would leak host existence (404 vs 403) to users without
+  # permission and run get_host before authorization on every PUT.
   my $perm_type = 'host';
-  if (exists $json->{type} && $json->{type} != $current->{type}) {
-    if    ($current->{type} == 1 && $json->{type} == 101) { $perm_type = 'delhost'; }
-    elsif ($current->{type} == 101 && $json->{type} == 1) { $perm_type = 'host'; }
+  if (exists $json->{type}) {
+    my $current = eval { host_find($server_id, $zone_id, $hostname) };
+    return $self->_render_exception($@) if $@;
+    if ($json->{type} != $current->{type}) {
+      if    ($current->{type} == 1 && $json->{type} == 101) { $perm_type = 'delhost'; }
+      elsif ($current->{type} == 101 && $json->{type} == 1) { $perm_type = 'host'; }
+    }
   }
   return unless check_perms($self, type => $perm_type, hostname => $hostname, zone_id => $zone_id, server_id => $server_id);
 

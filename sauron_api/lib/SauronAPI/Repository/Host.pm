@@ -103,7 +103,7 @@ my %TYPE_FIELDS = (
   4   => [qw(alias cname_txt)],
   5   => [qw(printer_l dhcp_l dhcp_l6 subgroups)],
   6   => [qw(ips)],
-  7   => [qw(ips mx_l txt_l alias)],
+  7   => [qw(ips mx_l txt_l alias_a)],
   8   => [qw(srv_l)],
   9   => [qw(ips ether duid iaid)],
   11  => [qw(sshfp_l)],
@@ -241,6 +241,16 @@ sub host_create {
     SauronAPI::Exception->validation($err);
   }
 
+  # BackEnd::add_host reads only the scalar 'alias' for type 7 and would
+  # silently drop an alias_a array; reject it instead of losing data.
+  if ($type == 7 && exists $input->{alias_a}) {
+    SauronAPI::Exception->validation(
+      "Field 'alias_a' cannot be used when creating a type 7 host; " .
+      "set the AREC target with 'alias' (host ID). " .
+      "Additional targets can be added via update."
+    );
+  }
+
   my %rec = (
     zone   => $zone_id,
     domain => $hostname,
@@ -376,7 +386,7 @@ sub host_copy {
 
   # Copy scalar fields from source, apply overrides
   my @scalar = qw(
-    domain ttl type class grp alias cname_txt hinfo_hw hinfo_sw router
+    domain ttl type class grp alias cname_txt hinfo_hw hinfo_sw loc router
     info location dept huser email model misc comment
     flags expiration prn wks mx rp_mbox rp_txt
   );
@@ -429,7 +439,7 @@ sub host_copy {
       );
     }
     my $policy = Sauron::BackEnd::get_net_ip_policy($server_id, $cidr);
-    my $ip = Sauron::BackEnd::get_free_ip_by_net($server_id, $cidr, '', '', $policy);
+    my $ip = Sauron::BackEnd::get_free_ip_by_net($server_id, $cidr, $rec{ether} // '', '', $policy);
     unless (is_cidr($ip)) {
       SauronAPI::Exception->validation(
         "Cannot auto-assign IP from network '$cidr': $ip"
@@ -839,6 +849,7 @@ sub _build_host_response {
     cname_txt         => $host_data->{cname_txt},
     hinfo_hw          => $host_data->{hinfo_hw},
     hinfo_sw          => $host_data->{hinfo_sw},
+    loc               => $host_data->{loc},
     wks               => $host_data->{wks},
     mx                => $host_data->{mx},
     rp_mbox           => $host_data->{rp_mbox},

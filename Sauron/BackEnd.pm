@@ -2533,7 +2533,7 @@ sub get_host($$) {
 
   $res = get_record("hosts",
 	       "zone,type,domain,ttl,class,grp,alias,cname_txt," .
-	       "hinfo_hw,hinfo_sw,wks,mx,rp_mbox,rp_txt,router," .
+	       "hinfo_hw,hinfo_sw,loc,wks,mx,rp_mbox,rp_txt,router," .
 	       "prn,ether,ether_alias,info,location,dept,huser,model," .
 	       "serial,misc,cdate,cuser,muser,mdate,comment,dhcp_date," .
 	       "expiration,asset_id,dhcp_info,flags,email,duid,iaid",
