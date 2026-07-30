@@ -354,6 +354,7 @@ subtest 'Host endpoints — zone read/write gates' => sub {
     zone   => $z1,
     domain => "testhost-${pid}",
     type   => 1,
+    ip     => [[0, '10.200.0.1', 't', 't', 2]],
   });
   ok($host_id > 0, "Created test host id=$host_id") or diag("add_host failed with code: $host_id");
 

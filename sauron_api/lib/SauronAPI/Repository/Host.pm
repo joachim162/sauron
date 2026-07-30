@@ -272,12 +272,7 @@ sub host_create {
     $rec{$field} = $data;
   }
 
-  my $host_id = Sauron::BackEnd::add_host(\%rec);
-  if ($host_id < 0) {
-    SauronAPI::Exception->persistence(
-      "Failed to create host record (code: $host_id)"
-    );
-  }
+  my $host_id = _add_host(\%rec);
 
   my %host_data;
   _check(Sauron::BackEnd::get_host($host_id, \%host_data),
@@ -421,7 +416,7 @@ sub host_copy {
   # IPs: use input, or auto-assign from source's first IP network
   if (exists $input->{ips} || exists $input->{net}) {
     _resolve_ips_for_create(\%rec, $input, $server_id, $rec{type}, $opts{on_ip});
-  } elsif ($source{type} == 1 || $source{type} == 6 || $source{type} == 9 || $source{type} == 101) {
+  } elsif ($effective_type == 1 || $effective_type == 6 || $effective_type == 9 || $effective_type == 101) {
     # Auto-assign IP from source's network (CGI copy behaviour).
     my $first_ip;
     if (ref $source{ip} eq 'ARRAY' && @{$source{ip}} > 1) {
@@ -450,13 +445,17 @@ sub host_copy {
     $rec{ip} = $data if ref $data eq 'ARRAY';
   }
 
-  # Array fields from source, overridden by input
+  # Array fields from source, overridden by input. Source arrays that are
+  # not valid for the effective type are dropped (a type override would
+  # otherwise build a hybrid record).
+  my %valid_for_type = map { $_ => 1 } @{$TYPE_FIELDS{$effective_type} // []};
   for my $field (@ARRAY_FIELDS) {
     next if $field eq 'ip';
     if (exists $input->{$field}) {
       my $data = $FIELDS{$field}->encode_create($input->{$field});
       $rec{$field} = $data if ref $data eq 'ARRAY';
     } elsif (ref $source{$field} eq 'ARRAY' && @{$source{$field}} > 1) {
+      next unless $valid_for_type{$field};
       my $decoded = $FIELDS{$field}->decode($source{$field});
       my $data = $FIELDS{$field}->encode_create($decoded);
       $rec{$field} = $data if ref $data eq 'ARRAY';
@@ -466,12 +465,7 @@ sub host_copy {
   # Let the controller inspect the final merged record (e.g. RHF check).
   $opts{on_merged}->(\%rec) if $opts{on_merged};
 
-  my $host_id = Sauron::BackEnd::add_host(\%rec);
-  if ($host_id < 0) {
-    SauronAPI::Exception->persistence(
-      "Failed to create host (code: $host_id)"
-    );
-  }
+  my $host_id = _add_host(\%rec);
 
   my %host_data;
   _check(Sauron::BackEnd::get_host($host_id, \%host_data),
@@ -686,6 +680,26 @@ sub _check {
   my ($rc, $err) = @_;
   return if $rc == 0;
   SauronAPI::Exception->persistence($err);
+}
+
+# add_host returns -27 when required data for the host type is missing
+# (e.g. type 1 without IPs) — a client error, so map it to 400 with the
+# BackEnd's own explanation instead of a generic 500.
+sub _add_host {
+  my ($rec) = @_;
+  my $host_id = Sauron::BackEnd::add_host($rec);
+  if ($host_id == -27) {
+    my $err = Sauron::BackEnd::host_required_data_error($rec);
+    SauronAPI::Exception->validation(
+      ($err && $err ne '') ? $err : "Missing required data for host type $rec->{type}"
+    );
+  }
+  if ($host_id < 0) {
+    SauronAPI::Exception->persistence(
+      "Failed to create host (code: $host_id)"
+    );
+  }
+  return $host_id;
 }
 
 sub _copy_host_fields {

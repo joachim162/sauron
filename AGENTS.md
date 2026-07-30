@@ -37,7 +37,7 @@ docker compose exec sauron_api bash -c "cd /srv/sauron && PERL5LIB=/srv/sauron:/
 docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/net.t"
 # Run multiple: prove -l t/net.t t/host.t t/authz.t
 ```
-`t/basic.t` and `t/auth.t` have pre-existing failures unrelated to most changes.
+The full suite (`prove -l t/`) is expected to pass. Note: since BackEnd commit 86e91a5, creating a type-1 host without IPs fails with code -27 (mapped to 400 by the API); test fixtures creating type-1 hosts must include an IP (marker row in BackEnd calls or `ips` in API payloads).
 
 **Frontend:**
 ```bash

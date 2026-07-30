@@ -10,7 +10,7 @@ RUN apt-get update -qq && apt-get install -y \
     libnet-netmask-perl libtext-table-perl \
     libcryptx-perl libjson-perl libjson-maybexs-perl \
     libpath-tiny-perl libpg-perl libparse-recdescent-perl \
-    libdate-manip-perl \
+    libdate-manip-perl libtest-mockmodule-perl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 

@@ -141,7 +141,10 @@ subtest 'POST create host fails without required field (RHF)' => sub {
 };
 
 subtest 'POST create host succeeds with required field (RHF)' => sub {
-  $t->post_ok($URL => $RHF => json => { hostname => "yesrhf-${pid}", type => 1, dept => 'Engineering' })
+  $t->post_ok($URL => $RHF => json => {
+    hostname => "yesrhf-${pid}", type => 1, dept => 'Engineering',
+    ips => [{ ip => '10.0.0.150' }],
+  })
     ->status_is(201)
     ->json_is('/domain' => "yesrhf-${pid}")
     ->json_is('/dept'   => 'Engineering');
@@ -160,7 +163,8 @@ subtest 'POST create host succeeds with whitespace-only field (RHF)' => sub {
 subtest 'PUT update host rejects clearing required field (RHF)' => sub {
   Sauron::BackEnd::set_muser('test');
   my $hid = Sauron::BackEnd::add_host({
-    zone => $z1, domain => "updrhf-${pid}", type => 1, dept => 'Engineering'
+    zone => $z1, domain => "updrhf-${pid}", type => 1, dept => 'Engineering',
+    ip => [[0, '10.0.0.151', 't', 't', 2]],
   });
   ok($hid > 0, "Created host id=$hid");
 
@@ -174,7 +178,8 @@ subtest 'PUT update host rejects clearing required field (RHF)' => sub {
 subtest 'PUT update host allows omitting required field (RHF)' => sub {
   Sauron::BackEnd::set_muser('test');
   my $hid = Sauron::BackEnd::add_host({
-    zone => $z1, domain => "skiprhf-${pid}", type => 1, dept => 'Engineering'
+    zone => $z1, domain => "skiprhf-${pid}", type => 1, dept => 'Engineering',
+    ip => [[0, '10.0.0.152', 't', 't', 2]],
   });
   ok($hid > 0, "Created host id=$hid");
 
@@ -187,7 +192,10 @@ subtest 'PUT update host allows omitting required field (RHF)' => sub {
 };
 
 subtest 'Superuser bypasses RHF' => sub {
-  $t->post_ok($URL => $SUPER => json => { hostname => "suprhf-${pid}", type => 1 })
+  $t->post_ok($URL => $SUPER => json => {
+    hostname => "suprhf-${pid}", type => 1,
+    ips => [{ ip => '10.0.0.153' }],
+  })
     ->status_is(201);
 
   my $id = $t->tx->res->json->{id};
@@ -198,20 +206,17 @@ subtest 'Superuser bypasses RHF' => sub {
 # Success paths
 # ========================================================================
 
-subtest 'POST create host without IPs' => sub {
+subtest 'POST create host without IPs is rejected' => sub {
+  # BackEnd requires at least one IP for type 1 (host_required_data_error);
+  # the API maps that to a 400, not a 500.
   $t->post_ok($URL => $USER => json => { hostname => "minimal-${pid}", type => 1 })
-    ->status_is(201)
-    ->json_is('/domain'  => "minimal-${pid}")
-    ->json_is('/type'    => 1)
-    ->json_is('/ips'     => [])
-    ->json_is('/zone_id' => $z1)
-    ->json_is('/server_id' => $srv)
-    ->json_has('/id')
-    ->json_has('/cdate');
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request')
+    ->json_like('/message' => qr/requires at least one IP address/);
 
-  # Cleanup
-  my $id = $t->tx->res->json->{id};
-  Sauron::BackEnd::delete_host($id);
+  $t->post_ok($URL => $USER => json => { hostname => "minimal-${pid}", type => 1, ips => [] })
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request');
 };
 
 subtest 'POST create host with IPs' => sub {
@@ -264,7 +269,10 @@ subtest 'POST create host with scalar fields' => sub {
 subtest 'GET host' => sub {
   # Create via BackEnd for clean test
   Sauron::BackEnd::set_muser('test');
-  my $hid = Sauron::BackEnd::add_host({ zone => $z1, domain => "read-${pid}", type => 1 });
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "read-${pid}", type => 1,
+    ip => [[0, '10.0.0.154', 't', 't', 2]],
+  });
   ok($hid > 0, "Created host id=$hid");
 
   $t->get_ok("$URL/read-${pid}" => $SUPER)
@@ -302,7 +310,10 @@ subtest 'GET host with IPs' => sub {
 subtest 'PUT update host' => sub {
   # Create via BackEnd
   Sauron::BackEnd::set_muser('test');
-  my $hid = Sauron::BackEnd::add_host({ zone => $z1, domain => "upd-${pid}", type => 1, ttl => 1800 });
+  my $hid = Sauron::BackEnd::add_host({
+    zone => $z1, domain => "upd-${pid}", type => 1, ttl => 1800,
+    ip => [[0, '10.0.0.155', 't', 't', 2]],
+  });
   ok($hid > 0, "Created host id=$hid");
 
   $t->put_ok("$URL/upd-${pid}" => $USER => json => {
@@ -350,7 +361,10 @@ subtest 'PUT update non-existent host' => sub {
 
 subtest 'DELETE host' => sub {
   # Create via API
-  $t->post_ok($URL => $USER => json => { hostname => "del-${pid}", type => 1 })
+  $t->post_ok($URL => $USER => json => {
+    hostname => "del-${pid}", type => 1,
+    ips => [{ ip => '10.0.0.156' }],
+  })
     ->status_is(201);
   my $del_id = $t->tx->res->json->{id};
 
@@ -470,6 +484,53 @@ subtest 'POST copy with field overrides' => sub {
   my $new_id = $t->tx->res->json->{id};
   Sauron::BackEnd::delete_host($hid);
   Sauron::BackEnd::delete_host($new_id);
+};
+
+subtest 'POST copy with type override drops invalid source arrays' => sub {
+  # Source type 1 with MX + TXT records
+  $t->post_ok($URL => $SUPER => json => {
+    hostname => "ovrsrc-${pid}", type => 1,
+    ips   => [{ ip => '10.0.0.160' }],
+    mx_l  => [{ pri => 10, mx => 'mail.example.com.' }],
+    txt_l => [{ txt => 'source txt' }],
+  })->status_is(201);
+  my $src_id = $t->tx->res->json->{id};
+
+  # Override type 1 -> 3 (plain MX): MX + TXT kept (both valid for type 3),
+  # but no IP auto-assigned (type 3 holds no IPs)
+  $t->post_ok("$URL/ovrsrc-${pid}/copies" => $SUPER => json => {
+    hostname => "ovrmx-${pid}", type => 3,
+  })
+    ->status_is(201)
+    ->json_is('/type'  => 3)
+    ->json_is('/ips'   => [])
+    ->json_is('/mx_l/0/mx' => 'mail.example.com.')
+    ->json_is('/txt_l/0/txt' => 'source txt');
+  my $mx_id = $t->tx->res->json->{id};
+
+  # Override type 1 -> 9 (DHCP only): MX/TXT dropped (invalid for type 9)
+  $t->post_ok("$URL/ovrsrc-${pid}/copies" => $SUPER => json => {
+    hostname => "ovrdhcp-${pid}", type => 9, ips => [{ ip => '10.0.0.161' }],
+  })
+    ->status_is(201)
+    ->json_is('/type'  => 9)
+    ->json_is('/mx_l'  => undef)
+    ->json_is('/txt_l' => undef);
+  my $dhcp_id = $t->tx->res->json->{id};
+
+  # Same-type copy (empty body): source arrays inherited, IP auto-assigned
+  $t->post_ok("$URL/ovrsrc-${pid}/copies" => $SUPER => json => {})
+    ->status_is(201)
+    ->json_is('/type' => 1)
+    ->json_is('/mx_l/0/mx' => 'mail.example.com.')
+    ->json_is('/txt_l/0/txt' => 'source txt')
+    ->json_has('/ips/0/ip');
+  my $same_id = $t->tx->res->json->{id};
+
+  Sauron::BackEnd::delete_host($same_id);
+  Sauron::BackEnd::delete_host($dhcp_id);
+  Sauron::BackEnd::delete_host($mx_id);
+  Sauron::BackEnd::delete_host($src_id);
 };
 
 # ========================================================================
