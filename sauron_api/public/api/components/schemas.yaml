@@ -1028,6 +1028,11 @@ HostFields:
       type: integer
       nullable: true
       description: Host expiration timestamp (Unix epoch, 0 if no expiry)
+    loc:
+      type: string
+      nullable: true
+      description: LOC record value (location coordinates)
+      example: "41 8 59 N 88 3 9 W 10m 100000m 10000m 10000m"
     ns_l:
       type: array
       description: NS records for delegated subdomains

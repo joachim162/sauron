@@ -103,7 +103,7 @@ my %TYPE_FIELDS = (
   4   => [qw(alias cname_txt)],
   5   => [qw(printer_l dhcp_l dhcp_l6 subgroups)],
   6   => [qw(ips)],
-  7   => [qw(ips mx_l txt_l alias_a)],
+  7   => [qw(ips mx_l txt_l alias)],
   8   => [qw(srv_l)],
   9   => [qw(ips ether duid iaid)],
   11  => [qw(sshfp_l)],
@@ -116,7 +116,7 @@ my %UNIVERSAL_FIELDS = map { $_ => 1 } qw(
   hostname type comment ttl class grp expiration
   alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
   info location dept huser email model serial misc asset_id duid
-  iaid flags prn wks mx rp_mbox rp_txt domain net
+  iaid flags prn wks mx rp_mbox rp_txt domain net loc
 );
 
 sub _validate_type_fields {
@@ -683,7 +683,7 @@ sub _copy_host_fields {
   my @scalar_fields = qw(
     domain ttl type class grp alias cname_txt hinfo_hw hinfo_sw router ether ether_alias
     info location dept huser email model serial misc asset_id comment duid
-    iaid flags expiration prn wks mx rp_mbox rp_txt
+    iaid flags expiration prn wks mx rp_mbox rp_txt loc
   );
   for my $field (@scalar_fields) {
     $rec->{$field} = $json->{$field} if exists $json->{$field};

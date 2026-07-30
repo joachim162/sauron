@@ -505,7 +505,7 @@ export default function HostDetailPage() {
       "domain", "ether", "huser", "dept", "location", "info", "email",
       "hinfo_hw", "hinfo_sw", "duid",
       "asset_id", "model", "serial", "misc",
-      "rp_mbox", "rp_txt",
+      "rp_mbox", "rp_txt", "comment",
     ]) {
       const v = fd.get(key) as string;
       if (v) {
@@ -606,6 +606,7 @@ export default function HostDetailPage() {
     { key: "info", label: "[Extra] Info" },
     { key: "rp_mbox", label: "RP Mailbox" },
     { key: "rp_txt", label: "RP TXT" },
+    { key: "comment", label: "Comment" },
   ];
 
   const EQUIP_FIELDS: { key: string; label: string; mono?: boolean; hint?: string }[] = [
@@ -829,6 +830,7 @@ export default function HostDetailPage() {
                     <Field label="RP Mailbox" value={String(d.rp_mbox || "")} />
                     <Field label="RP TXT" value={String(d.rp_txt || "")} />
                   </div>
+                  <Field label="Comment" value={String(d.comment || "")} />
                 </>
               )}
             </CardContent>
