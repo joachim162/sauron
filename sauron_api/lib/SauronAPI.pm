@@ -2,6 +2,7 @@ package SauronAPI;
 
 use Mojo::Base 'Mojolicious', -signatures;
 use FindBin;
+use Scalar::Util ();
 use lib "$FindBin::Bin/../.."; # Path to Sauron legacy modules
 
 # Sauron Core Integration
@@ -233,6 +234,23 @@ sub startup {
       status  => 404
     );
     return undef;
+  });
+
+  # Render a SauronAPI::Exception as an OpenAPI-shaped error response.
+  # Non-Exception dies (e.g. DBD::Pg) become a generic 500.
+  $self->helper(render_exception => sub ($c, $e) {
+    if (Scalar::Util::blessed($e) && $e->isa('SauronAPI::Exception')) {
+      return $c->render(
+        openapi => { error => $e->kind, message => $e->message },
+        status  => $e->status,
+      );
+    }
+
+    # TODO: log $e via a proper logging framework once one is in place
+    $c->render(
+      openapi => { error => 'Internal Server Error', message => 'An unexpected error occurred' },
+      status  => 500,
+    );
   });
 }
 
