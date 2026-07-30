@@ -84,10 +84,10 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 - `frontend/src/hooks/use-auth.tsx` — Auth context provider
 
 **Repository layer rules (ADR 0001):**
-- Once `SauronAPI::Repository::<X>` exists, controllers must not call `Sauron::BackEnd` or `Sauron::DB` for X. All DB access for X flows through the repository.
-- Repository functions take resolved IDs (`$server_id`, `$zone_id`), not names. Controllers resolve names via `get_server_id_or_404` / `get_zone_id_or_404` and run authz before calling the repository.
+- Repositories exist for Host, Server, Zone, and Net. Their controllers must not call `Sauron::BackEnd` or `Sauron::DB` for those resources. All DB access flows through the repository. (Auth.pm is the exception until user-management endpoints justify a Users repository.)
+- Repository functions take resolved IDs (`$server_id`, `$zone_id`), not names. Controllers resolve names via `get_server_id_or_404` / `get_zone_id_or_404` / `get_net_id_or_404` and run authz before calling the repository.
 - SQL in repositories: values always bound (`db_query($sql, \@out, @bind)`); identifiers (sort/filter columns) from hardcoded whitelist maps. No interpolated user input.
-- Repositories throw `SauronAPI::Exception` (single class, `status`/`kind`/`message`; shortcut constructors `not_found`, `validation`, `forbidden`, `conflict`, `persistence`). Controllers map exceptions to HTTP in one place.
+- Repositories throw `SauronAPI::Exception` (single class, `status`/`kind`/`message`; shortcut constructors `not_found`, `validation`, `forbidden`, `conflict`, `persistence`). Controllers map exceptions to HTTP via the shared `render_exception` helper in `SauronAPI.pm`.
 
 ## API Pagination Format
 
@@ -121,6 +121,7 @@ All paginated list endpoints return the same envelope so the frontend data layer
 - `metadata.sort` and `metadata.filters` echo the applied sort/filter parameters; they are empty arrays when none are applied, and may be extended as sorting/filtering is implemented per endpoint.
 - Pagination uses **exact `COUNT(*)` totals**. This is safe for indexed, zone-scoped host lists and moderately-sized network lists. If a list grows large enough that `COUNT(*)` becomes a bottleneck, consider estimated totals or cursor pagination instead.
 - Query parameters `page` and `per_page` are validated by OpenAPI: `page` must be `>= 1`, `per_page` must be `1..100`. Invalid values return `400`.
+- **Exception:** `/servers/{server}/networks` paginates **opt-in** — without both parameters it returns the legacy bare array (the frontend nets page filters list modes client-side over the full set); with both it returns the envelope. Hosts always return the envelope.
 
 ## API Known Quirks
 
