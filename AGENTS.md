@@ -37,7 +37,7 @@ docker compose exec sauron_api bash -c "cd /srv/sauron && PERL5LIB=/srv/sauron:/
 docker compose exec sauron_api bash -c "cd /srv/sauron/sauron_api && prove -l t/net.t"
 # Run multiple: prove -l t/net.t t/host.t t/authz.t
 ```
-The full suite (`prove -l t/`) is expected to pass. Note: since BackEnd commit 86e91a5, creating a type-1 host without IPs fails with code -27 (mapped to 400 by the API); test fixtures creating type-1 hosts must include an IP (marker row in BackEnd calls or `ips` in API payloads).
+The full suite (`prove -l t/`) is expected to pass. Suites are controller-parity tests (they pin the observable contract — status codes, response fields, authz); put behavior tests there, not MockModule tests of internals. Note: since BackEnd commit 86e91a5, creating a type-1 host without IPs fails with code -27 (mapped to 400 by the API); test fixtures creating type-1 hosts must include an IP (marker row in BackEnd calls or `ips` in API payloads).
 
 **Frontend:**
 ```bash
@@ -83,7 +83,22 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 - `frontend/src/api/index.ts` — Frontend API client
 - `frontend/src/hooks/use-auth.tsx` — Auth context provider
 
-**Repository layer rules (ADR 0001):**
+## Legacy CGI Parity (behavioral source of truth)
+
+The legacy CGI defines externally visible behavior. **API features must copy it** — validation rules, allowed values, transforms, defaults, and error cases — and study it before inventing API-specific rules. Where to look:
+
+- **`Sauron/CGI/<Domain>.pm`** — form definition tables (`%new_server_form`, `%new_zone_form`, ...). Read these as the *validation contract*:
+  - `empty=>0` — field is required
+  - `type=>'enum'` + `enum=>{...}` — allowed values (e.g. zone type = M/S/H/F/C/A)
+  - `iff=>[field,val]` — field only applies conditionally (maps to conditional validation; e.g. `reverse` only for master zones)
+  - `default=>...` — form prefill convenience; do NOT inject it into the API without an explicit decision
+- **Handler subs in the same files** (`menu_handler`, `new_zone_edit`, ...) — procedural rules that live outside the form tables (e.g. reverse-zone CIDR→arpa transform, catalog zones get `ttl=0, minimum=0` per RFC 9432).
+- **`Sauron/BackEnd.pm` is NOT a validation reference.** It often accepts input the CGI form would reject (e.g. unknown zone-type chars) because the form is the gate. Enforce CGI-level rules in the API repository layer instead.
+- The enforcement glue lives at the boundary: OpenAPI schemas (`required`, `readOnly`) must encode the same parity as the backend rules — history shows schema-overrides (readOnly on zone type/reverse blocked all reverse-zone creation) silently kill intended capabilities.
+
+Pinned parity facts (codified in tests): zone type enum M/S/H/F/C/A; reverse zones master-only and always arpa-transformed from CIDR; catalog zones ttl=0/minimum=0; server create requires `name`+`hostaddr`+`directory`, while `hostname`/`hostmaster` are optional with no injected defaults.
+
+## Repository Layer Rules (ADR 0001)
 - Repositories exist for Host, Server, Zone, and Net. Their controllers must not call `Sauron::BackEnd` or `Sauron::DB` for those resources. All DB access flows through the repository. (Auth.pm is the exception until user-management endpoints justify a Users repository.)
 - Repository functions take resolved IDs (`$server_id`, `$zone_id`), not names. Controllers resolve names via `get_server_id_or_404` / `get_zone_id_or_404` / `get_net_id_or_404` and run authz before calling the repository.
 - SQL in repositories: values always bound (`db_query($sql, \@out, @bind)`); identifiers (sort/filter columns) from hardcoded whitelist maps. No interpolated user input.
@@ -93,34 +108,10 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 
 All paginated list endpoints return the same envelope so the frontend data layer can treat them uniformly:
 
-```json
-{
-  "data": [ ... ],
-  "metadata": {
-    "pagination": {
-      "total": 1250,
-      "page": 1,
-      "per_page": 50,
-      "total_pages": 25
-    },
-    "sort": [
-      { "name": "domain", "direction": "asc" }
-    ],
-    "filters": [
-      { "name": "host_type", "value": 1 }
-    ]
-  }
-}
-```
-
-- `data` is the array of resource objects for the requested page.
-- `metadata.pagination.total` is the total number of items matching the current query (after filters, before pagination).
-- `metadata.pagination.page` is 1-based.
-- `metadata.pagination.per_page` is the number of items per page.
-- `metadata.pagination.total_pages` is derived from `total` / `per_page`.
-- `metadata.sort` and `metadata.filters` echo the applied sort/filter parameters; they are empty arrays when none are applied, and may be extended as sorting/filtering is implemented per endpoint.
-- Pagination uses **exact `COUNT(*)` totals**. This is safe for indexed, zone-scoped host lists and moderately-sized network lists. If a list grows large enough that `COUNT(*)` becomes a bottleneck, consider estimated totals or cursor pagination instead.
-- Query parameters `page` and `per_page` are validated by OpenAPI: `page` must be `>= 1`, `per_page` must be `1..100`. Invalid values return `400`.
+- `{ "data": [ ... ], "metadata": { "pagination": { "total", "page", "per_page", "total_pages" }, "sort": [], "filters": [] } }`
+- `page` is 1-based; `total`/`total_pages` are **exact `COUNT(*)`** over the filtered set (stable while lists are small; reconsider if `COUNT(*)` becomes a bottleneck).
+- `metadata.sort`/`metadata.filters` echo applied parameters; empty arrays when none.
+- Query parameters `page` and `per_page` are validated by OpenAPI: `page >= 1`, `per_page` 1..100. Invalid values return `400`.
 - **Exception:** `/servers/{server}/networks` paginates **opt-in** — without both parameters it returns the legacy bare array (the frontend nets page filters list modes client-side over the full set); with both it returns the envelope. Hosts always return the envelope.
 
 ## API Known Quirks
@@ -143,7 +134,7 @@ All paginated list endpoints return the same envelope so the frontend data layer
 ## OpenAPI Pitfalls
 
 - **Nullability:** Any field that can return `undef` MUST have `nullable: true`. Without it, `type: string` rejects null with 500.
-- **Array fields:** BackEnd returns marker-format arrays. Use `_strip_marker_format($data, $api_header)` with `%HEADERS` dispatch.
+- **Array fields:** BackEnd uses marker-format arrays. Controllers never touch them — `SauronAPI::FieldCodec` (+ `Codecs.pm`) encodes/decodes them inside repositories. (`SauronAPI::Base`'s `_strip_marker_format` predates FieldCodec; don't use it in new code.)
 - **Auth method enum:** Use `proxy` (not `oidc`) — enum is `[password, proxy, pat]`.
 - **`security: []`** means no OpenAPI validation — `before_dispatch` still runs and may have set `api_user_id`.
 - **OpenAPI security** only declares `BearerAuth` — proxy and session auth handled procedurally in `before_dispatch`.
@@ -164,6 +155,7 @@ All paginated list endpoints return the same envelope so the frontend data layer
 
 - **Networks CRUD** fully implemented (list with create dialog, detail/edit page mirroring legacy CGI).
 - **Host CRUD** works.
+- **Servers and Zones** have list + detail pages.
 - Other pages (Users, Groups, ACLs, Keys, VLANs, Templates) are "Coming Soon" placeholders.
 - RHF (Required Host Fields) is fully implemented: API enforces on POST/PUT, frontend shows red `*` markers, error messages display inline.
 - The frontend reads RHF from `permissions.rhf` in `/auth/me` response.
