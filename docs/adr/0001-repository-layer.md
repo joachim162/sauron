@@ -82,6 +82,32 @@ The rules of the layer:
   successor of `Sauron::BackEnd`, `FieldCodec` and the marker protocol are
   deleted, and the duplication ends. Controllers require no changes at that
   cutover — that is the payoff of the hard boundary.
-- Net, Zone, and Server repositories follow the same pattern as their
-  endpoints gain pagination. A shared query-builder helper may be extracted
-  from the second or third repository, not before.
+- ~~Net, Zone, and Server repositories follow the same pattern as their
+  endpoints gain pagination.~~ Superseded by the addendum below (2026-07-30).
+- A shared query-builder helper may be extracted from the second or third
+  repository; see addendum for the current state.
+
+## Addendum (2026-07-30): repositories for all resources
+
+The "follow as their endpoints gain pagination" consequence is superseded:
+Server, Zone, and Net repositories now exist even where pagination does not
+(Zone, Server keep their bare-array list responses). The hard boundary — no
+`Sauron::BackEnd`/`Sauron::DB` contact from controllers — now holds for all
+four DNS/DHCP resources. Auth is intentionally excluded until
+user-management endpoints justify a Users repository.
+
+Refinements discovered during the migration:
+
+- Exception rendering is a single `render_exception` Mojolicious helper in
+  `SauronAPI.pm` (previously a private copy in the Host controller). Name
+  resolution gained `get_net_id_or_404`, backed by the repository's
+  `net_id_for` bound-SQL lookup (BackEnd CIDR probe, then netname).
+- The networks list paginates **opt-in**: without `page`/`per_page` the
+  response stays the legacy bare array, because the frontend's nets page
+  filters list modes client-side over the complete set; with both
+  parameters it returns the `{data, metadata}` envelope. A frontend move to
+  server-driven pagination (plus server-side list-mode filters) remains
+  follow-up work.
+- The shared query-builder helper is still not extracted — Net is the only
+  new paginated endpoint in this pass. The extraction trigger moves to
+  whenever Zone or Server lists adopt pagination.

@@ -512,11 +512,13 @@ NewServer:
     - type: object
       required:
         - name
-        - hostname
         - hostaddr
-        - hostmaster
         - directory
-      description: Schema for creating a new server.
+      description: >
+        Schema for creating a new server. Required fields match what the
+        legacy CGI form enforces (name, hostaddr, directory); hostname and
+        hostmaster are optional — the CGI form merely prefills them with
+        placeholder values, which the API does not inject.
 
 UpdateServer:
   allOf:
@@ -539,17 +541,19 @@ ZoneFields:
     type:
       type: string
       description: >
-        Zone type: H=hint, M=master, S=slave, F=forward.
+        Zone type: M=master, S=slave, H=hint, F=forward, C=catalog,
+        A=aggregate catalog. Defaults to M when omitted.
         Immutable after creation.
       example: M
-      readOnly: true
     reverse:
       type: boolean
       description: >
-        If true, this is a reverse (arpa) zone.
+        If true, this is a reverse (arpa) zone. Reverse zones are always
+        master zones; the zone name may be given as a CIDR
+        (e.g. 10.0.0.0/24), which the API converts to the corresponding
+        in-addr.arpa or ip6.arpa name.
         Immutable after creation.
       example: false
-      readOnly: true
     active:
       type: boolean
       description: Only active zones are included in named configuration
@@ -1900,6 +1904,20 @@ HostListResponse:
       type: array
       items:
         $ref: '#/HostListItem'
+    metadata:
+      $ref: '#/Metadata'
+
+NetListResponse:
+  type: object
+  description: Paginated list of networks.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/NetList'
     metadata:
       $ref: '#/Metadata'
 

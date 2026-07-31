@@ -2,12 +2,14 @@ package SauronAPI;
 
 use Mojo::Base 'Mojolicious', -signatures;
 use FindBin;
+use Scalar::Util ();
 use lib "$FindBin::Bin/../.."; # Path to Sauron legacy modules
 
 # Sauron Core Integration
 use Sauron::Sauron;
 use Sauron::DB;
 use Sauron::BackEnd;
+use SauronAPI::Repository::Net ();
 use Net::Netmask;
 
 # This method will run once at server start
@@ -233,6 +235,37 @@ sub startup {
       status  => 404
     );
     return undef;
+  });
+
+  $self->helper(get_net_id_or_404 => sub ($c, $server_id, $param) {
+    my $id = SauronAPI::Repository::Net::net_id_for($server_id, $param);
+    return $id if $id > 0;
+
+    $c->render(
+      openapi => {
+        error   => 'Not Found',
+        message => "Network '$param' not found on this server"
+      },
+      status  => 404
+    );
+    return undef;
+  });
+
+  # Render a SauronAPI::Exception as an OpenAPI-shaped error response.
+  # Non-Exception dies (e.g. DBD::Pg) become a generic 500.
+  $self->helper(render_exception => sub ($c, $e) {
+    if (Scalar::Util::blessed($e) && $e->isa('SauronAPI::Exception')) {
+      return $c->render(
+        openapi => { error => $e->kind, message => $e->message },
+        status  => $e->status,
+      );
+    }
+
+    # TODO: log $e via a proper logging framework once one is in place
+    $c->render(
+      openapi => { error => 'Internal Server Error', message => 'An unexpected error occurred' },
+      status  => 500,
+    );
   });
 }
 
