@@ -421,4 +421,36 @@ subtest 'GET networks - pagination envelope and opt-in semantics' => sub {
   $t->get_ok("$BASE/networks?page=1&per_page=101" => $SUPER)->status_is(400);
 };
 
+subtest 'GET networks - free mode returns unallocated blocks (regression)' => sub {
+  # Top-level net /24 with one /26 subnet at the start: the remaining
+  # address space must surface as id=-1 pseudo rows when free=1.
+  Sauron::BackEnd::set_muser('test');
+  my $top = Sauron::BackEnd::add_net({
+    server => $srv, net => "10.160.${OCTET}.0/24", netname => "free-top-${pid}",
+    name => 'Free blocks test', subnet => 'f', dummy => 'f',
+  });
+  ok($top > 0, "created top net (id=$top)");
+  my $sub = Sauron::BackEnd::add_net({
+    server => $srv, net => "10.160.${OCTET}.0/26", netname => "free-sub-${pid}",
+    name => 'Subnet covering front quarter', subnet => 't', dummy => 'f',
+  });
+  ok($sub > 0, "created subnet (id=$sub)");
+  push @nets, $top, $sub;
+
+  $t->get_ok("$BASE/networks?free=1" => $SUPER)->status_is(200);
+  my $body = $t->tx->res->json;
+  my @gaps = grep { $_->{id} == -1 } @$body;
+  ok(@gaps > 0, 'free mode returns unallocated pseudo records (id=-1)')
+    or diag("no id=-1 rows in free list!");
+  # The gap space must lie inside the top net but outside its subnet
+  ok((grep { $_->{net} =~ /^10\.160\.${OCTET}\./ } @gaps) > 0,
+     'gap blocks cover the top net remainder')
+    if @gaps > 0;
+
+  # Envelope path works over the same UNION (totals include gap rows)
+  $t->get_ok("$BASE/networks?free=1&page=1&per_page=50" => $SUPER)
+    ->status_is(200)
+    ->json_is('/metadata/pagination/total' => scalar(@$body));
+};
+
 done_testing();

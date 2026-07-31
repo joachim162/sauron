@@ -148,39 +148,36 @@ sub host_list {
   my $per_page = $opts{per_page} // 50;
   my $offset   = ($page - 1) * $per_page;
 
-  my @rows;
-  Sauron::DB::db_query(
+  my $rows = _dbq(
     "SELECT " . join(',', @LIST_COLUMNS) . " FROM hosts " .
     "WHERE zone=? ORDER BY domain LIMIT ? OFFSET ?",
-    \@rows, $zone_id, $per_page, $offset
+    $zone_id, $per_page, $offset
   );
 
   # Batch-fetch IPs from a_entries for the returned host IDs
   my %host_ips;
-  if (@rows) {
-    my @host_ids = map $_->[0], @rows;
+  if (@$rows) {
+    my @host_ids = map $_->[0], @$rows;
     my $placeholders = join ',', ('?') x @host_ids;
-    my @ip_rows;
-    Sauron::DB::db_query(
+    my $ip_rows = _dbq(
       "SELECT host, ip FROM a_entries WHERE host IN ($placeholders) ORDER BY host, ip",
-      \@ip_rows, @host_ids
+      @host_ids
     );
-    for my $row (@ip_rows) {
+    for my $row (@$ip_rows) {
       push @{$host_ips{$row->[0]}}, $row->[1];
     }
   }
 
   my @data;
-  for my $row (@rows) {
+  for my $row (@$rows) {
     push @data, _build_host_list_item($zone_id, $server_id, $row, $host_ips{$row->[0]});
   }
 
-  my @total_rows;
-  Sauron::DB::db_query(
+  my $total_rows = _dbq(
     "SELECT COUNT(*) FROM hosts WHERE zone=?",
-    \@total_rows, $zone_id
+    $zone_id
   );
-  my $total = $total_rows[0][0] // 0;
+  my $total = $total_rows->[0][0] // 0;
 
   my $total_pages = $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0;
 
@@ -680,6 +677,18 @@ sub _check {
   my ($rc, $err) = @_;
   return if $rc == 0;
   SauronAPI::Exception->persistence($err);
+}
+
+# db_query returns -1 on error instead of dying; a failed query must not
+# silently become an empty result set.
+sub _dbq {
+  my ($sql, @bind) = @_;
+  my @rows;
+  my $rc = Sauron::DB::db_query($sql, \@rows, @bind);
+  if ($rc < 0) {
+    SauronAPI::Exception->persistence("Database query failed");
+  }
+  return \@rows;
 }
 
 # add_host returns -27 when required data for the host type is missing

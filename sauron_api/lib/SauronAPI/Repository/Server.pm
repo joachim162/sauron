@@ -63,12 +63,8 @@ my %FIELDS = (
 # ---------------------------------------------------------------------------
 
 sub server_list {
-  my @rows;
-  Sauron::DB::db_query(
-    "SELECT id,name,comment FROM servers ORDER BY name",
-    \@rows
-  );
-  return [ map { +{ id => $_->[0], name => $_->[1], comment => $_->[2] // '' } } @rows ];
+  my $rows = _dbq("SELECT id,name,comment FROM servers ORDER BY name");
+  return [ map { +{ id => $_->[0], name => $_->[1], comment => $_->[2] // '' } } @$rows ];
 }
 
 sub server_find {
@@ -165,6 +161,18 @@ sub _check {
   my ($rc, $err) = @_;
   return if $rc == 0;
   SauronAPI::Exception->persistence($err);
+}
+
+# db_query returns -1 on error instead of dying; a failed query must not
+# silently become an empty result set.
+sub _dbq {
+  my ($sql, @bind) = @_;
+  my @rows;
+  my $rc = Sauron::DB::db_query($sql, \@rows, @bind);
+  if ($rc < 0) {
+    SauronAPI::Exception->persistence("Database query failed");
+  }
+  return \@rows;
 }
 
 # Copy scalar fields, boolean fields, and decomposed flags from input to %rec.

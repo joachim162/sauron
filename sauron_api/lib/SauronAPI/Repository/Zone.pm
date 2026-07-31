@@ -51,11 +51,10 @@ my @COPY_FIELDS = qw(
 sub zone_list {
   my ($server_id) = @_;
 
-  my @rows;
-  Sauron::DB::db_query(
+  my $rows = _dbq(
     "SELECT name,id,type,reverse,comment FROM zones " .
     "WHERE server=? ORDER BY type,reverse,reversenet,name",
-    \@rows, $server_id
+    $server_id
   );
 
   return [ map { +{
@@ -65,7 +64,7 @@ sub zone_list {
     type      => $_->[2],
     reverse   => (($_->[3] // '') eq 't' ? JSON::PP::true : JSON::PP::false),
     comment   => $_->[4] // '',
-  } } @rows ];
+  } } @$rows ];
 }
 
 sub zone_find {
@@ -224,6 +223,18 @@ sub _check {
   my ($rc, $err) = @_;
   return if $rc == 0;
   SauronAPI::Exception->persistence($err);
+}
+
+# db_query returns -1 on error instead of dying; a failed query must not
+# silently become an empty result set.
+sub _dbq {
+  my ($sql, @bind) = @_;
+  my @rows;
+  my $rc = Sauron::DB::db_query($sql, \@rows, @bind);
+  if ($rc < 0) {
+    SauronAPI::Exception->persistence("Database query failed");
+  }
+  return \@rows;
 }
 
 # Copy scalar fields from input to %rec for creation/update.
