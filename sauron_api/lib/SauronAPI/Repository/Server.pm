@@ -8,9 +8,9 @@ our @EXPORT_OK = qw(
 );
 
 use Sauron::BackEnd ();
-use Sauron::DB     ();
-use SauronAPI::Codecs    qw(aml value forwarder);
-use SauronAPI::Exception ();
+use SauronAPI::Codecs     qw(aml value forwarder);
+use SauronAPI::Exception  ();
+use SauronAPI::Repository qw(dbq check_rc);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ my %FIELDS = (
 # ---------------------------------------------------------------------------
 
 sub server_list {
-  my $rows = _dbq("SELECT id,name,comment FROM servers ORDER BY name");
+  my $rows = dbq("SELECT id,name,comment FROM servers ORDER BY name");
   return [ map { +{ id => $_->[0], name => $_->[1], comment => $_->[2] // '' } } @$rows ];
 }
 
@@ -71,7 +71,7 @@ sub server_find {
   my ($server_id) = @_;
 
   my %server_data;
-  _check(Sauron::BackEnd::get_server($server_id, \%server_data),
+  check_rc(Sauron::BackEnd::get_server($server_id, \%server_data),
          'Failed to retrieve server data');
 
   return _build_server_response($server_id, \%server_data);
@@ -105,7 +105,7 @@ sub server_create {
   }
 
   my %server_data;
-  _check(Sauron::BackEnd::get_server($server_id, \%server_data),
+  check_rc(Sauron::BackEnd::get_server($server_id, \%server_data),
          'Server created but failed to retrieve data');
 
   return _build_server_response($server_id, \%server_data);
@@ -115,7 +115,7 @@ sub server_update {
   my ($server_id, $input) = @_;
 
   my %server_data;
-  _check(Sauron::BackEnd::get_server($server_id, \%server_data),
+  check_rc(Sauron::BackEnd::get_server($server_id, \%server_data),
          'Failed to retrieve server data');
 
   my %rec = (id => $server_id);
@@ -135,7 +135,7 @@ sub server_update {
     );
   }
 
-  _check(Sauron::BackEnd::get_server($server_id, \%server_data),
+  check_rc(Sauron::BackEnd::get_server($server_id, \%server_data),
          'Server updated but failed to retrieve data');
 
   return _build_server_response($server_id, \%server_data);
@@ -156,24 +156,6 @@ sub server_delete {
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-sub _check {
-  my ($rc, $err) = @_;
-  return if $rc == 0;
-  SauronAPI::Exception->persistence($err);
-}
-
-# db_query returns -1 on error instead of dying; a failed query must not
-# silently become an empty result set.
-sub _dbq {
-  my ($sql, @bind) = @_;
-  my @rows;
-  my $rc = Sauron::DB::db_query($sql, \@rows, @bind);
-  if ($rc < 0) {
-    SauronAPI::Exception->persistence("Database query failed");
-  }
-  return \@rows;
-}
 
 # Copy scalar fields, boolean fields, and decomposed flags from input to %rec.
 sub _copy_scalar_fields {

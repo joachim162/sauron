@@ -8,10 +8,10 @@ our @EXPORT_OK = qw(
 );
 
 use Sauron::BackEnd ();
-use Sauron::DB     ();
 use Sauron::Util   ();
-use SauronAPI::Codecs    qw(value);
-use SauronAPI::Exception ();
+use SauronAPI::Codecs     qw(value);
+use SauronAPI::Exception  ();
+use SauronAPI::Repository qw(dbq check_rc);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ sub net_id_for {
   my $net_id = Sauron::BackEnd::get_net_by_cidr($server_id, $param);
   return $net_id if $net_id > 0;
 
-  my $rows = _dbq("SELECT id FROM nets WHERE server=? AND netname=?",
+  my $rows = dbq("SELECT id FROM nets WHERE server=? AND netname=?",
                   $server_id, $param);
   return $rows->[0][0] if @$rows > 0 && $rows->[0][0] > 0;
   return -1;
@@ -113,21 +113,21 @@ sub _list_rows {
     push @bind, $opts{per_page}, ($opts{page} - 1) * $opts{per_page};
   }
 
-  return _dbq($sql, @bind);
+  return dbq($sql, @bind);
 }
 
 sub _list_count {
   my ($server_id, %opts) = @_;
 
   my ($sql, @bind) = _list_query($server_id, %opts);
-  my $rows = _dbq("SELECT COUNT(*) FROM ($sql) q", @bind);
+  my $rows = dbq("SELECT COUNT(*) FROM ($sql) q", @bind);
   return $rows->[0][0] // 0;
 }
 
 sub _vlan_map {
   my ($server_id) = @_;
 
-  my $rows = _dbq(
+  my $rows = dbq(
     "SELECT id,name FROM vlans WHERE server=? ORDER BY name",
     $server_id
   );
@@ -174,7 +174,7 @@ sub net_find {
   my ($net_id, %opts) = @_;
 
   my %net_data;
-  _check(Sauron::BackEnd::get_net($net_id, \%net_data),
+  check_rc(Sauron::BackEnd::get_net($net_id, \%net_data),
          'Failed to retrieve network data');
 
   my $vlan_map;
@@ -225,7 +225,7 @@ sub net_create {
   }
 
   my %net_data;
-  _check(Sauron::BackEnd::get_net($net_id, \%net_data),
+  check_rc(Sauron::BackEnd::get_net($net_id, \%net_data),
          'Network created but failed to retrieve data');
 
   return _build_net_response($net_id, \%net_data, undef);
@@ -235,7 +235,7 @@ sub net_update {
   my ($net_id, $input) = @_;
 
   my %net_data;
-  _check(Sauron::BackEnd::get_net($net_id, \%net_data),
+  check_rc(Sauron::BackEnd::get_net($net_id, \%net_data),
          'Failed to retrieve existing network data');
 
   my %rec = (id => $net_id, net => $net_data{net});
@@ -254,7 +254,7 @@ sub net_update {
     );
   }
 
-  _check(Sauron::BackEnd::get_net($net_id, \%net_data),
+  check_rc(Sauron::BackEnd::get_net($net_id, \%net_data),
          'Network updated but failed to retrieve data');
 
   return _build_net_response($net_id, \%net_data, undef);
@@ -275,24 +275,6 @@ sub net_delete {
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-sub _check {
-  my ($rc, $err) = @_;
-  return if $rc == 0;
-  SauronAPI::Exception->persistence($err);
-}
-
-# db_query returns -1 on error instead of dying; a failed query must not
-# silently become an empty result set (see dual-? bind mistake in _list_query).
-sub _dbq {
-  my ($sql, @bind) = @_;
-  my @rows;
-  my $rc = Sauron::DB::db_query($sql, \@rows, @bind);
-  if ($rc < 0) {
-    SauronAPI::Exception->persistence("Database query failed");
-  }
-  return \@rows;
-}
 
 sub _copy_scalar_fields {
   my ($rec, $json) = @_;

@@ -8,11 +8,11 @@ our @EXPORT_OK = qw(
 );
 
 use Sauron::BackEnd ();
-use Sauron::DB     ();
 use Sauron::Util   qw(is_cidr);
 use SauronAPI::Codecs       qw(mx value);
 use SauronAPI::Exception    ();
 use SauronAPI::FieldCodec;
+use SauronAPI::Repository   qw(dbq check_rc);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ sub host_list {
   my $per_page = $opts{per_page} // 50;
   my $offset   = ($page - 1) * $per_page;
 
-  my $rows = _dbq(
+  my $rows = dbq(
     "SELECT " . join(',', @LIST_COLUMNS) . " FROM hosts " .
     "WHERE zone=? ORDER BY domain LIMIT ? OFFSET ?",
     $zone_id, $per_page, $offset
@@ -159,7 +159,7 @@ sub host_list {
   if (@$rows) {
     my @host_ids = map $_->[0], @$rows;
     my $placeholders = join ',', ('?') x @host_ids;
-    my $ip_rows = _dbq(
+    my $ip_rows = dbq(
       "SELECT host, ip FROM a_entries WHERE host IN ($placeholders) ORDER BY host, ip",
       @host_ids
     );
@@ -173,7 +173,7 @@ sub host_list {
     push @data, _build_host_list_item($zone_id, $server_id, $row, $host_ips{$row->[0]});
   }
 
-  my $total_rows = _dbq(
+  my $total_rows = dbq(
     "SELECT COUNT(*) FROM hosts WHERE zone=?",
     $zone_id
   );
@@ -213,7 +213,7 @@ sub host_find {
 
   my $host_id = _host_id($zone_id, $hostname);
   my %host_data;
-  _check(Sauron::BackEnd::get_host($host_id, \%host_data),
+  check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Failed to retrieve host data');
 
   return _build_host_response($host_id, \%host_data, $zone_id, $server_id);
@@ -272,7 +272,7 @@ sub host_create {
   my $host_id = _add_host(\%rec);
 
   my %host_data;
-  _check(Sauron::BackEnd::get_host($host_id, \%host_data),
+  check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Host created but failed to retrieve data');
 
   return _build_host_response($host_id, \%host_data, $zone_id, $server_id);
@@ -284,7 +284,7 @@ sub host_update {
   my $host_id = _host_id($zone_id, $hostname);
 
   my %host_data;
-  _check(Sauron::BackEnd::get_host($host_id, \%host_data),
+  check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Failed to retrieve host data');
 
   if (exists $input->{type} && $input->{type} != $host_data{type}) {
@@ -358,7 +358,7 @@ sub host_copy {
 
   my $source_id = _host_id($zone_id, $source_hostname);
   my %source;
-  _check(Sauron::BackEnd::get_host($source_id, \%source),
+  check_rc(Sauron::BackEnd::get_host($source_id, \%source),
          'Failed to retrieve source host data');
 
   # Determine effective type for validation
@@ -465,7 +465,7 @@ sub host_copy {
   my $host_id = _add_host(\%rec);
 
   my %host_data;
-  _check(Sauron::BackEnd::get_host($host_id, \%host_data),
+  check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Host created but failed to retrieve data');
 
   return _build_host_response($host_id, \%host_data, $zone_id, $server_id);
@@ -508,7 +508,7 @@ sub host_move {
 
   my $host_id = _host_id($zone_id, $hostname);
   my %host;
-  _check(Sauron::BackEnd::get_host($host_id, \%host),
+  check_rc(Sauron::BackEnd::get_host($host_id, \%host),
          'Failed to retrieve host data');
 
   if ($host{type} != 1) {
@@ -549,11 +549,9 @@ sub _move_ip {
       Sauron::BackEnd::get_net($net_id, \%net_data);
       $cidr = $net_data{net};
     } else {
-      Sauron::DB::db_query(
-        "SELECT net FROM nets WHERE server=? AND netname=?",
-        \my @q, $server_id, $net
-      );
-      $cidr = $q[0][0] if @q > 0;
+      my $q = dbq("SELECT net FROM nets WHERE server=? AND netname=?",
+                  $server_id, $net);
+      $cidr = $q->[0][0] if @$q > 0;
     }
     unless ($cidr) {
       SauronAPI::Exception->validation("Network '$net' not found on this server");
@@ -613,7 +611,7 @@ sub _move_ip {
   }
 
   my %updated;
-  _check(Sauron::BackEnd::get_host($host_id, \%updated),
+  check_rc(Sauron::BackEnd::get_host($host_id, \%updated),
          'Host moved but failed to retrieve data');
   return _build_host_response($host_id, \%updated, $host->{zone}, $server_id);
 }
@@ -655,7 +653,7 @@ sub _move_zone {
   }
 
   my %updated;
-  _check(Sauron::BackEnd::get_host($host_id, \%updated),
+  check_rc(Sauron::BackEnd::get_host($host_id, \%updated),
          'Host moved but failed to retrieve data');
   return _build_host_response($host_id, \%updated, $new_zone_id, $server_id);
 }
@@ -671,24 +669,6 @@ sub _host_id {
     "Host '$hostname' not found in zone"
   ) if $id <= 0;
   return $id;
-}
-
-sub _check {
-  my ($rc, $err) = @_;
-  return if $rc == 0;
-  SauronAPI::Exception->persistence($err);
-}
-
-# db_query returns -1 on error instead of dying; a failed query must not
-# silently become an empty result set.
-sub _dbq {
-  my ($sql, @bind) = @_;
-  my @rows;
-  my $rc = Sauron::DB::db_query($sql, \@rows, @bind);
-  if ($rc < 0) {
-    SauronAPI::Exception->persistence("Database query failed");
-  }
-  return \@rows;
 }
 
 # add_host returns -27 when required data for the host type is missing
@@ -751,11 +731,9 @@ sub _resolve_ips_for_create {
       Sauron::BackEnd::get_net($net_id, \%net_data);
       $cidr = $net_data{net};
     } else {
-      Sauron::DB::db_query(
-        "SELECT net FROM nets WHERE server=? AND netname=?",
-        \my @q, $server_id, $net
-      );
-      $cidr = $q[0][0] if @q > 0;
+      my $q = dbq("SELECT net FROM nets WHERE server=? AND netname=?",
+                  $server_id, $net);
+      $cidr = $q->[0][0] if @$q > 0;
     }
     unless ($cidr) {
       SauronAPI::Exception->validation(

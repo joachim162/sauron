@@ -8,10 +8,10 @@ our @EXPORT_OK = qw(
 );
 
 use Sauron::BackEnd ();
-use Sauron::DB     ();
 use Sauron::Util   ();
-use SauronAPI::Codecs    qw(aml mx value forwarder);
-use SauronAPI::Exception ();
+use SauronAPI::Codecs     qw(aml mx value forwarder);
+use SauronAPI::Exception  ();
+use SauronAPI::Repository qw(dbq check_rc);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ my @COPY_FIELDS = qw(
 sub zone_list {
   my ($server_id) = @_;
 
-  my $rows = _dbq(
+  my $rows = dbq(
     "SELECT name,id,type,reverse,comment FROM zones " .
     "WHERE server=? ORDER BY type,reverse,reversenet,name",
     $server_id
@@ -71,7 +71,7 @@ sub zone_find {
   my ($zone_id) = @_;
 
   my %zone_data;
-  _check(Sauron::BackEnd::get_zone($zone_id, \%zone_data),
+  check_rc(Sauron::BackEnd::get_zone($zone_id, \%zone_data),
          'Failed to retrieve zone data');
 
   return _build_zone_response($zone_id, \%zone_data);
@@ -154,7 +154,7 @@ sub zone_create {
   }
 
   my %zone_data;
-  _check(Sauron::BackEnd::get_zone($zone_id, \%zone_data),
+  check_rc(Sauron::BackEnd::get_zone($zone_id, \%zone_data),
          'Zone created but failed to retrieve data');
 
   return _build_zone_response($zone_id, \%zone_data);
@@ -173,7 +173,7 @@ sub zone_update {
   }
 
   my %existing_zone;
-  _check(Sauron::BackEnd::get_zone($zone_id, \%existing_zone),
+  check_rc(Sauron::BackEnd::get_zone($zone_id, \%existing_zone),
          'Failed to fetch existing zone data');
 
   my %rec = (id => $zone_id);
@@ -197,7 +197,7 @@ sub zone_update {
   }
 
   my %zone_data;
-  _check(Sauron::BackEnd::get_zone($zone_id, \%zone_data),
+  check_rc(Sauron::BackEnd::get_zone($zone_id, \%zone_data),
          'Zone updated but failed to retrieve data');
 
   return _build_zone_response($zone_id, \%zone_data);
@@ -218,24 +218,6 @@ sub zone_delete {
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-sub _check {
-  my ($rc, $err) = @_;
-  return if $rc == 0;
-  SauronAPI::Exception->persistence($err);
-}
-
-# db_query returns -1 on error instead of dying; a failed query must not
-# silently become an empty result set.
-sub _dbq {
-  my ($sql, @bind) = @_;
-  my @rows;
-  my $rc = Sauron::DB::db_query($sql, \@rows, @bind);
-  if ($rc < 0) {
-    SauronAPI::Exception->persistence("Database query failed");
-  }
-  return \@rows;
-}
 
 # Copy scalar fields from input to %rec for creation/update.
 # Skips immutable fields for updates.
