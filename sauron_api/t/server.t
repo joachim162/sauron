@@ -105,19 +105,19 @@ subtest 'GET /servers/{server} - non-existent returns 404' => sub {
 # Write paths
 # ========================================================================
 
-# NewServer schema requires these alongside name (OpenAPI-validated).
+# NewServer schema requires name, hostaddr, directory (CGI parity);
+# hostname and hostmaster are optional.
 sub _new_server {
   my (%extra) = @_;
   return {
-    hostname   => "ns1.created-${pid}.example.com",
-    hostaddr   => '10.55.0.1',
-    hostmaster => "hostmaster.created-${pid}.example.com.",
-    directory  => '/srv/named',
+    hostaddr  => '10.55.0.1',
+    directory => '/srv/named',
     %extra,
   };
 }
 
-subtest 'POST /servers - create' => sub {
+subtest 'POST /servers - create (minimal, CGI parity)' => sub {
+  # hostname and hostmaster omitted: optional per the legacy CGI form
   $t->post_ok($URL => $SUPER => json => _new_server(
     name       => "srv-created-${pid}",
     comment    => 'created via API',
@@ -128,10 +128,36 @@ subtest 'POST /servers - create' => sub {
     ->json_is('/name'    => "srv-created-${pid}")
     ->json_is('/comment' => 'created via API')
     ->json_is('/ttl'     => 3600)
+    ->json_is('/hostname' => undef)
+    ->json_is('/hostmaster' => undef)
     ->json_is('/zones_only' => JSON::PP::true);
 
   my $id = $t->tx->res->json->{id};
   push @servers, $id;
+};
+
+subtest 'POST /servers - hostname and hostmaster accepted when provided' => sub {
+  $t->post_ok($URL => $SUPER => json => _new_server(
+    name       => "srv-full-${pid}",
+    hostname   => "ns1.full-${pid}.example.com",
+    hostmaster => "hostmaster.full-${pid}.example.com.",
+  ))
+    ->status_is(201)
+    ->json_is('/hostname'   => "ns1.full-${pid}.example.com")
+    ->json_is('/hostmaster' => "hostmaster.full-${pid}.example.com.");
+
+  my $id = $t->tx->res->json->{id};
+  push @servers, $id;
+};
+
+subtest 'POST /servers - hostaddr and directory stay required (CGI parity)' => sub {
+  $t->post_ok($URL => $SUPER => json => { name => "srv-nohostaddr-${pid}", directory => '/srv/named' })
+    ->status_is(400)
+    ->json_has('/errors');
+
+  $t->post_ok($URL => $SUPER => json => { name => "srv-nodir-${pid}", hostaddr => '10.55.0.2' })
+    ->status_is(400)
+    ->json_has('/errors');
 };
 
 subtest 'POST /servers - duplicate returns 409' => sub {
@@ -214,13 +240,17 @@ subtest 'DELETE /servers/{server} - non-superuser denied' => sub {
 };
 
 subtest 'DELETE /servers/{server} - delete then 404' => sub {
-  $t->delete_ok("$URL/srv-created-${pid}" => $SUPER)
+  my $del_name = "srv-created-${pid}";
+  my $del_id = Sauron::BackEnd::get_server_id($del_name);
+  ok($del_id > 0, "resolved server to delete (id=$del_id)");
+
+  $t->delete_ok("$URL/$del_name" => $SUPER)
     ->status_is(204);
 
-  $t->get_ok("$URL/srv-created-${pid}" => $SUPER)
+  $t->get_ok("$URL/$del_name" => $SUPER)
     ->status_is(404);
 
-  pop @servers;  # already deleted
+  @servers = grep { $_ != $del_id } @servers;
 };
 
 done_testing();

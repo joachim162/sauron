@@ -512,11 +512,13 @@ NewServer:
     - type: object
       required:
         - name
-        - hostname
         - hostaddr
-        - hostmaster
         - directory
-      description: Schema for creating a new server.
+      description: >
+        Schema for creating a new server. Required fields match what the
+        legacy CGI form enforces (name, hostaddr, directory); hostname and
+        hostmaster are optional — the CGI form merely prefills them with
+        placeholder values, which the API does not inject.
 
 UpdateServer:
   allOf:
