@@ -155,22 +155,61 @@ subtest 'POST zones - zone-RW (no server RW) denied' => sub {
     ->json_is('/error' => 'Forbidden');
 };
 
-subtest 'POST zones - reverse and explicit type rejected by schema (readOnly)' => sub {
-  # ZoneFields marks both type and reverse readOnly: the API currently only
-  # permits creating type-M forward zones. Assert the gate stays in place.
+subtest 'POST zones - reverse zone from CIDR (CGI parity)' => sub {
   $t->post_ok($URL => $SUPER => json => {
     name    => "10.99.0.0/24",
     reverse => JSON::PP::true,
   })
-    ->status_is(400)
-    ->json_has('/errors');
+    ->status_is(201)
+    ->json_is('/type'       => 'M')
+    ->json_is('/reverse'    => JSON::PP::true)
+    ->json_is('/reversenet' => '10.99.0.0/24')
+    ->json_like('/name'     => qr/in-addr\.arpa$/);
 
-  $t->post_ok($URL => $SUPER => json => {
-    name => "typed-${pid}.example.com",
-    type => 'S',
-  })
+  my $id = $t->tx->res->json->{id};
+  push @zones, $id;
+};
+
+subtest 'POST zones - invalid reverse zone name returns 400' => sub {
+  $t->post_ok($URL => $SUPER => json => { name => "not-a-reverse-${pid}.example.com", reverse => JSON::PP::true })
     ->status_is(400)
-    ->json_has('/errors');
+    ->json_is('/error' => 'Bad Request')
+    ->json_is('/message' => 'Invalid reverse zone name');
+};
+
+subtest 'POST zones - explicit type slave (CGI parity)' => sub {
+  $t->post_ok($URL => $SUPER => json => { name => "slave-${pid}.example.com", type => 'S' })
+    ->status_is(201)
+    ->json_is('/type' => 'S');
+  my $id = $t->tx->res->json->{id};
+  push @zones, $id;
+};
+
+subtest 'POST zones - type enum enforced (CGI parity)' => sub {
+  $t->post_ok($URL => $SUPER => json => { name => "badtype-${pid}.example.com", type => 'X' })
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request')
+    ->json_like('/message' => qr/Invalid zone type/);
+
+  # Reverse zones are master-only, as in the CGI form
+  $t->post_ok($URL => $SUPER => json => { name => "revslave-${pid}.example.com", type => 'S', reverse => JSON::PP::true })
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request')
+    ->json_like('/message' => qr/master/);
+};
+
+subtest 'POST zones - catalog zone gets TTL=0 and minimum=0 (RFC 9432)' => sub {
+  $t->post_ok($URL => $SUPER => json => {
+    name => "catalog-${pid}.example.com",
+    type => 'C',
+    ttl  => 9999,   # CGI ignores input TTL for catalog zones
+  })
+    ->status_is(201)
+    ->json_is('/type' => 'C')
+    ->json_is('/ttl'  => 0)
+    ->json_is('/minimum' => 0);
+  my $id = $t->tx->res->json->{id};
+  push @zones, $id;
 };
 
 subtest 'PUT zone - scalar round-trip' => sub {
@@ -209,20 +248,13 @@ subtest 'PUT zone - array field round-trip (txt replace-all)' => sub {
 };
 
 subtest 'PUT zone - immutable fields rejected' => sub {
-  # type and reverse are readOnly in the schema: rejected by OpenAPI
-  # validation before reaching the repository.
-  for my $case (['type', 'S'], ['reverse', JSON::PP::true]) {
+  for my $case (['type', 'S'], ['reverse', JSON::PP::true], ['serial', 42]) {
     my ($field, $value) = @$case;
     $t->put_ok("$URL/zone1-${pid}.example.com" => $SUPER => json => { $field => $value })
       ->status_is(400)
-      ->json_has('/errors');
+      ->json_is('/error' => 'Bad Request')
+      ->json_like('/message' => qr/immutable/);
   }
-
-  # serial is not schema-gated: the repository enforces immutability.
-  $t->put_ok("$URL/zone1-${pid}.example.com" => $SUPER => json => { serial => 42 })
-    ->status_is(400)
-    ->json_is('/error' => 'Bad Request')
-    ->json_like('/message' => qr/immutable/);
 };
 
 subtest 'PUT zone - zone RW user can update' => sub {

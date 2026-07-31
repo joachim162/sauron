@@ -84,10 +84,33 @@ sub zone_create {
   my $zone_name = $input->{name}
     or SauronAPI::Exception->validation("'name' is required");
 
+  # CGI parity: zone type is an enum (M/S/H/F/C/A); BackEnd would accept
+  # any character, so the enum is enforced here like the CGI form does.
   my $raw_type = $input->{type} // 'M';
   my $type = uc(substr($raw_type, 0, 1));
+  if ($type !~ /^[MSHFCA]$/) {
+    SauronAPI::Exception->validation(
+      "Invalid zone type '$type' (must be one of M, S, H, F, C, A)"
+    );
+  }
 
-  my $existing_id = Sauron::BackEnd::get_zone_id($zone_name, $server_id);
+  # CGI only offers the reverse zone option for master zones.
+  if ($input->{reverse} && $type ne 'M') {
+    SauronAPI::Exception->validation(
+      "Reverse zones must be master zones (type 'M')"
+    );
+  }
+
+  # Reverse zones: accept a CIDR as the zone name and derive the arpa name.
+  # NOTE: _copy_zone_fields copies 'name' from the input verbatim, so the
+  # transform must happen after it.
+  my $reverse = $input->{reverse} ? 1 : 0;
+  my $effective_name = $zone_name;
+  if ($reverse && Sauron::Util::is_cidr($effective_name) && $effective_name =~ /\/\d{1,3}$/) {
+    $effective_name = Sauron::Util::cidr2arpa($effective_name);
+  }
+
+  my $existing_id = Sauron::BackEnd::get_zone_id($effective_name, $server_id);
   if ($existing_id > 0) {
     SauronAPI::Exception->conflict(
       "Zone '$zone_name' already exists on this server"
@@ -100,13 +123,11 @@ sub zone_create {
     type   => $type,
   );
 
-  # Reverse zones: accept a CIDR as the zone name and derive the arpa name
-  my $reverse = $input->{reverse} ? 1 : 0;
+  _copy_zone_fields(\%rec, $input, 0);  # skip_immutable=0 (allow all fields)
+
   if ($reverse) {
     $rec{reverse} = 't';
-    if (Sauron::Util::is_cidr($rec{name}) && $rec{name} =~ /\/\d{1,3}$/) {
-      $rec{name} = Sauron::Util::cidr2arpa($rec{name});
-    }
+    $rec{name} = $effective_name;
     my $new_net = Sauron::Util::arpa2cidr($rec{name});
     if ($new_net eq '0.0.0.0/0' || $new_net eq '') {
       SauronAPI::Exception->validation("Invalid reverse zone name");
@@ -114,7 +135,11 @@ sub zone_create {
     $rec{reversenet} = $new_net;
   }
 
-  _copy_zone_fields(\%rec, $input, 0);  # skip_immutable=0 (allow all fields)
+  # RFC 9432 (CGI parity): catalog zones use TTL=0 and negative caching TTL=0
+  if ($type eq 'C') {
+    $rec{ttl} = 0;
+    $rec{minimum} = 0;
+  }
 
   for my $field (@ARRAY_FIELDS) {
     next unless exists $input->{$field};

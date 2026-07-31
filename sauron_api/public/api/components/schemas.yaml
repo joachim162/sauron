@@ -539,17 +539,19 @@ ZoneFields:
     type:
       type: string
       description: >
-        Zone type: H=hint, M=master, S=slave, F=forward.
+        Zone type: M=master, S=slave, H=hint, F=forward, C=catalog,
+        A=aggregate catalog. Defaults to M when omitted.
         Immutable after creation.
       example: M
-      readOnly: true
     reverse:
       type: boolean
       description: >
-        If true, this is a reverse (arpa) zone.
+        If true, this is a reverse (arpa) zone. Reverse zones are always
+        master zones; the zone name may be given as a CIDR
+        (e.g. 10.0.0.0/24), which the API converts to the corresponding
+        in-addr.arpa or ip6.arpa name.
         Immutable after creation.
       example: false
-      readOnly: true
     active:
       type: boolean
       description: Only active zones are included in named configuration
