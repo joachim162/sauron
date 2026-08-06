@@ -25,3 +25,4 @@
 - **Description** — The `name` field. A human-readable descriptive name for the network (e.g. `Office Network`).
 - **Subnet** — A network that is a child of another network. Marked with `subnet = true`; auto-address ranges are created for subnets and virtual nets.
 - **Dummy net** — A virtual subnet used to group hosts inside a real subnet. Marked with `dummy = true`; DHCP is not applicable, so the UI shows `dhcp` as `null`.
+- **List mode** — One of four ways to view the networks of a server, inherited from the legacy CGI net browser: *top* (top-level nets only), *sub* (nets and subnets, excluding dummy nets), *all* (every net record), *free* (every net record plus unallocated address blocks). Viewing free blocks requires an elevated authorization level; for other users the free mode silently behaves like all.

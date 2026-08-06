@@ -17,36 +17,29 @@ sub list_nets ($self) {
 
   # Unallocated address blocks are only shown to sufficiently
   # authorized users (same gating as the legacy CGI menu entry);
-  # otherwise the flag is silently ignored.
-  my $free = $self->param('free');
-  $free = ($free && $free ne 'false') ? 1 : 0;
-  if ($free) {
-    $free = 0 unless ($self->stash('api_superuser')
-                      || ($user_alevel >= $main::ALEVEL_SHOW_UNALLOCATED_CIDRS));
+  # below that level the free list mode silently behaves like all.
+  my $list = $self->param('list') // 'all';
+  if ($list eq 'free') {
+    $list = 'all' unless ($self->stash('api_superuser')
+                          || ($user_alevel >= $main::ALEVEL_SHOW_UNALLOCATED_CIDRS));
   }
 
   my $include_vlan_names = ($self->stash('api_superuser')
                             || ($user_alevel >= $main::ALEVEL_VLANS)) ? 1 : 0;
 
-  # Pagination is opt-in to preserve the legacy bare-array response for
-  # existing consumers (the nets page filters list modes client-side).
-  my $page     = $self->param('page');
-  my $per_page = $self->param('per_page');
+  my $page     = $self->param('page')     // 1;
+  my $per_page = $self->param('per_page') // 50;
 
-  my @result = eval {
+  my ($nets, $meta) = eval {
     net_list($server_id,
+             list => $list,
              alevel => $user_alevel,
-             free => $free,
              include_vlan_names => $include_vlan_names,
-             ($page && $per_page ? (page => $page, per_page => $per_page) : ()));
+             page => $page, per_page => $per_page);
   };
   return $self->render_exception($@) if $@;
 
-  if (@result == 2) {
-    my ($nets, $meta) = @result;
-    return $self->render(openapi => { data => $nets, metadata => $meta });
-  }
-  $self->render(openapi => $result[0]);
+  $self->render(openapi => { data => $nets, metadata => $meta });
 }
 
 sub list_assignable_subnets ($self) {

@@ -57,6 +57,8 @@ sub net_list {
   my $vlan_map = $opts{include_vlan_names} ? _vlan_map($server_id) : undef;
   my @nets = map { _build_net_list_response($_, $vlan_map) } @$rows;
 
+  # Unpaginated when page/per_page are absent; this path is only for
+  # assignable-subnets. The networks endpoint always passes both.
   if ($opts{page} && $opts{per_page}) {
     my $total = _list_count($server_id, %opts);
     my $per_page = $opts{per_page};
@@ -79,6 +81,8 @@ sub net_list {
 sub _list_query {
   my ($server_id, %opts) = @_;
 
+  my $list = $opts{list} // 'all';
+
   my @bind = ($server_id);
   my $where = " WHERE server=? ";
   $where .= " AND subnet=true " if $opts{subnets};
@@ -87,11 +91,15 @@ sub _list_query {
     push @bind, $opts{alevel};
   }
 
+  # List modes mirror the legacy CGI browse_nets skip rules.
+  $where .= " AND dummy=false AND subnet=false " if $list eq 'top';
+  $where .= " AND dummy=false " if $list eq 'sub';
+
   my $sql =
     "SELECT net,id,name,netname,comment,no_dhcp,dummy,vlan,alevel,subnet " .
     "FROM nets" . $where;
 
-  if ($opts{free}) {
+  if ($list eq 'free') {
     # Unallocated blocks as pseudo records (id=-1), one row per gap in each
     # top-level net (same union as BackEnd::get_net_list / CGI browse_nets).
     $sql .=

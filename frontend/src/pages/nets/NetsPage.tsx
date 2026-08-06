@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef, PaginationState } from "@tanstack/react-table";
 import { netsApi } from "@/api";
 import type { Net, NewNet } from "@/lib/types";
 import { useAuth } from "@/hooks/use-auth";
@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError } from "@/lib/api-client";
 
 function dhcpLabel(dhcp: boolean | null | undefined) {
@@ -35,14 +35,17 @@ function dhcpLabel(dhcp: boolean | null | undefined) {
   return dhcp ? "Enabled" : "Disabled";
 }
 
-// List sub-categories, mirroring the legacy CGI list modes:
-// "" = top-level nets, sub = + subnets, all = everything,
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+// List sub-categories, mirroring the legacy CGI list modes (filtered
+// server-side; see the list query parameter): "" = top-level nets,
+// sub = + subnets, all = everything,
 // free = everything + unallocated blocks (id=-1 pseudo records)
-const LIST_MODES: Record<string, { title: string; filter: (n: Net) => boolean }> = {
-  "": { title: "Networks", filter: (n) => !n.subnet },
-  sub: { title: "Networks + Subnets", filter: (n) => !n.dummy },
-  all: { title: "All Networks", filter: () => true },
-  free: { title: "Networks + Free Blocks", filter: () => true },
+const LIST_MODES: Record<string, { title: string; api: string }> = {
+  "": { title: "Networks", api: "top" },
+  sub: { title: "Networks + Subnets", api: "sub" },
+  all: { title: "All Networks", api: "all" },
+  free: { title: "Networks + Free Blocks", api: "free" },
 };
 
 function isUnallocated(net: Net) {
@@ -65,24 +68,68 @@ export default function NetsPage() {
   const { serverName } = useServerContext();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const listParam = searchParams.get("list") ?? "";
   const listMode = LIST_MODES[listParam] ? listParam : "";
-  const freeMode = listMode === "free";
+
+  const pagination = useMemo<PaginationState>(() => {
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+    const perPageRaw = parseInt(searchParams.get("per_page") || "50", 10) || 50;
+    const perPage = Math.min(100, Math.max(1, perPageRaw));
+    return { pageIndex: page - 1, pageSize: perPage };
+  }, [searchParams]);
+
+  const updatePagination = (next: PaginationState) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("page", String(next.pageIndex + 1));
+        params.set("per_page", String(next.pageSize));
+        return params;
+      },
+      { replace: true }
+    );
+  };
+
+  const prevListRef = useRef(listMode);
+  useEffect(() => {
+    if (prevListRef.current === listMode) return;
+    prevListRef.current = listMode;
+    setSearchParams(
+      (prev) => {
+        const current = prev.get("page");
+        if (!current || current === "1") return prev;
+        const params = new URLSearchParams(prev);
+        params.set("page", "1");
+        return params;
+      },
+      { replace: true }
+    );
+  }, [listMode, setSearchParams]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createSubnet, setCreateSubnet] = useState(false);
   const [createDummy, setCreateDummy] = useState(false);
   const [deleteName, setDeleteName] = useState<string | null>(null);
 
-  const { data: nets, isLoading } = useQuery({
-    queryKey: ["nets", serverName, freeMode ? "free" : "std"],
-    queryFn: () => netsApi.list(serverName!, { free: freeMode }),
+  const { data: netsResponse, isLoading } = useQuery({
+    queryKey: ["nets", serverName, listMode, pagination.pageIndex, pagination.pageSize],
+    queryFn: () =>
+      netsApi.list(serverName!, {
+        list: LIST_MODES[listMode].api,
+        page: pagination.pageIndex + 1,
+        per_page: pagination.pageSize,
+      }),
     enabled: !!serverName,
   });
 
-  const visibleNets = (nets || []).filter(LIST_MODES[listMode].filter);
+  const nets = netsResponse?.data ?? [];
+  const totalNets = netsResponse?.metadata.pagination.total ?? nets.length;
+  const pageCount = netsResponse?.metadata.pagination.total_pages ?? 1;
+  const pageSizeOptions = PAGE_SIZE_OPTIONS.includes(pagination.pageSize)
+    ? PAGE_SIZE_OPTIONS
+    : [...PAGE_SIZE_OPTIONS, pagination.pageSize].sort((a, b) => a - b);
 
   const createMutation = useMutation({
     mutationFn: (data: NewNet) => netsApi.create(serverName!, data),
@@ -95,6 +142,9 @@ export default function NetsPage() {
   const deleteMutation = useMutation({
     mutationFn: (netname: string) => netsApi.delete(serverName!, netname),
     onSuccess: () => {
+      if (nets.length === 1 && pagination.pageIndex > 0) {
+        updatePagination({ ...pagination, pageIndex: pagination.pageIndex - 1 });
+      }
       queryClient.invalidateQueries({ queryKey: ["nets", serverName] });
       setDeleteName(null);
     },
@@ -216,7 +266,7 @@ export default function NetsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">{LIST_MODES[listMode].title}</h1>
           <p className="text-muted-foreground">
-            {serverName} — {visibleNets.length} record{visibleNets.length !== 1 ? "s" : ""}
+            {serverName} — {totalNets} record{totalNets !== 1 ? "s" : ""}
           </p>
         </div>
         {isSuperuser && (
@@ -243,15 +293,38 @@ export default function NetsPage() {
         </Button>
       </form>
 
-      <DataTable
-        columns={columns}
-        data={visibleNets}
-        isLoading={isLoading}
-        emptyMessage="No networks found."
-        onRowClick={(net) => {
-          if (!isUnallocated(net)) navigate(`/nets/${encodeURIComponent(net.netname)}`);
-        }}
-      />
+      <div className="space-y-2">
+        <div className="flex items-center justify-end gap-2">
+          <span className="text-sm text-muted-foreground">Rows per page</span>
+          <Select
+            value={String(pagination.pageSize)}
+            onValueChange={(v) => updatePagination({ pageIndex: 0, pageSize: Number(v) })}
+          >
+            <SelectTrigger className="w-24 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {pageSizeOptions.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <DataTable
+          columns={columns}
+          data={nets}
+          isLoading={isLoading}
+          pageCount={pageCount}
+          pagination={pagination}
+          onPaginationChange={updatePagination}
+          emptyMessage="No networks found."
+          onRowClick={(net) => {
+            if (!isUnallocated(net)) navigate(`/nets/${encodeURIComponent(net.netname)}`);
+          }}
+        />
+      </div>
 
       {/* Create dialog */}
       {createOpen && (

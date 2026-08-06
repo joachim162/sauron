@@ -1,62 +1,58 @@
 get:
   security:
     - BearerAuth: []
-  summary: List all networks on a server
+  summary: List the networks of a server (paginated)
   tags: [ networks ]
-  description: Returns all network/subnet records on the specified server.
+  description: >
+    Returns network/subnet records on the specified server in the paginated
+    {data, metadata} envelope. The list mode selects which records are
+    included, mirroring the legacy CGI net browser; totals are computed
+    over the whole filtered set.
   operationId: list_nets
   x-mojo-name: list_nets
   x-mojo-to: "Net#list_nets"
   parameters:
     - $ref: '../components/parameters.yaml#/server'
-    - name: free
+    - name: list
       in: query
       required: false
       description: >
-        When true, unallocated address blocks (gaps between subnets inside
-        each top-level net) are appended as pseudo records with id=-1.
-        Requires authorization level 3 or superuser; for other users the
-        flag is silently ignored.
+        List mode. 'top' shows top-level nets only (no subnets, no dummy
+        nets); 'sub' shows nets and subnets but no dummy nets; 'all' shows
+        every net record; 'free' additionally includes unallocated address
+        blocks (gaps between subnets inside each top-level net) as pseudo
+        records with id=-1. 'free' requires authorization level 3 or
+        superuser; for other users it silently behaves like 'all'.
       schema:
-        type: boolean
+        type: string
+        enum: [ top, sub, all, free ]
+        default: all
     - name: page
       in: query
       required: false
-      description: >
-        Page number (1-based). Only takes effect together with per_page;
-        see the response description for the dual response shape.
+      description: Page number (1-based).
       schema:
         type: integer
         minimum: 1
+        default: 1
         example: 1
     - name: per_page
       in: query
       required: false
-      description: >
-        Number of items per page (1..100). Only takes effect together
-        with page.
+      description: Number of items per page (1..100).
       schema:
         type: integer
         minimum: 1
         maximum: 100
+        default: 50
         example: 50
   responses:
     '200':
-      description: >
-        A list of networks. When neither page nor per_page is supplied the
-        response is the legacy bare array of all matching networks (kept
-        for existing consumers that filter list modes client-side). When
-        both are supplied the response is the paginated
-        {data, metadata} envelope, with totals computed over the whole
-        filtered set (alevel restriction and free blocks included).
+      description: Paginated list of networks in the {data, metadata} envelope.
       content:
         application/json:
           schema:
-            oneOf:
-              - type: array
-                items:
-                  $ref: '../components/schemas.yaml#/NetList'
-              - $ref: '../components/schemas.yaml#/NetListResponse'
+            $ref: '../components/schemas.yaml#/NetListResponse'
     '404':
       description: Server not found
       content:

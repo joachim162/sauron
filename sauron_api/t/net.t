@@ -150,10 +150,11 @@ subtest 'GET /servers/{server}/networks - summary list (superuser)' => sub {
   $t->get_ok("$BASE/networks" => $SUPER)->status_is(200);
 
   my $json = $t->tx->res->json;
-  ok(ref $json eq 'ARRAY', 'response is an array');
-  cmp_ok(scalar @$json, '>=', 1, 'at least one network');
+  ok(ref $json eq 'HASH' && ref $json->{data} eq 'ARRAY', 'response is the paginated envelope');
+  my $data = $json->{data};
+  cmp_ok(scalar @$data, '>=', 1, 'at least one network');
 
-  my $found = (grep { $_->{id} == $nets[0] } @$json)[0];
+  my $found = (grep { $_->{id} == $nets[0] } @$data)[0];
   ok($found, 'created network present in summary');
   is($found->{net},         $CIDR,              'summary net');
   is($found->{netname},     $NETNAME,           'summary netname');
@@ -169,8 +170,8 @@ subtest 'GET /servers/{server}/networks - server-R user can list' => sub {
   $t->get_ok("$BASE/networks" => $RUSER)->status_is(200);
 
   my $json = $t->tx->res->json;
-  ok(ref $json eq 'ARRAY', 'response is an array');
-  cmp_ok(scalar @$json, '>=', 1, 'server-R user sees networks');
+  ok(ref $json eq 'HASH' && ref $json->{data} eq 'ARRAY', 'response is the paginated envelope');
+  cmp_ok(scalar @{$json->{data}}, '>=', 1, 'server-R user sees networks');
 };
 
 # ========================================================================
@@ -291,7 +292,7 @@ subtest 'GET /servers/{server}/networks - vlan_name when authorized' => sub {
 
   $t->get_ok("$BASE/networks" => $VLANUSER)->status_is(200);
   my $json = $t->tx->res->json;
-  my ($found) = grep { $_->{id} == $nets[0] } @$json;
+  my ($found) = grep { $_->{id} == $nets[0] } @{$json->{data}};
   ok($found, 'found test net in list');
   is($found->{vlan},      $vlan_id,           'vlan id present');
   is($found->{vlan_name}, "test-vlan-${pid}", 'vlan_name enriched');
@@ -303,7 +304,7 @@ subtest 'GET /servers/{server}/networks - vlan_name when authorized' => sub {
 
   $t->get_ok("$BASE/networks" => $RUSER)->status_is(200);
   $json = $t->tx->res->json;
-  ($found) = grep { $_->{id} == $nets[0] } @$json;
+  ($found) = grep { $_->{id} == $nets[0] } @{$json->{data}};
   ok($found, 'found test net as low-alevel user');
   is($found->{vlan},      $vlan_id, 'vlan id still visible');
   is($found->{vlan_name}, undef,    'vlan_name hidden without ALEVEL_VLANS');
@@ -350,15 +351,15 @@ subtest 'Network access - user without server access is denied' => sub {
 };
 
 # ========================================================================
-# PAGINATION (opt-in envelope)
+# PAGINATION (always-on envelope)
 # ========================================================================
 
-subtest 'GET networks - pagination envelope and opt-in semantics' => sub {
+subtest 'GET networks - always-on pagination envelope' => sub {
   # Baseline over whatever nets exist on the fixture server
   $t->get_ok("$BASE/networks?page=1&per_page=1" => $SUPER)->status_is(200);
   my $baseline = $t->tx->res->json->{metadata}{pagination}{total};
 
-  # Add 5 non-overlapping networks
+  # Add 5 non-overlapping top-level networks
   Sauron::BackEnd::set_muser('test');
   my @new_ids;
   for my $n (1 .. 5) {
@@ -375,15 +376,20 @@ subtest 'GET networks - pagination envelope and opt-in semantics' => sub {
   }
   push @nets, @new_ids;
 
-  # Legacy shape without params: bare array containing all new nets
+  # No params: envelope with defaults, all fixture nets on the default page
   $t->get_ok("$BASE/networks" => $SUPER)->status_is(200);
-  my $body = $t->tx->res->json;
-  ok(ref $body eq 'ARRAY', 'no params: bare array, no envelope');
-  is(scalar(grep { $_->{netname} =~ /^page-net\d-${pid}$/ } @$body), 5, 'all 5 nets in legacy list');
+  my $env = $t->tx->res->json;
+  ok(ref $env eq 'HASH' && ref $env->{data} eq 'ARRAY', 'no params: envelope, no bare array');
+  is($env->{metadata}{pagination}{page}, 1, 'default page is 1');
+  is($env->{metadata}{pagination}{per_page}, 50, 'default per_page is 50');
+  is($env->{metadata}{pagination}{total}, $baseline + 5, 'total covers the whole set');
+  is(scalar(grep { $_->{netname} =~ /^page-net\d-${pid}$/ } @{$env->{data}}), 5,
+     'all 5 new nets on the default page');
 
-  # Only page without per_page: still the legacy bare array
+  # Only page without per_page: still the envelope, default per_page
   $t->get_ok("$BASE/networks?page=1" => $SUPER)->status_is(200);
-  ok(ref $t->tx->res->json eq 'ARRAY', 'page alone does not trigger the envelope');
+  is($t->tx->res->json->{metadata}{pagination}{per_page}, 50,
+     'page alone keeps the envelope with default per_page');
 
   # Envelope with both params
   $t->get_ok("$BASE/networks?page=1&per_page=2" => $SUPER)
@@ -396,8 +402,8 @@ subtest 'GET networks - pagination envelope and opt-in semantics' => sub {
     ->json_is('/metadata/filters'                => []);
   is(scalar @{$t->tx->res->json->{data}}, 2, 'page 1 holds 2 rows');
 
-  # Pages cover the full filtered set exactly, without duplicates;
-  # the paged set matches the legacy bare-array set (order-insensitive).
+  # Pages cover the full set exactly, without duplicates, and match the
+  # default-page set (order-insensitive).
   my @paged;
   my $pages = $t->tx->res->json->{metadata}{pagination}{total_pages};
   for my $p (1 .. $pages) {
@@ -409,21 +415,22 @@ subtest 'GET networks - pagination envelope and opt-in semantics' => sub {
   $seen{$_->{id} . '/' . $_->{net}}++ for @paged;
   is(scalar(grep { $_ != 1 } values %seen), 0, 'no duplicate rows across pages');
 
-  my %legacy = map { $_->{id} . '/' . $_->{net} => 1 } @$body;
-  is_deeply(\%seen, \%legacy, 'paged set equals legacy bare-array set');
+  my %default_page = map { $_->{id} . '/' . $_->{net} => 1 } @{$env->{data}};
+  is_deeply(\%seen, \%default_page, 'paged set equals the default-page set');
 
   # New nets are reachable through paging
   my ($found) = grep { $_->{netname} && $_->{netname} eq "page-net3-${pid}" } @paged;
   ok($found, 'page-net3 present across pages');
 
-  # Bounds validation
+  # Bounds and enum validation
   $t->get_ok("$BASE/networks?page=0&per_page=2" => $SUPER)->status_is(400);
   $t->get_ok("$BASE/networks?page=1&per_page=101" => $SUPER)->status_is(400);
+  $t->get_ok("$BASE/networks?list=bogus" => $SUPER)->status_is(400);
 };
 
-subtest 'GET networks - free mode returns unallocated blocks (regression)' => sub {
+subtest 'GET networks - free list mode returns unallocated blocks' => sub {
   # Top-level net /24 with one /26 subnet at the start: the remaining
-  # address space must surface as id=-1 pseudo rows when free=1.
+  # address space must surface as id=-1 pseudo rows in the free list mode.
   Sauron::BackEnd::set_muser('test');
   my $top = Sauron::BackEnd::add_net({
     server => $srv, net => "10.160.${OCTET}.0/24", netname => "free-top-${pid}",
@@ -437,20 +444,67 @@ subtest 'GET networks - free mode returns unallocated blocks (regression)' => su
   ok($sub > 0, "created subnet (id=$sub)");
   push @nets, $top, $sub;
 
-  $t->get_ok("$BASE/networks?free=1" => $SUPER)->status_is(200);
-  my $body = $t->tx->res->json;
+  # The removed ?free= boolean is ignored: the request behaves like the
+  # default list=all and shows no gap rows.
+  $t->get_ok("$BASE/networks?free=1&per_page=100" => $SUPER)->status_is(200);
+  my $body = $t->tx->res->json->{data};
+  is(scalar(grep { $_->{id} == -1 } @$body), 0, 'legacy ?free=1 param ignored: no gap rows');
+
+  # list=free includes the gap rows; totals cover the UNION (single page)
+  $t->get_ok("$BASE/networks?list=free&per_page=100" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json->{data};
   my @gaps = grep { $_->{id} == -1 } @$body;
-  ok(@gaps > 0, 'free mode returns unallocated pseudo records (id=-1)')
+  ok(@gaps > 0, 'list=free returns unallocated pseudo records (id=-1)')
     or diag("no id=-1 rows in free list!");
   # The gap space must lie inside the top net but outside its subnet
   ok((grep { $_->{net} =~ /^10\.160\.${OCTET}\./ } @gaps) > 0,
      'gap blocks cover the top net remainder')
     if @gaps > 0;
+  is($t->tx->res->json->{metadata}{pagination}{total}, scalar(@$body),
+     'totals include gap rows (single page)');
+};
 
-  # Envelope path works over the same UNION (totals include gap rows)
-  $t->get_ok("$BASE/networks?free=1&page=1&per_page=50" => $SUPER)
-    ->status_is(200)
-    ->json_is('/metadata/pagination/total' => scalar(@$body));
+subtest 'GET networks - list modes filter server-side' => sub {
+  # Dummy (virtual) net inside free-top, distinguishing sub from all
+  Sauron::BackEnd::set_muser('test');
+  my $dummy = Sauron::BackEnd::add_net({
+    server => $srv, net => "10.160.${OCTET}.128/26", netname => "dummy-net-${pid}",
+    name => 'Virtual grouping net', subnet => 't', dummy => 't',
+  });
+  ok($dummy > 0, "created dummy net (id=$dummy)");
+  push @nets, $dummy;
+
+  $t->get_ok("$BASE/networks?list=all&per_page=100" => $SUPER)->status_is(200);
+  my %by_name = map { ($_->{netname} // '') => 1 } @{$t->tx->res->json->{data}};
+  ok($by_name{"dummy-net-${pid}"}, 'list=all includes dummy nets');
+  is(scalar(grep { $_->{id} == -1 } @{$t->tx->res->json->{data}}), 0,
+     'list=all has no gap rows');
+
+  $t->get_ok("$BASE/networks?list=sub&per_page=100" => $SUPER)->status_is(200);
+  %by_name = map { ($_->{netname} // '') => 1 } @{$t->tx->res->json->{data}};
+  ok(!$by_name{"dummy-net-${pid}"}, 'list=sub excludes dummy nets');
+  ok($by_name{"free-sub-${pid}"},   'list=sub includes subnets');
+  ok($by_name{"free-top-${pid}"},   'list=sub includes top-level nets');
+
+  $t->get_ok("$BASE/networks?list=top&per_page=100" => $SUPER)->status_is(200);
+  %by_name = map { ($_->{netname} // '') => 1 } @{$t->tx->res->json->{data}};
+  ok($by_name{"free-top-${pid}"},    'list=top includes top-level nets');
+  ok($by_name{"page-net1-${pid}"},   'list=top includes pagination nets');
+  ok(!$by_name{"free-sub-${pid}"},   'list=top excludes subnets');
+  ok(!$by_name{"dummy-net-${pid}"},  'list=top excludes dummy nets');
+  ok(!$by_name{$NETNAME},            'list=top excludes the subnet fixture');
+};
+
+subtest 'GET networks - free list mode degrades to all for low-alevel users' => sub {
+  $t->get_ok("$BASE/networks?list=free&per_page=100" => $RUSER)->status_is(200);
+  my $free = $t->tx->res->json;
+  is(scalar(grep { $_->{id} == -1 } @{$free->{data}}), 0,
+     'no gap rows without ALEVEL_SHOW_UNALLOCATED_CIDRS');
+
+  $t->get_ok("$BASE/networks?list=all&per_page=100" => $RUSER)->status_is(200);
+  is($t->tx->res->json->{metadata}{pagination}{total},
+     $free->{metadata}{pagination}{total},
+     'downgraded free totals equal list=all totals');
 };
 
 done_testing();
