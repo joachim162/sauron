@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import type { ColumnDef } from "@tanstack/react-table";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import type { ColumnDef, PaginationState } from "@tanstack/react-table";
 import { zonesApi } from "@/api";
 import type { Zone } from "@/lib/types";
 import { useAuth } from "@/hooks/use-auth";
@@ -26,8 +26,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, ArrowRight, Loader2, AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FormHint } from "@/components/FormHint";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const ZONE_TYPES: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
   M: { label: "Master", variant: "default" },
@@ -45,12 +47,59 @@ export default function ZonesPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState<Partial<Zone> | null>(null);
   const [deleteName, setDeleteName] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const { data: zones, isLoading } = useQuery({
-    queryKey: ["zones", serverName],
-    queryFn: () => zonesApi.list(serverName!),
+  const pagination = useMemo<PaginationState>(() => {
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+    const perPageRaw = parseInt(searchParams.get("per_page") || "50", 10) || 50;
+    const perPage = Math.min(100, Math.max(1, perPageRaw));
+    return { pageIndex: page - 1, pageSize: perPage };
+  }, [searchParams]);
+
+  const updatePagination = (next: PaginationState) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("page", String(next.pageIndex + 1));
+        params.set("per_page", String(next.pageSize));
+        return params;
+      },
+      { replace: true }
+    );
+  };
+
+  const prevServerRef = useRef<string | null>(serverName);
+  useEffect(() => {
+    if (prevServerRef.current === serverName) return;
+    prevServerRef.current = serverName;
+    setSearchParams(
+      (prev) => {
+        const current = prev.get("page");
+        if (!current || current === "1") return prev;
+        const params = new URLSearchParams(prev);
+        params.set("page", "1");
+        return params;
+      },
+      { replace: true }
+    );
+  }, [serverName, setSearchParams]);
+
+  const { data: zonesResponse, isLoading } = useQuery({
+    queryKey: ["zones", serverName, pagination.pageIndex, pagination.pageSize],
+    queryFn: () =>
+      zonesApi.list(serverName!, {
+        page: pagination.pageIndex + 1,
+        per_page: pagination.pageSize,
+      }),
     enabled: !!serverName,
   });
+
+  const zones = zonesResponse?.data ?? [];
+  const totalZones = zonesResponse?.metadata.pagination.total ?? zones.length;
+  const pageCount = zonesResponse?.metadata.pagination.total_pages ?? 1;
+  const pageSizeOptions = PAGE_SIZE_OPTIONS.includes(pagination.pageSize)
+    ? PAGE_SIZE_OPTIONS
+    : [...PAGE_SIZE_OPTIONS, pagination.pageSize].sort((a, b) => a - b);
 
   const createMutation = useMutation({
     mutationFn: (data: { name: string; type?: string }) => zonesApi.create(serverName!, data),
@@ -64,6 +113,9 @@ export default function ZonesPage() {
   const deleteMutation = useMutation({
     mutationFn: (zoneName: string) => zonesApi.delete(serverName!, zoneName),
     onSuccess: () => {
+      if (zones.length === 1 && pagination.pageIndex > 0) {
+        updatePagination({ ...pagination, pageIndex: pagination.pageIndex - 1 });
+      }
       queryClient.invalidateQueries({ queryKey: ["zones", serverName] });
       setDeleteName(null);
     },
@@ -156,7 +208,7 @@ export default function ZonesPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Zones</h1>
           <p className="text-muted-foreground">
-            {serverName} — {zones?.length ?? 0} zone{zones?.length !== 1 ? "s" : ""}
+            {serverName} — {totalZones} zone{totalZones !== 1 ? "s" : ""}
           </p>
         </div>
         {isSuperuser && (
@@ -172,16 +224,39 @@ export default function ZonesPage() {
         )}
       </div>
 
-      <DataTable
-        columns={columns}
-        data={zones || []}
-        isLoading={isLoading}
-        emptyMessage="No zones found."
-        onRowClick={(zone) => {
-          setZone(zone.id, zone.name);
-          navigate(`/zones/${encodeURIComponent(zone.name)}`);
-        }}
-      />
+      <div className="space-y-2">
+        <div className="flex items-center justify-end gap-2">
+          <span className="text-sm text-muted-foreground">Rows per page</span>
+          <Select
+            value={String(pagination.pageSize)}
+            onValueChange={(v) => updatePagination({ pageIndex: 0, pageSize: Number(v) })}
+          >
+            <SelectTrigger className="w-24 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {pageSizeOptions.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <DataTable
+          columns={columns}
+          data={zones}
+          isLoading={isLoading}
+          pageCount={pageCount}
+          pagination={pagination}
+          onPaginationChange={updatePagination}
+          emptyMessage="No zones found."
+          onRowClick={(zone) => {
+            setZone(zone.id, zone.name);
+            navigate(`/zones/${encodeURIComponent(zone.name)}`);
+          }}
+        />
+      </div>
 
       {/* Create dialog */}
       {editOpen && !editData?.id && (

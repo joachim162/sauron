@@ -6,7 +6,7 @@ use Exporter qw(import);
 use Net::IP qw(:PROC);
 use Sauron::Util qw(is_cidr);
 
-our @EXPORT_OK = qw(check_perms has_server_access has_zone_access filter_servers filter_zones);
+our @EXPORT_OK = qw(check_perms visible_server_ids visible_zone_ids);
 
 sub check_perms {
   my ($c, %args) = @_;
@@ -147,47 +147,25 @@ sub check_perms {
   return 0;
 }
 
-sub has_server_access {
-  my ($perms, $server_id, $rule) = @_;
-  my $access = $perms->{server}{$server_id} // '';
-  return $access =~ /$rule/;
+# Visible object IDs for list endpoints (ADR 0004). Return undef when the
+# request is unfiltered (superuser, or zones under PRIVILEGE_MODE 0 with a
+# server grant) and an arrayref (possibly empty) of allowed IDs otherwise.
+# The rule matching transcribes the former filter_servers/filter_zones
+# exactly, including the case-sensitivity difference.
+sub visible_server_ids {
+  my ($perms, $superuser) = @_;
+  return undef if $superuser;
+  return [ grep { ($perms->{server}{$_} // '') =~ /R/i } keys %{$perms->{server} // {}} ];
 }
 
-sub has_zone_access {
-  my ($perms, $zone_id, $server_id, $rule) = @_;
+sub visible_zone_ids {
+  my ($perms, $superuser, $server_id) = @_;
+  return undef if $superuser;
   if ($main::SAURON_PRIVILEGE_MODE == 0 && defined $server_id) {
     my $server_access = $perms->{server}{$server_id} // '';
-    if ($server_access =~ /$rule/) {
-      return 1;
-    }
+    return undef if $server_access =~ /R/;
   }
-  my $zone_access = $perms->{zone}{$zone_id} // '';
-  return $zone_access =~ /$rule/;
-}
-
-sub filter_servers {
-  my ($perms, $superuser, $servers_ref) = @_;
-  return if $superuser;
-  my @filtered;
-  for my $s (@$servers_ref) {
-    my $id = $s->{id};
-    my $access = $perms->{server}{$id} // '';
-    push @filtered, $s if $access =~ /R/i;
-  }
-  @$servers_ref = @filtered;
-}
-
-sub filter_zones {
-  my ($perms, $superuser, $server_id, $zones_ref) = @_;
-  return if $superuser;
-  my @filtered;
-  for my $z (@$zones_ref) {
-    my $zid = $z->{id};
-    if (has_zone_access($perms, $zid, $server_id, 'R')) {
-      push @filtered, $z;
-    }
-  }
-  @$zones_ref = @filtered;
+  return [ grep { ($perms->{zone}{$_} // '') =~ /R/ } keys %{$perms->{zone} // {}} ];
 }
 
 1;

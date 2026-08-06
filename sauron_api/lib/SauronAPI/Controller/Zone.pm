@@ -1,27 +1,32 @@
 package SauronAPI::Controller::Zone;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
-use SauronAPI::AuthZ qw(check_perms filter_zones);
+use SauronAPI::AuthZ qw(check_perms visible_zone_ids);
 use SauronAPI::Repository::Zone qw(
   zone_list zone_find zone_create zone_update zone_delete
 );
 
 # GET /servers/{server}/zones
-# List all zones for a server
+# List the zones of a server (paginated, permission-filtered via allowlist)
 sub list_zones ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
   my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
 
-  my $zones = eval { zone_list($server_id) };
-  return $self->render_exception($@) if $@;
-
   my $perms = $self->stash('api_perms');
   my $superuser = $self->stash('api_superuser') // 0;
-  filter_zones($perms, $superuser, $server_id, $zones);
+  my $ids = visible_zone_ids($perms, $superuser, $server_id);
 
-  $self->render(openapi => $zones);
+  my $page     = $self->param('page')     // 1;
+  my $per_page = $self->param('per_page') // 50;
+
+  my ($zones, $meta) = eval {
+    zone_list($server_id, ids => $ids, page => $page, per_page => $per_page)
+  };
+  return $self->render_exception($@) if $@;
+
+  $self->render(openapi => { data => $zones, metadata => $meta });
 }
 
 # GET /servers/{server}/zones/{zone}

@@ -1,21 +1,42 @@
 get:
   security:
     - BearerAuth: []
-  summary: List all servers
+  summary: List the servers managed by Sauron (paginated)
   tags: [ servers ]
-  description: Returns a list of all DNS/DHCP servers managed by Sauron.
+  description: >
+    Returns the DNS/DHCP servers managed by Sauron in the paginated
+    {data, metadata} envelope. Only servers the caller may read are
+    included, and totals are computed over that permission-filtered set.
   operationId: list_servers
   x-mojo-name: list_servers
   x-mojo-to: "Server#list_servers"
+  parameters:
+    - name: page
+      in: query
+      required: false
+      description: Page number (1-based).
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+        example: 1
+    - name: per_page
+      in: query
+      required: false
+      description: Number of items per page (1..100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+        example: 50
   responses:
     '200':
-      description: A list of servers
+      description: Paginated list of servers in the {data, metadata} envelope.
       content:
         application/json:
           schema:
-            type: array
-            items:
-              $ref: '../components/schemas.yaml#/Server'
+            $ref: '../components/schemas.yaml#/ServerListResponse'
     '401':
       $ref: '../components/responses.yaml#/UnauthorizedError'
     '403':

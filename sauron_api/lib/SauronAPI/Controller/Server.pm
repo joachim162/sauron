@@ -1,24 +1,30 @@
 package SauronAPI::Controller::Server;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
-use SauronAPI::AuthZ qw(check_perms filter_servers);
+use SauronAPI::AuthZ qw(check_perms visible_server_ids);
 use SauronAPI::Repository::Server qw(
   server_list server_find server_create server_update server_delete
 );
 
 # GET /servers
-# List all servers managed by Sauron
+# List the servers managed by Sauron (paginated, permission-filtered)
 sub list_servers ($self) {
   return unless $self->openapi->valid_input;
   return unless $self->require_auth;
 
-  my $servers = server_list();
-
   my $perms = $self->stash('api_perms');
   my $superuser = $self->stash('api_superuser') // 0;
-  filter_servers($perms, $superuser, $servers);
+  my $ids = visible_server_ids($perms, $superuser);
 
-  $self->render(openapi => $servers);
+  my $page     = $self->param('page')     // 1;
+  my $per_page = $self->param('per_page') // 50;
+
+  my ($servers, $meta) = eval {
+    server_list(ids => $ids, page => $page, per_page => $per_page)
+  };
+  return $self->render_exception($@) if $@;
+
+  $self->render(openapi => { data => $servers, metadata => $meta });
 }
 
 # GET /servers/{server}

@@ -135,7 +135,7 @@ subtest 'GET /api/v1/servers with Bearer auth (PAT)' => sub {
 
   $t->get_ok('/api/v1/servers' => { Authorization => "Bearer $pat_token" })
     ->status_is(200)
-    ->json_is('' => []);
+    ->json_is('/data' => []);
 };
 
 subtest 'POST /auth/logout destroys session' => sub {

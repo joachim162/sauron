@@ -58,8 +58,10 @@ subtest 'GET /servers - superuser sees fixture server' => sub {
   $t->get_ok($URL => $SUPER)
     ->status_is(200);
   my $body = $t->tx->res->json;
-  ok(ref $body eq 'ARRAY', 'response is a bare array (no envelope)');
-  my ($hit) = grep { $_->{name} eq "srv-server-${pid}" } @$body;
+  ok(ref $body eq 'HASH' && ref $body->{data} eq 'ARRAY', 'response is the paginated envelope');
+  is($body->{metadata}{pagination}{page}, 1, 'default page 1');
+  is($body->{metadata}{pagination}{per_page}, 50, 'default per_page 50');
+  my ($hit) = grep { $_->{name} eq "srv-server-${pid}" } @{$body->{data}};
   ok($hit, 'fixture server present');
   is($hit->{id}, $srv, 'id matches');
   is($hit->{comment}, 'Server CRUD test fixture', 'comment matches');
@@ -69,8 +71,9 @@ subtest 'GET /servers - fixture filtered out without server permission' => sub {
   $t->get_ok($URL => $NOACC)
     ->status_is(200);
   my $body = $t->tx->res->json;
-  my ($hit) = grep { $_->{name} eq "srv-server-${pid}" } @$body;
+  my ($hit) = grep { $_->{name} eq "srv-server-${pid}" } @{$body->{data}};
   ok(!$hit, 'fixture server not visible to unauthorized user');
+  is($body->{metadata}{pagination}{total}, 0, 'no-access user totals 0');
 };
 
 subtest 'GET /servers/{server} - superuser' => sub {
@@ -251,6 +254,55 @@ subtest 'DELETE /servers/{server} - delete then 404' => sub {
     ->status_is(404);
 
   @servers = grep { $_ != $del_id } @servers;
+};
+
+# ========================================================================
+# PAGINATION (always-on envelope) + AUTHZ ALLOWLIST TOTALS
+# ========================================================================
+
+subtest 'GET /servers - pagination envelope and page coverage' => sub {
+  $t->get_ok($URL => $SUPER)->status_is(200);
+  my $env = $t->tx->res->json;
+  my $total = $env->{metadata}{pagination}{total};
+  ok($total >= 1, "at least the fixture server is visible (total=$total)");
+  is($env->{metadata}{pagination}{page}, 1, 'default page 1');
+  is($env->{metadata}{pagination}{per_page}, 50, 'default per_page 50');
+
+  # Pages cover the visible set exactly, without duplicates
+  $t->get_ok("$URL?page=1&per_page=2" => $SUPER)->status_is(200);
+  my $pages = $t->tx->res->json->{metadata}{pagination}{total_pages};
+  my @paged;
+  for my $p (1 .. $pages) {
+    $t->get_ok("$URL?page=$p&per_page=2" => $SUPER)->status_is(200);
+    push @paged, @{$t->tx->res->json->{data}};
+  }
+  is(scalar @paged, $total, 'pages cover the visible set exactly');
+  my %seen;
+  $seen{$_->{id}}++ for @paged;
+  is(scalar(grep { $_ != 1 } values %seen), 0, 'no duplicate servers across pages');
+
+  $t->get_ok("$URL?page=0&per_page=2" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?page=1&per_page=101" => $SUPER)->status_is(400);
+};
+
+subtest 'GET /servers - totals reflect the authz allowlist' => sub {
+  # Server-R user: exactly their one grant is counted
+  $t->get_ok($URL => $SVR_R)->status_is(200);
+  my $env = $t->tx->res->json;
+  is($env->{metadata}{pagination}{total}, 1, 'server-R user totals exactly their grant');
+  is($env->{data}[0]{name}, "srv-server-${pid}", 'visible server is the fixture');
+
+  # Server-RW user: rule contains R, same single grant
+  $t->get_ok($URL => $SVR_RW)->status_is(200);
+  is($t->tx->res->json->{metadata}{pagination}{total}, 1,
+     'server-RW user totals exactly their grant');
+
+  # No-access user: empty allowlist short-circuits to an empty page
+  $t->get_ok($URL => $NOACC)->status_is(200);
+  my $none = $t->tx->res->json;
+  is($none->{metadata}{pagination}{total}, 0, 'no-access user totals 0');
+  is_deeply($none->{data}, [], 'no-access user data empty');
+  is($none->{metadata}{pagination}{total_pages}, 0, 'no-access total_pages 0');
 };
 
 done_testing();

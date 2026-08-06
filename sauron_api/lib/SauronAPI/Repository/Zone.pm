@@ -49,15 +49,27 @@ my @COPY_FIELDS = qw(
 # ---------------------------------------------------------------------------
 
 sub zone_list {
-  my ($server_id) = @_;
+  my ($server_id, %opts) = @_;
+
+  my $page     = $opts{page}     // 1;
+  my $per_page = $opts{per_page} // 50;
+  my $ids      = $opts{ids};    # undef = no authz filter
+
+  my @bind = ($server_id);
+  my $where = " WHERE server=? ";
+  if ($ids) {
+    return ([], _list_metadata($page, $per_page, 0)) unless @$ids;
+    $where .= " AND id IN (" . join(',', ('?') x @$ids) . ")";
+    push @bind, @$ids;
+  }
 
   my $rows = dbq(
-    "SELECT name,id,type,reverse,comment FROM zones " .
-    "WHERE server=? ORDER BY type,reverse,reversenet,name",
-    $server_id
+    "SELECT name,id,type,reverse,comment FROM zones" . $where .
+    " ORDER BY type,reverse,reversenet,name LIMIT ? OFFSET ?",
+    @bind, $per_page, ($page - 1) * $per_page
   );
 
-  return [ map { +{
+  my $zones = [ map { +{
     id        => $_->[1],
     server_id => $server_id,
     name      => $_->[0],
@@ -65,6 +77,26 @@ sub zone_list {
     reverse   => (($_->[3] // '') eq 't' ? JSON::PP::true : JSON::PP::false),
     comment   => $_->[4] // '',
   } } @$rows ];
+
+  my $count_rows = dbq("SELECT COUNT(*) FROM zones" . $where, @bind);
+  my $total = $count_rows->[0][0] // 0;
+
+  return ($zones, _list_metadata($page, $per_page, $total));
+}
+
+sub _list_metadata {
+  my ($page, $per_page, $total) = @_;
+
+  return {
+    pagination => {
+      total       => $total,
+      page        => $page,
+      per_page    => $per_page,
+      total_pages => $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0,
+    },
+    sort    => [],
+    filters => [],
+  };
 }
 
 sub zone_find {

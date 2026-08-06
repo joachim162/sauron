@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { serversApi } from "@/api";
+import { fetchAllPages, serversApi } from "@/api";
 import { useServerContext } from "@/hooks/use-server-context";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -28,8 +28,8 @@ export default function DashboardPage() {
   const navigate = useNavigate();
 
   const { data: servers, isLoading } = useQuery({
-    queryKey: ["servers"],
-    queryFn: serversApi.list,
+    queryKey: ["servers", "all"],
+    queryFn: () => fetchAllPages((page, per_page) => serversApi.list({ page, per_page })),
   });
 
   return (

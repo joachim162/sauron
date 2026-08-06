@@ -112,7 +112,9 @@ All paginated list endpoints return the same envelope so the frontend data layer
 - `page` is 1-based; `total`/`total_pages` are **exact `COUNT(*)`** over the filtered set (stable while lists are small; reconsider if `COUNT(*)` becomes a bottleneck).
 - `metadata.sort`/`metadata.filters` echo applied parameters; empty arrays when none.
 - Query parameters `page` and `per_page` are validated by OpenAPI: `page >= 1`, `per_page` 1..100. Invalid values return `400`.
-- **Exception:** `/servers/{server}/networks` paginates **opt-in** — without both parameters it returns the legacy bare array (the frontend nets page filters list modes client-side over the full set); with both it returns the envelope. Hosts always return the envelope.
+- Hosts, networks, servers, and zones always return the envelope (defaults `page=1`, `per_page=50`, applied in the controllers). `/servers/{server}/assignable-subnets` stays an unpaginated bare array (picker helper); frontend pickers needing complete sets loop pages of the envelope (see `fetchAllPages` in `frontend/src/api/index.ts`).
+- The networks list takes a `list` query parameter (`top|sub|all|free`, default `all`) mirroring the legacy CGI net-browser list modes, filtered server-side before pagination. `free` (unallocated blocks as `id=-1` pseudo rows) requires alevel >= `ALEVEL_SHOW_UNALLOCATED_CIDRS` or superuser; for other users it silently behaves as `all`. See `docs/adr/0003-networks-list-pagination.md`.
+- Server and zone lists are permission-filtered via an ID allowlist the controller derives from the perms hash (`visible_server_ids`/`visible_zone_ids` in `SauronAPI::AuthZ`); the repository applies it to both the row query and the `COUNT`, so totals reflect visibility. See `docs/adr/0004-server-zone-pagination.md`.
 
 ## API Known Quirks
 
@@ -148,6 +150,7 @@ All paginated list endpoints return the same envelope so the frontend data layer
   ```
   Then restart to pick up changes.
 - **Bind mount** at `.:/srv/sauron` — code changes are live inside the container, but build artifacts from `COPY` in Dockerfile are hidden by the mount.
+- **Vite `server` config changes** (e.g. `allowedHosts`) are not reliably applied by the dev server's in-process config-triggered restart — the running process can keep blocking hosts even when `vite.config.ts` already allows them. Fix: `docker compose restart frontend`.
 - **Apache config** is generated at startup by `apache/docker-entrypoint.sh` from env vars.
 - **Test user:** `testuser@example.com` / `testuser` — has RHF requiring `dept`. Admin: `admin@example.com` / `admin`.
 

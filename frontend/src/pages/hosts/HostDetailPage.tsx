@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { hostsApi, netsApi, zonesApi } from "@/api";
+import { fetchAllPages, hostsApi, netsApi, zonesApi } from "@/api";
 import type { Host, IpEntry } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { ApiRequestError } from "@/lib/api-client";
@@ -373,8 +373,8 @@ export default function HostDetailPage() {
   }, [copyOpen, copyNetTouched, assignableNets, host]);
 
   const { data: zones } = useQuery({
-    queryKey: ["zones", serverName],
-    queryFn: () => zonesApi.list(serverName!),
+    queryKey: ["zones", serverName, "all"],
+    queryFn: () => fetchAllPages((page, per_page) => zonesApi.list(serverName!, { page, per_page })),
     enabled: !!serverName && moveOpen,
   });
 

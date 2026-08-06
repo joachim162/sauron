@@ -87,19 +87,21 @@ subtest 'GET /servers — list filtering' => sub {
   $t->get_ok('/api/v1/servers' => as_user("super_${pid}\@example.com"))
     ->status_is(200);
   my $super_list = $t->tx->res->json;
-  cmp_ok(scalar(@$super_list), '>=', 2, 'superuser sees at least 2 servers');
+  cmp_ok(scalar(@{$super_list->{data}}), '>=', 2, 'superuser sees at least 2 servers');
 
-  # No-perms user sees empty list
+  # No-perms user sees an empty page
   $t->get_ok('/api/v1/servers' => as_user("none_${pid}\@example.com"))
     ->status_is(200)
-    ->json_is('' => []);
+    ->json_is('/data' => [])
+    ->json_is('/metadata/pagination/total' => 0);
 
   # srv_r sees only srv1
   $t->get_ok('/api/v1/servers' => as_user("srvr_${pid}\@example.com"))
     ->status_is(200);
   my $srvr_list = $t->tx->res->json;
-  is scalar(@$srvr_list), 1, 'server-R user sees 1 server';
-  is $srvr_list->[0]{name}, "srv-authz-${pid}-1", 'correct server visible';
+  is scalar(@{$srvr_list->{data}}), 1, 'server-R user sees 1 server';
+  is $srvr_list->{data}[0]{name}, "srv-authz-${pid}-1", 'correct server visible';
+  is $srvr_list->{metadata}{pagination}{total}, 1, 'total reflects the allowlist';
 };
 
 subtest 'GET /servers/{server} — read access' => sub {
@@ -206,25 +208,27 @@ subtest 'GET /servers/{server}/zones — list filtering' => sub {
   $t->get_ok(zones_url("srv-authz-${pid}-1") => as_user("super_${pid}\@example.com"))
     ->status_is(200);
   my $super_zones = $t->tx->res->json;
-  cmp_ok(scalar(@$super_zones), '>=', 2, 'superuser sees at least 2 zones');
+  cmp_ok(scalar(@{$super_zones->{data}}), '>=', 2, 'superuser sees at least 2 zones');
 
-  # No-perms sees empty
+  # No-perms sees an empty page
   $t->get_ok(zones_url("srv-authz-${pid}-1") => as_user("none_${pid}\@example.com"))
     ->status_is(200)
-    ->json_is('' => []);
+    ->json_is('/data' => [])
+    ->json_is('/metadata/pagination/total' => 0);
 
   # Server-RW on srv1 sees all zones (server access implies zone access in privilege mode 0)
   $t->get_ok(zones_url("srv-authz-${pid}-1") => as_user("srvrw_${pid}\@example.com"))
     ->status_is(200);
   my $srvrw_zones = $t->tx->res->json;
-  cmp_ok(scalar(@$srvrw_zones), '>=', 2, 'server-RW user sees all zones on server');
+  cmp_ok(scalar(@{$srvrw_zones->{data}}), '>=', 2, 'server-RW user sees all zones on server');
 
   # Zone-R on z1 only sees z1
   $t->get_ok(zones_url("srv-authz-${pid}-1") => as_user("zoner_${pid}\@example.com"))
     ->status_is(200);
   my $zoner_zones = $t->tx->res->json;
-  is scalar(@$zoner_zones), 1, 'zone-R user sees 1 zone';
-  is $zoner_zones->[0]{name}, "zone1-${pid}.example.com", 'correct zone visible';
+  is scalar(@{$zoner_zones->{data}}), 1, 'zone-R user sees 1 zone';
+  is $zoner_zones->{data}[0]{name}, "zone1-${pid}.example.com", 'correct zone visible';
+  is $zoner_zones->{metadata}{pagination}{total}, 1, 'total reflects the allowlist';
 };
 
 subtest 'GET /servers/{server}/zones/{zone} — read access' => sub {

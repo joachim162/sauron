@@ -1921,6 +1921,34 @@ NetListResponse:
     metadata:
       $ref: '#/Metadata'
 
+ZoneListResponse:
+  type: object
+  description: Paginated list of zones.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Zone'
+    metadata:
+      $ref: '#/Metadata'
+
+ServerListResponse:
+  type: object
+  description: Paginated list of servers.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/Server'
+    metadata:
+      $ref: '#/Metadata'
+
 Error:
   type: object
   required:

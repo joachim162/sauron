@@ -63,8 +63,51 @@ my %FIELDS = (
 # ---------------------------------------------------------------------------
 
 sub server_list {
-  my $rows = dbq("SELECT id,name,comment FROM servers ORDER BY name");
-  return [ map { +{ id => $_->[0], name => $_->[1], comment => $_->[2] // '' } } @$rows ];
+  my (%opts) = @_;
+
+  my $page     = $opts{page}     // 1;
+  my $per_page = $opts{per_page} // 50;
+  my $ids      = $opts{ids};    # undef = no authz filter
+
+  my @bind;
+  my $where = "";
+  if ($ids) {
+    return ([], _list_metadata($page, $per_page, 0)) unless @$ids;
+    $where .= " WHERE id IN (" . join(',', ('?') x @$ids) . ")";
+    push @bind, @$ids;
+  }
+
+  my $rows = dbq(
+    "SELECT id,name,comment FROM servers" . $where .
+    " ORDER BY name LIMIT ? OFFSET ?",
+    @bind, $per_page, ($page - 1) * $per_page
+  );
+
+  my $servers = [ map { +{
+    id      => $_->[0],
+    name    => $_->[1],
+    comment => $_->[2] // '',
+  } } @$rows ];
+
+  my $count_rows = dbq("SELECT COUNT(*) FROM servers" . $where, @bind);
+  my $total = $count_rows->[0][0] // 0;
+
+  return ($servers, _list_metadata($page, $per_page, $total));
+}
+
+sub _list_metadata {
+  my ($page, $per_page, $total) = @_;
+
+  return {
+    pagination => {
+      total       => $total,
+      page        => $page,
+      per_page    => $per_page,
+      total_pages => $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0,
+    },
+    sort    => [],
+    filters => [],
+  };
 }
 
 sub server_find {

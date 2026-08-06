@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
-import type { ColumnDef } from "@tanstack/react-table";
-import { serversApi } from "@/api";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import type { ColumnDef, PaginationState } from "@tanstack/react-table";
+import { fetchAllPages, serversApi } from "@/api";
 import type { Server } from "@/lib/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useServerContext } from "@/hooks/use-server-context";
@@ -17,9 +17,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Plus, Pencil, Trash2, ArrowRight, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FormHint } from "@/components/FormHint";
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const columns: ColumnDef<Server>[] = [
   { accessorKey: "id", header: "ID", size: 60 },
@@ -43,10 +52,47 @@ export default function ServersPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editData, setEditData] = useState<Partial<Server> | null>(null);
   const [deleteName, setDeleteName] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const { data: servers, isLoading } = useQuery({
-    queryKey: ["servers"],
-    queryFn: serversApi.list,
+  const pagination = useMemo<PaginationState>(() => {
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
+    const perPageRaw = parseInt(searchParams.get("per_page") || "50", 10) || 50;
+    const perPage = Math.min(100, Math.max(1, perPageRaw));
+    return { pageIndex: page - 1, pageSize: perPage };
+  }, [searchParams]);
+
+  const updatePagination = (next: PaginationState) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        params.set("page", String(next.pageIndex + 1));
+        params.set("per_page", String(next.pageSize));
+        return params;
+      },
+      { replace: true }
+    );
+  };
+
+  const { data: serversResponse, isLoading } = useQuery({
+    queryKey: ["servers", pagination.pageIndex, pagination.pageSize],
+    queryFn: () =>
+      serversApi.list({
+        page: pagination.pageIndex + 1,
+        per_page: pagination.pageSize,
+      }),
+  });
+
+  const servers = serversResponse?.data ?? [];
+  const totalServers = serversResponse?.metadata.pagination.total ?? servers.length;
+  const pageCount = serversResponse?.metadata.pagination.total_pages ?? 1;
+  const pageSizeOptions = PAGE_SIZE_OPTIONS.includes(pagination.pageSize)
+    ? PAGE_SIZE_OPTIONS
+    : [...PAGE_SIZE_OPTIONS, pagination.pageSize].sort((a, b) => a - b);
+
+  // All servers for the master-server dropdown in the edit dialog
+  const { data: allServers } = useQuery({
+    queryKey: ["servers", "all"],
+    queryFn: () => fetchAllPages((page, per_page) => serversApi.list({ page, per_page })),
   });
 
   const createMutation = useMutation({
@@ -137,7 +183,7 @@ export default function ServersPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Servers</h1>
           <p className="text-muted-foreground">
-            {servers?.length ?? 0} server{servers?.length !== 1 ? "s" : ""}
+            {totalServers} server{totalServers !== 1 ? "s" : ""}
           </p>
         </div>
         {isSuperuser && (
@@ -153,22 +199,45 @@ export default function ServersPage() {
         )}
       </div>
 
-      <DataTable
-        columns={tableColumns}
-        data={servers || []}
-        isLoading={isLoading}
-        emptyMessage="No servers found."
-        onRowClick={(server) => {
-          setServer(server.id, server.name);
-          navigate("/zones");
-        }}
-      />
+      <div className="space-y-2">
+        <div className="flex items-center justify-end gap-2">
+          <span className="text-sm text-muted-foreground">Rows per page</span>
+          <Select
+            value={String(pagination.pageSize)}
+            onValueChange={(v) => updatePagination({ pageIndex: 0, pageSize: Number(v) })}
+          >
+            <SelectTrigger className="w-24 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {pageSizeOptions.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <DataTable
+          columns={tableColumns}
+          data={servers}
+          isLoading={isLoading}
+          pageCount={pageCount}
+          pagination={pagination}
+          onPaginationChange={updatePagination}
+          emptyMessage="No servers found."
+          onRowClick={(server) => {
+            setServer(server.id, server.name);
+            navigate("/zones");
+          }}
+        />
+      </div>
 
       {/* Edit/Create dialog */}
       <ServerDialog
         open={editOpen}
         data={editData}
-        servers={servers || []}
+        servers={allServers ?? []}
         onClose={() => {
           setEditOpen(false);
           setEditData(null);
