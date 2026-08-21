@@ -115,6 +115,7 @@ All paginated list endpoints return the same envelope so the frontend data layer
 - Hosts, networks, servers, and zones always return the envelope (defaults `page=1`, `per_page=50`, applied in the controllers). `/servers/{server}/assignable-subnets` stays an unpaginated bare array (picker helper); frontend pickers needing complete sets loop pages of the envelope (see `fetchAllPages` in `frontend/src/api/index.ts`).
 - The networks list takes a `list` query parameter (`top|sub|all|free`, default `all`) mirroring the legacy CGI net-browser list modes, filtered server-side before pagination. `free` (unallocated blocks as `id=-1` pseudo rows) requires alevel >= `ALEVEL_SHOW_UNALLOCATED_CIDRS` or superuser; for other users it silently behaves as `all`. See `docs/adr/0003-networks-list-pagination.md`.
 - Server and zone lists are permission-filtered via an ID allowlist the controller derives from the perms hash (`visible_server_ids`/`visible_zone_ids` in `SauronAPI::AuthZ`); the repository applies it to both the row query and the `COUNT`, so totals reflect visibility. See `docs/adr/0004-server-zone-pagination.md`.
+- The server-level host collection `GET /servers/{server}/hosts` lists hosts across all of a server's zones the caller may read, using the same `visible_zone_ids` allowlist (ADR 0005). Host CRUD stays zone-scoped; filters (`zone`, `type`, `domain`, ...) are deferred. Items carry the zone name (`zone`) as well as `zone_id`, matched for both host list endpoints. See `docs/adr/0005-server-hosts-collection.md`.
 
 ## API Known Quirks
 

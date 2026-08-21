@@ -90,6 +90,9 @@ paths:
   /servers/{server}:
     $ref: "./paths/server.yaml"
 
+  /servers/{server}/hosts:
+    $ref: "./paths/server-hosts.yaml"
+
   /servers/{server}/zones/{zone}/hosts:
     $ref: "./paths/hosts.yaml"
 

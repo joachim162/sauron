@@ -3,6 +3,8 @@
 ## Hosts Management
 
 - **Host** — Any record in the `hosts` table, regardless of type (1–13, 101). Not limited to type=1 ("Host").
+- **Zone hosts** — The host collection scoped to a single zone (`/servers/{server}/zones/{zone}/hosts`). The home of host CRUD: create, edit, copy, move, delete all happen here because a host always belongs to exactly one zone.
+- **Server hosts** — The host collection scoped to a whole server (`/servers/{server}/hosts`), listing every host the user may see across all zones. Read-only; introduced to support cross-zone host search without a root-level collection.
 - **Host type** — Integer code (0–13, 101) that determines which DNS record fields are valid. Defined in `Sauron::BackEnd::get_host_types()` and mirrored in the frontend as `HOST_TYPES`.
 - **Create dialog** — Compact modal form that shows `domain` + `type` always, plus extra meaningful fields per selected type. Mapping is hardcoded in the frontend.
 - **Domain rename** — Changing a host's `domain` field requires navigating the frontend to the new URL; the old hostname path becomes invalid immediately.

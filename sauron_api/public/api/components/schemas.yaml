@@ -1318,6 +1318,7 @@ HostListItem:
     - domain
     - type
     - zone_id
+    - zone
   properties:
     id:
       type: integer
@@ -1331,6 +1332,10 @@ HostListItem:
     zone_id:
       type: integer
       example: 10
+    zone:
+      type: string
+      description: Name of the zone this host belongs to
+      example: example.com
     server_id:
       type: integer
       example: 1

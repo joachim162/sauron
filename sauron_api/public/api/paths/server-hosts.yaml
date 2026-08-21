@@ -1,0 +1,37 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: List hosts across all zones of a server (paginated)
+  tags: [ hosts ]
+  description: >
+    Returns the host records of all zones on a server that the caller may
+    read, in the paginated {data, metadata} envelope. This is a read-only,
+    server-level collection (ADR 0005); host CRUD stays on the zone-scoped
+    path. Permission filtering matches GET /servers/{server}/zones, and
+    totals are computed over that permission-filtered set. Each item
+    includes its zone name so rows spanning multiple zones stay
+    attributable.
+  operationId: list_server_hosts
+  x-mojo-name: list_server_hosts
+  x-mojo-to: "Host#list_server_hosts"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/page'
+    - $ref: '../components/parameters.yaml#/per_page'
+  responses:
+    '200':
+      description: Paginated cross-zone list of hosts in the {data, metadata} envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/HostListResponse'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

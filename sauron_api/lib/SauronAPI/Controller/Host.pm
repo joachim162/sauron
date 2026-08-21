@@ -2,10 +2,11 @@ package SauronAPI::Controller::Host;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
-use SauronAPI::AuthZ qw(check_perms);
+use SauronAPI::AuthZ qw(check_perms visible_zone_ids);
 use SauronAPI::Exception ();
 use SauronAPI::Repository::Host qw(
-  host_list host_find host_create host_update host_delete host_copy host_move
+  host_list host_list_server host_find host_create host_update host_delete
+  host_copy host_move
 );
 
 # Required Host Fields check. Repository does not depend on $c; the controller
@@ -33,6 +34,27 @@ sub _check_rhf {
 }
 
 # --- CRUD subroutines ---
+
+# GET /servers/{server}/hosts
+# Cross-zone host list over all visible zones (ADR 0005, ADR 0004 allowlist).
+sub list_server_hosts ($self) {
+  return unless $self->openapi->valid_input;
+  return unless $self->require_auth;
+
+  my $server_id = $self->get_server_id_or_404($self->param("server")) or return;
+
+  my $perms = $self->stash('api_perms');
+  my $superuser = $self->stash('api_superuser') // 0;
+  my $ids = visible_zone_ids($perms, $superuser, $server_id);
+
+  my $page     = $self->param("page")     // 1;
+  my $per_page = $self->param("per_page") // 50;
+
+  my ($data, $meta) = eval { host_list_server($server_id, ids => $ids, page => $page, per_page => $per_page) };
+  return $self->render_exception($@) if $@;
+
+  $self->render(openapi => { data => $data, metadata => $meta });
+}
 
 sub list_hosts ($self) {
   return unless $self->openapi->valid_input;

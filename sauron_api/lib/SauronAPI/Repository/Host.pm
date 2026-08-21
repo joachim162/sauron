@@ -4,7 +4,8 @@ use warnings;
 
 use Exporter 'import';
 our @EXPORT_OK = qw(
-  host_list host_find host_create host_update host_delete host_copy host_move
+  host_list host_list_server host_find host_create host_update host_delete
+  host_copy host_move
 );
 
 use Sauron::BackEnd ();
@@ -154,23 +155,14 @@ sub host_list {
     $zone_id, $per_page, $offset
   );
 
-  # Batch-fetch IPs from a_entries for the returned host IDs
-  my %host_ips;
-  if (@$rows) {
-    my @host_ids = map $_->[0], @$rows;
-    my $placeholders = join ',', ('?') x @host_ids;
-    my $ip_rows = dbq(
-      "SELECT host, ip FROM a_entries WHERE host IN ($placeholders) ORDER BY host, ip",
-      @host_ids
-    );
-    for my $row (@$ip_rows) {
-      push @{$host_ips{$row->[0]}}, $row->[1];
-    }
-  }
+  my %host_ips = _batch_host_ips($rows);
+
+  my $zone_row  = dbq("SELECT name FROM zones WHERE id=?", $zone_id);
+  my $zone_name = @$zone_row ? $zone_row->[0][0] : undef;
 
   my @data;
   for my $row (@$rows) {
-    push @data, _build_host_list_item($zone_id, $server_id, $row, $host_ips{$row->[0]});
+    push @data, _build_host_list_item($server_id, $zone_id, $zone_name, $row, $host_ips{$row->[0]});
   }
 
   my $total_rows = dbq(
@@ -179,30 +171,105 @@ sub host_list {
   );
   my $total = $total_rows->[0][0] // 0;
 
-  my $total_pages = $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0;
+  return (\@data, _list_metadata($page, $per_page, $total));
+}
 
-  my $metadata = {
+# Server-scoped cross-zone host collection (ADR 0005). $ids is the
+# visible-zone allowlist: undef = unfiltered, [] = short-circuit empty.
+sub host_list_server {
+  my ($server_id, %opts) = @_;
+
+  my $page     = $opts{page}     // 1;
+  my $per_page = $opts{per_page} // 50;
+  my $ids      = $opts{ids};
+  my $offset   = ($page - 1) * $per_page;
+
+  my @bind  = ($server_id);
+  my $where = " WHERE z.server=?";
+  if ($ids) {
+    return ([], _list_metadata($page, $per_page, 0)) unless @$ids;
+    $where .= " AND h.zone IN (" . join(',', ('?') x @$ids) . ")";
+    push @bind, @$ids;
+  }
+
+  my @cols = map { "h.$_" } @LIST_COLUMNS;
+  my $rows = dbq(
+    "SELECT h.zone," . join(',', @cols) . ",z.name " .
+    "FROM hosts h JOIN zones z ON z.id=h.zone" .
+    $where . " ORDER BY h.domain, h.id LIMIT ? OFFSET ?",
+    @bind, $per_page, $offset
+  );
+
+  # Row layout: h.zone, LIST_COLUMNS..., z.name. Shift/pop off the extras
+  # so %host_ips keys on the id column before item building.
+  my %host_ips;
+  {
+    my @host_ids = map $_->[1], @$rows;
+    %host_ips = _batch_host_ips_ids(@host_ids);
+  }
+
+  my @data;
+  for my $row (@$rows) {
+    my @values = @$row;
+    my $zone_id   = shift @values;
+    my $zone_name = pop @values;
+    push @data, _build_host_list_item($server_id, $zone_id, $zone_name, \@values, $host_ips{$row->[1]});
+  }
+
+  my $total_rows = dbq(
+    "SELECT COUNT(*) FROM hosts h JOIN zones z ON z.id=h.zone" . $where,
+    @bind
+  );
+  my $total = $total_rows->[0][0] // 0;
+
+  return (\@data, _list_metadata($page, $per_page, $total));
+}
+
+sub _batch_host_ips {
+  my ($rows) = @_;
+  return () unless @$rows;
+  return _batch_host_ips_ids(map $_->[0], @$rows);
+}
+
+sub _batch_host_ips_ids {
+  my @host_ids = @_;
+  return () unless @host_ids;
+  my $placeholders = join ',', ('?') x @host_ids;
+  my $ip_rows = dbq(
+    "SELECT host, ip FROM a_entries WHERE host IN ($placeholders) ORDER BY host, ip",
+    @host_ids
+  );
+  my %host_ips;
+  for my $row (@$ip_rows) {
+    push @{$host_ips{$row->[0]}}, $row->[1];
+  }
+  return %host_ips;
+}
+
+sub _list_metadata {
+  my ($page, $per_page, $total) = @_;
+
+  return {
     pagination => {
       total       => $total,
       page        => $page,
       per_page    => $per_page,
-      total_pages => $total_pages,
+      total_pages => $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0,
     },
     sort    => [],
     filters => [],
   };
-
-  return (\@data, $metadata);
 }
 
 sub _build_host_list_item {
-  my ($zone_id, $server_id, $row, $ips) = @_;
+  my ($server_id, $zone_id, $zone_name, $row, $ips) = @_;
 
   my %item;
   @item{@LIST_COLUMNS} = @$row;
   $item{cuser} =~ s/\s+$// if defined $item{cuser};
   $item{muser} =~ s/\s+$// if defined $item{muser};
   $item{zone_id} = $zone_id;
+  $item{zone} = $zone_name;
   $item{server_id} = $server_id;
   $item{ips} = $ips // [];
   return \%item;
