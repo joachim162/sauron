@@ -52,6 +52,10 @@ sub add_server ($self) {
   my $server = eval { server_create($self->req->json // {}) };
   return $self->render_exception($@) if $@;
 
+  $self->res->headers->location(
+    $self->url_for('get_server', {server => $server->{name}})->to_abs->to_string
+  );
+
   $self->render(openapi => $server, status => 201);
 }
 

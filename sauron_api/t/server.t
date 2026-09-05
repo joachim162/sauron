@@ -128,6 +128,7 @@ subtest 'POST /servers - create (minimal, CGI parity)' => sub {
     zones_only => JSON::PP::true,
   ))
     ->status_is(201)
+    ->header_like('Location' => qr{/api/v1/servers/srv-created-${pid}$})
     ->json_is('/name'    => "srv-created-${pid}")
     ->json_is('/comment' => 'created via API')
     ->json_is('/ttl'     => 3600)
