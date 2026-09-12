@@ -33,6 +33,37 @@ sub _check_rhf {
   return @missing ? \@missing : undef;
 }
 
+# Query parameters accepted by both host list endpoints (ADR 0007).
+my @HOST_FILTER_PARAMS = qw(
+  q domain type ip group txt mx
+  ether duid iaid info huser location dept model serial misc asset_id hinfo
+  dhcp_date_from dhcp_date_to dhcp_last_from dhcp_last_to
+  cdate_from cdate_to mdate_from mdate_to expiration_from expiration_to
+);
+
+sub _host_list_opts {
+  my ($c) = @_;
+  my %filters;
+  for my $name (@HOST_FILTER_PARAMS) {
+    my $v = $c->param($name);
+    $filters{$name} = $v if defined $v && length $v;
+  }
+  return (
+    filters   => \%filters,
+    sort      => scalar $c->param('sort'),
+    alevel    => $c->stash('api_perms')->{alevel} // 0,
+    superuser => $c->stash('api_superuser') // 0,
+  );
+}
+
+sub _host_user_ctx {
+  my ($c) = @_;
+  return (
+    alevel    => $c->stash('api_perms')->{alevel} // 0,
+    superuser => $c->stash('api_superuser') // 0,
+  );
+}
+
 # --- CRUD subroutines ---
 
 # GET /servers/{server}/hosts
@@ -50,7 +81,10 @@ sub list_server_hosts ($self) {
   my $page     = $self->param("page")     // 1;
   my $per_page = $self->param("per_page") // 50;
 
-  my ($data, $meta) = eval { host_list_server($server_id, ids => $ids, page => $page, per_page => $per_page) };
+  my ($data, $meta) = eval {
+    host_list_server($server_id, ids => $ids, page => $page, per_page => $per_page,
+                     _host_list_opts($self))
+  };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => { data => $data, metadata => $meta });
@@ -67,7 +101,10 @@ sub list_hosts ($self) {
   my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
 
-  my ($data, $meta) = eval { host_list($server_id, $zone_id, page => $page, per_page => $per_page) };
+  my ($data, $meta) = eval {
+    host_list($server_id, $zone_id, page => $page, per_page => $per_page,
+              _host_list_opts($self))
+  };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => { data => $data, metadata => $meta });
@@ -83,7 +120,7 @@ sub get_host ($self) {
   my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
 
-  my $host = eval { host_find($server_id, $zone_id, $hostname) };
+  my $host = eval { host_find($server_id, $zone_id, $hostname, _host_user_ctx($self)) };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => $host);
@@ -244,7 +281,7 @@ sub update_host ($self) {
     );
   }
 
-  my $host = eval { host_update($server_id, $zone_id, $hostname, $json) };
+  my $host = eval { host_update($server_id, $zone_id, $hostname, $json, _host_user_ctx($self)) };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => $host);

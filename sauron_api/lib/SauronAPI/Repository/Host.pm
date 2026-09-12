@@ -9,12 +9,13 @@ our @EXPORT_OK = qw(
 );
 
 use Sauron::BackEnd ();
-use Sauron::Util   qw(is_cidr);
+use Sauron::Util   qw(is_cidr is_ip);
 use SauronAPI::Codecs       qw(mx value);
 use SauronAPI::Exception    ();
 use SauronAPI::FieldCodec;
 use SauronAPI::Repository   qw(dbq check_rc);
 use JSON::PP ();
+use Time::Local qw(timegm);
 
 # ---------------------------------------------------------------------------
 # Array fields handled by FieldCodec. Controllers MUST NOT touch these.
@@ -181,6 +182,245 @@ my @LIST_COLUMNS = qw(
   asset_id comment duid iaid cdate cuser mdate muser
 );
 
+# ---------------------------------------------------------------------------
+# List filters and sorting (ADR 0007)
+# ---------------------------------------------------------------------------
+
+my %FILTER_COLUMN = map { $_ => "h.$_" } qw(
+  ether duid info huser location dept model serial misc asset_id
+);
+
+my %DATE_COLUMN = map { $_ => "h.$_" } qw(
+  dhcp_date dhcp_last cdate mdate expiration
+);
+
+my %SORT_COLUMN = (
+  domain     => 'h.domain',
+  ip         => '(SELECT MIN(ae.ip) FROM a_entries ae WHERE ae.host = h.id)',
+  type       => 'h.type',
+  ether      => 'h.ether',
+  cdate      => 'h.cdate',
+  mdate      => 'h.mdate',
+  dhcp_date  => 'h.dhcp_date',
+  expiration => 'h.expiration',
+);
+
+my @TXT_CAPABLE_CODES = (1, 3, 4, 7); # host, mx, alias, alias_arec
+
+sub _valid_regex {
+  my ($name, $pattern) = @_;
+  my $ok = eval { qr/$pattern/; 1 };
+  SauronAPI::Exception->validation("Invalid regular expression for '$name'")
+    unless $ok;
+  return $pattern;
+}
+
+sub _parse_sort {
+  my ($spec) = @_;
+  my @keys;
+  if (defined $spec && $spec ne '') {
+    for my $part (split /,/, $spec) {
+      my ($field, $dir) = split /:/, $part, 2;
+      my $col = $SORT_COLUMN{$field // ''};
+      SauronAPI::Exception->validation(
+        "Unknown sort field '" . (defined $field ? $field : '') . "' (allowed: " .
+        join(', ', sort keys %SORT_COLUMN) . ')'
+      ) unless $col;
+      $dir = 'asc' unless defined $dir && $dir ne '';
+      SauronAPI::Exception->validation("Invalid sort direction '$dir' (allowed: asc, desc)")
+        unless $dir =~ /^(?:asc|desc)$/;
+      push @keys, { field => $field, col => $col, dir => $dir };
+    }
+  }
+  push @keys, { field => 'domain', col => $SORT_COLUMN{domain}, dir => 'asc' } unless @keys;
+  return \@keys;
+}
+
+sub _sort_sql {
+  my ($keys) = @_;
+  return 'ORDER BY ' . join(', ',
+    (map { "$_->{col} $_->{dir} NULLS LAST" } @$keys), 'h.id asc');
+}
+
+sub _sort_echo {
+  my ($keys) = @_;
+  return [ map { { name => $_->{field}, direction => $_->{dir} } } @$keys ];
+}
+
+sub _day_epoch {
+  my ($name, $value) = @_;
+  SauronAPI::Exception->validation("Invalid date '$value' for '$name' (expected YYYY-MM-DD)")
+    unless defined $value && $value =~ /^(\d{4})-(\d{2})-(\d{2})$/;
+  my ($y, $m, $d) = ($1, $2, $3);
+  my $epoch = eval { timegm(0, 0, 0, $d, $m - 1, $y) };
+  SauronAPI::Exception->validation("Invalid date '$value' for '$name' (expected YYYY-MM-DD)")
+    if $@ || !defined $epoch;
+  my @gm = gmtime($epoch);
+  SauronAPI::Exception->validation("Invalid date '$value' for '$name' (expected YYYY-MM-DD)")
+    unless ($gm[5] + 1900) == $y && ($gm[4] + 1) == $m && $gm[3] == $d;
+  return $epoch;
+}
+
+# Builds the WHERE fragment shared by the row query and the COUNT. Values
+# are always bound; only hardcoded identifier maps reach the SQL. Returns
+# ($where_sql, \@bind, \@filter_echo, $empty) — $empty short-circuits to
+# an empty result (txt + incompatible explicit type, ADR 0007).
+sub _build_host_filters {
+  my ($server_id, $f, $opts) = @_;
+
+  my @where;
+  my @bind;
+  my @echo;
+  my $empty = 0;
+
+  if (defined (my $v = $f->{q})) {
+    my $p = _valid_regex('q', $v);
+    push @where, "(h.location ~* ? OR h.huser ~* ? OR h.dept ~* ? OR h.info ~* ? OR " .
+                 "h.serial ~* ? OR h.model ~* ? OR h.misc ~* ? OR h.asset_id ~* ? OR " .
+                 "h.hinfo_hw ~* ? OR h.hinfo_sw ~* ?)";
+    push @bind, ($p) x 10;
+    push @echo, { name => 'q', value => $v };
+  }
+
+  if (defined (my $v = $f->{domain})) {
+    # Leading *. is a literal wildcard record label, not a regex quantifier.
+    (my $p = $v) =~ s/^\*\./\\\*\\\./;
+    $p = _valid_regex('domain', $p);
+    if ($opts->{match_fqdn}) {
+      push @where, "(h.domain ~* ? OR (h.domain || '.' || z.name) ~* ?)";
+      push @bind, $p, $p;
+    } else {
+      push @where, "h.domain ~* ?";
+      push @bind, $p;
+    }
+    push @echo, { name => 'domain', value => $v };
+  }
+
+  my $txt = defined $f->{txt} ? _valid_regex('txt', $f->{txt}) : undef;
+  if (defined $txt) {
+    push @where, "EXISTS (SELECT 1 FROM txt_entries te WHERE te.type=2 AND te.ref=h.id AND te.txt ~* ?)";
+    push @bind, $txt;
+    push @echo, { name => 'txt', value => $f->{txt} };
+  }
+
+  if (defined (my $v = $f->{type})) {
+    my $code = host_type_code($v);
+    if ($txt && $code != 1 && !grep { $_ == $code } @TXT_CAPABLE_CODES) {
+      $empty = 1;
+    } elsif ($code == 1) {
+      push @where, '(h.type=1 OR h.type=101)'; # host includes reservation
+    } else {
+      push @where, 'h.type=?';
+      push @bind, $code;
+    }
+    push @echo, { name => 'type', value => $v };
+  } elsif ($txt) {
+    push @where, 'h.type IN (1,3,4,7)'; # TXT-capable types (legacy parity)
+  }
+
+  if (defined (my $v = $f->{ip})) {
+    my $op;
+    if ($v =~ m{/}) {
+      SauronAPI::Exception->validation("Invalid CIDR '$v' for 'ip'") unless is_cidr($v);
+      $op = '<<=';
+    } else {
+      SauronAPI::Exception->validation("Invalid IP address '$v' for 'ip'") unless is_ip($v);
+      $op = '=';
+    }
+    push @where, "EXISTS (SELECT 1 FROM a_entries ae WHERE ae.host=h.id AND ae.ip $op ?)";
+    push @bind, $v;
+    push @echo, { name => 'ip', value => $v };
+  }
+
+  if (defined (my $v = $f->{group})) {
+    my $rows = dbq("SELECT id, alevel FROM groups WHERE server=? AND name=?", $server_id, $v);
+    if (!@$rows || (!$opts->{superuser} && ($rows->[0][1] // 0) > ($opts->{alevel} // 0))) {
+      SauronAPI::Exception->validation("Unknown group '$v'");
+    }
+    my $gid = $rows->[0][0];
+    push @where, '(h.grp=? OR EXISTS (SELECT 1 FROM group_entries ge WHERE ge.host=h.id AND ge.grp=?))';
+    push @bind, $gid, $gid;
+    push @echo, { name => 'group', value => $v };
+  }
+
+  for my $field (sort keys %FILTER_COLUMN) {
+    my $v = $f->{$field};
+    next unless defined $v;
+    my $p = _valid_regex($field, $v);
+    if ($field eq 'ether' || $field eq 'duid') {
+      $p = uc $p;
+      $p =~ s/[^0-9A-F]//g;
+    }
+    push @where, "$FILTER_COLUMN{$field} ~* ?";
+    push @bind, $p;
+    push @echo, { name => $field, value => $v };
+  }
+
+  if (defined (my $v = $f->{hinfo})) {
+    my $p = _valid_regex('hinfo', $v);
+    push @where, '(h.hinfo_hw ~* ? OR h.hinfo_sw ~* ?)';
+    push @bind, $p, $p;
+    push @echo, { name => 'hinfo', value => $v };
+  }
+
+  if (defined (my $v = $f->{iaid})) {
+    my $p = uc $v;
+    $p =~ s/[^0-9A-F]//g;
+    $p = hex($p) if $p ne '' && $p !~ /^\d+$/;
+    SauronAPI::Exception->validation("Invalid IAID '$v'")
+      unless defined $p && $p =~ /^\d+$/ && $p > 0 && $p < 2**32;
+    push @where, 'h.iaid = ?';
+    push @bind, $p;
+    push @echo, { name => 'iaid', value => $v };
+  }
+
+  if (defined (my $v = $f->{mx})) {
+    my $p = _valid_regex('mx', $v);
+    push @where, 'EXISTS (SELECT 1 FROM mx_templates m WHERE m.id=h.mx AND m.zone=h.zone AND m.name ~* ?)';
+    push @bind, $p;
+    push @echo, { name => 'mx', value => $v };
+  }
+
+  for my $col (sort keys %DATE_COLUMN) {
+    if (defined (my $v = $f->{"${col}_from"})) {
+      push @where, "$DATE_COLUMN{$col} >= ?";
+      push @bind, _day_epoch("${col}_from", $v);
+      push @echo, { name => "${col}_from", value => $v };
+    }
+    if (defined (my $v = $f->{"${col}_to"})) {
+      push @where, "$DATE_COLUMN{$col} <= ?";
+      push @bind, _day_epoch("${col}_to", $v) + 86399;
+      push @echo, { name => "${col}_to", value => $v };
+    }
+  }
+
+  return (join(' AND ', @where), \@bind, \@echo, $empty);
+}
+
+# Group names for list/detail enrichment, gated by alevel (vlan_name
+# precedent). Only groups whose alevel does not exceed the caller's resolve.
+sub _group_names {
+  my ($grps, $alevel, $superuser) = @_;
+  my %names;
+  my %seen;
+  my @ids = grep { defined $_ && $_ > 0 && !$seen{$_}++ } @$grps;
+  return %names unless @ids;
+  my $placeholders = join ',', ('?') x @ids;
+  my $rows = dbq("SELECT id, name, alevel FROM groups WHERE id IN ($placeholders)", @ids);
+  for my $row (@$rows) {
+    next if !$superuser && ($row->[2] // 0) > $alevel;
+    $names{$row->[0]} = $row->[1];
+  }
+  return %names;
+}
+
+sub _set_meta_total {
+  my ($meta, $total) = @_;
+  $meta->{pagination}{total} = $total;
+  my $pp = $meta->{pagination}{per_page};
+  $meta->{pagination}{total_pages} = $pp > 0 ? int(($total + $pp - 1) / $pp) : 0;
+}
+
 sub host_list {
   my ($server_id, $zone_id, %opts) = @_;
 
@@ -188,29 +428,45 @@ sub host_list {
   my $per_page = $opts{per_page} // 50;
   my $offset   = ($page - 1) * $per_page;
 
-  my $rows = dbq(
-    "SELECT " . join(',', @LIST_COLUMNS) . " FROM hosts " .
-    "WHERE zone=? ORDER BY domain LIMIT ? OFFSET ?",
-    $zone_id, $per_page, $offset
+  my $sort = _parse_sort($opts{sort});
+  my ($where, $bind, $filter_echo, $empty) = _build_host_filters(
+    $server_id, $opts{filters} // {},
+    { alevel => $opts{alevel} // 0, superuser => $opts{superuser} // 0 }
   );
-
-  my %host_ips = _batch_host_ips($rows);
-
-  my $zone_row  = dbq("SELECT name FROM zones WHERE id=?", $zone_id);
-  my $zone_name = @$zone_row ? $zone_row->[0][0] : undef;
+  my $meta = _list_metadata($page, $per_page, 0, _sort_echo($sort), $filter_echo);
 
   my @data;
-  for my $row (@$rows) {
-    push @data, _build_host_list_item($server_id, $zone_id, $zone_name, $row, $host_ips{$row->[0]});
+  unless ($empty) {
+    my @bind  = ($zone_id);
+    my $where_sql = ' WHERE h.zone=?';
+    if ($where) {
+      $where_sql .= " AND $where";
+      push @bind, @$bind;
+    }
+    my $rows = dbq(
+      "SELECT " . join(',', map { "h.$_" } @LIST_COLUMNS) . " FROM hosts h$where_sql " .
+      _sort_sql($sort) . " LIMIT ? OFFSET ?",
+      @bind, $per_page, $offset
+    );
+
+    my %host_ips  = _batch_host_ips($rows);
+    my %grp_names = _group_names([map $_->[5], @$rows], $opts{alevel} // 0, $opts{superuser} // 0);
+
+    my $zone_row  = dbq("SELECT name FROM zones WHERE id=?", $zone_id);
+    my $zone_name = @$zone_row ? $zone_row->[0][0] : undef;
+
+    for my $row (@$rows) {
+      push @data, _build_host_list_item($server_id, $zone_id, $zone_name, $row, $host_ips{$row->[0]}, \%grp_names);
+    }
+
+    my $total_rows = dbq(
+      "SELECT COUNT(*) FROM hosts h$where_sql",
+      @bind
+    );
+    _set_meta_total($meta, $total_rows->[0][0] // 0);
   }
 
-  my $total_rows = dbq(
-    "SELECT COUNT(*) FROM hosts WHERE zone=?",
-    $zone_id
-  );
-  my $total = $total_rows->[0][0] // 0;
-
-  return (\@data, _list_metadata($page, $per_page, $total));
+  return (\@data, $meta);
 }
 
 # Server-scoped cross-zone host collection (ADR 0005). $ids is the
@@ -223,19 +479,31 @@ sub host_list_server {
   my $ids      = $opts{ids};
   my $offset   = ($page - 1) * $per_page;
 
+  my $sort = _parse_sort($opts{sort});
+  my ($fwhere, $fbind, $filter_echo, $empty) = _build_host_filters(
+    $server_id, $opts{filters} // {},
+    { alevel => $opts{alevel} // 0, superuser => $opts{superuser} // 0, match_fqdn => 1 }
+  );
+  my $meta = _list_metadata($page, $per_page, 0, _sort_echo($sort), $filter_echo);
+
+  return ([], $meta) if $empty;
+
   my @bind  = ($server_id);
   my $where = " WHERE z.server=?";
   if ($ids) {
-    return ([], _list_metadata($page, $per_page, 0)) unless @$ids;
+    return ([], $meta) unless @$ids;
     $where .= " AND h.zone IN (" . join(',', ('?') x @$ids) . ")";
     push @bind, @$ids;
+  }
+  if ($fwhere) {
+    $where .= " AND $fwhere";
+    push @bind, @$fbind;
   }
 
   my @cols = map { "h.$_" } @LIST_COLUMNS;
   my $rows = dbq(
     "SELECT h.zone," . join(',', @cols) . ",z.name " .
-    "FROM hosts h JOIN zones z ON z.id=h.zone" .
-    $where . " ORDER BY h.domain, h.id LIMIT ? OFFSET ?",
+    "FROM hosts h JOIN zones z ON z.id=h.zone$where " . _sort_sql($sort) . " LIMIT ? OFFSET ?",
     @bind, $per_page, $offset
   );
 
@@ -246,22 +514,23 @@ sub host_list_server {
     my @host_ids = map $_->[1], @$rows;
     %host_ips = _batch_host_ips_ids(@host_ids);
   }
+  my %grp_names = _group_names([map $_->[6], @$rows], $opts{alevel} // 0, $opts{superuser} // 0);
 
   my @data;
   for my $row (@$rows) {
     my @values = @$row;
     my $zone_id   = shift @values;
     my $zone_name = pop @values;
-    push @data, _build_host_list_item($server_id, $zone_id, $zone_name, \@values, $host_ips{$row->[1]});
+    push @data, _build_host_list_item($server_id, $zone_id, $zone_name, \@values, $host_ips{$row->[1]}, \%grp_names);
   }
 
   my $total_rows = dbq(
-    "SELECT COUNT(*) FROM hosts h JOIN zones z ON z.id=h.zone" . $where,
+    "SELECT COUNT(*) FROM hosts h JOIN zones z ON z.id=h.zone$where",
     @bind
   );
-  my $total = $total_rows->[0][0] // 0;
+  _set_meta_total($meta, $total_rows->[0][0] // 0);
 
-  return (\@data, _list_metadata($page, $per_page, $total));
+  return (\@data, $meta);
 }
 
 sub _batch_host_ips {
@@ -286,7 +555,7 @@ sub _batch_host_ips_ids {
 }
 
 sub _list_metadata {
-  my ($page, $per_page, $total) = @_;
+  my ($page, $per_page, $total, $sort, $filters) = @_;
 
   return {
     pagination => {
@@ -295,13 +564,13 @@ sub _list_metadata {
       per_page    => $per_page,
       total_pages => $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0,
     },
-    sort    => [],
-    filters => [],
+    sort    => $sort    // [],
+    filters => $filters // [],
   };
 }
 
 sub _build_host_list_item {
-  my ($server_id, $zone_id, $zone_name, $row, $ips) = @_;
+  my ($server_id, $zone_id, $zone_name, $row, $ips, $grp_names) = @_;
 
   my %item;
   @item{@LIST_COLUMNS} = @$row;
@@ -311,19 +580,23 @@ sub _build_host_list_item {
   $item{zone_id} = $zone_id;
   $item{zone} = $zone_name;
   $item{server_id} = $server_id;
+  $item{fqdn} = defined $zone_name
+    ? ($item{domain} // '') eq '@' ? $zone_name : "$item{domain}.$zone_name"
+    : undef;
+  $item{host_group} = defined $item{grp} && $item{grp} > 0 ? $grp_names->{$item{grp}} : undef;
   $item{ips} = $ips // [];
   return \%item;
 }
 
 sub host_find {
-  my ($server_id, $zone_id, $hostname) = @_;
+  my ($server_id, $zone_id, $hostname, %opts) = @_;
 
   my $host_id = _host_id($zone_id, $hostname);
   my %host_data;
   check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Failed to retrieve host data');
 
-  return _build_host_response($host_id, \%host_data, $zone_id, $server_id);
+  return _build_host_response($host_id, \%host_data, $zone_id, $server_id, \%opts);
 }
 
 sub host_create {
@@ -387,7 +660,7 @@ sub host_create {
 }
 
 sub host_update {
-  my ($server_id, $zone_id, $hostname, $input) = @_;
+  my ($server_id, $zone_id, $hostname, $input, %opts) = @_;
 
   my $host_id = _host_id($zone_id, $hostname);
 
@@ -447,7 +720,7 @@ sub host_update {
     );
   }
 
-  return _build_host_response($host_id, \%host_data, $host_data{zone}, $server_id);
+  return _build_host_response($host_id, \%host_data, $host_data{zone}, $server_id, \%opts);
 }
 
 sub host_delete {
@@ -913,7 +1186,7 @@ sub _normalize_ip_entries {
 # ---------------------------------------------------------------------------
 
 sub _build_host_response {
-  my ($host_id, $host_data, $zone_id, $server_id) = @_;
+  my ($host_id, $host_data, $zone_id, $server_id, $opts) = @_;
 
   my $server_name = '';
   if ($server_id) {
@@ -947,6 +1220,8 @@ sub _build_host_response {
     }
   }
 
+  my %grp_names = _group_names([$host_data->{grp}], $opts->{alevel} // 0, $opts->{superuser} // 0);
+
   my $response = {
     id                => $host_id,
     domain            => $host_data->{domain},
@@ -958,6 +1233,8 @@ sub _build_host_response {
     ttl               => $host_data->{ttl},
     class             => $host_data->{class},
     grp               => $host_data->{grp},
+    host_group        => defined $host_data->{grp} && $host_data->{grp} > 0
+                         ? $grp_names{$host_data->{grp}} : undef,
     alias             => $host_data->{alias},
     cname_txt         => $host_data->{cname_txt},
     hinfo_hw          => $host_data->{hinfo_hw},

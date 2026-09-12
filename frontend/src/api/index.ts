@@ -105,10 +105,17 @@ export const netsApi = {
 
 // ---- Hosts ----
 export const hostsApi = {
-  list: (serverName: string, zoneName: string, opts?: { page?: number; per_page?: number }) => {
+  list: (
+    serverName: string,
+    zoneName: string,
+    opts?: { page?: number; per_page?: number; filters?: Record<string, string> }
+  ) => {
     const params = new URLSearchParams();
     if (opts?.page !== undefined) params.set("page", String(opts.page));
     if (opts?.per_page !== undefined) params.set("per_page", String(opts.per_page));
+    for (const [key, value] of Object.entries(opts?.filters ?? {})) {
+      if (value) params.set(key, value);
+    }
     const qs = params.toString();
     return api.get<PaginatedResponse<HostListItem>>(
       `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts${qs ? `?${qs}` : ""}`

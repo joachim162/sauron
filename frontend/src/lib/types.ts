@@ -87,6 +87,8 @@ export interface HostListItem {
   type: string;
   zone_id: number;
   server_id: number;
+  fqdn?: string;
+  host_group?: string | null;
   ips: string[];
   ttl?: number | null;
   class?: string | null;

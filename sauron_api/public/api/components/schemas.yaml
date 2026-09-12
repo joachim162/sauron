@@ -1300,6 +1300,13 @@ Host:
           example: example-server
         type:
           $ref: '#/HostType'
+        host_group:
+          type: string
+          nullable: true
+          description: >
+            Base host group name; null when the host has no group or the
+            group's required authorization level exceeds the caller's.
+          example: office
         dhcp_date:
           type: integer
           nullable: true
@@ -1337,6 +1344,7 @@ HostListItem:
     - type
     - zone_id
     - zone
+    - fqdn
   properties:
     id:
       type: integer
@@ -1346,6 +1354,10 @@ HostListItem:
       example: www
     type:
       $ref: '#/HostType'
+    fqdn:
+      type: string
+      description: Fully qualified name (label + zone); the zone itself for '@' records
+      example: www.example.com
     zone_id:
       type: integer
       example: 10
@@ -1374,6 +1386,13 @@ HostListItem:
       type: integer
       nullable: true
       example: -1
+    host_group:
+      type: string
+      nullable: true
+      description: >
+        Base host group name; null when the host has no group or the group's
+        required authorization level exceeds the caller's.
+      example: office
     alias:
       type: integer
       nullable: true
@@ -1871,11 +1890,11 @@ Filter:
   properties:
     name:
       type: string
-      example: host_type
+      example: type
     value:
       type: string
       nullable: true
-      example: "1"
+      example: "host"
     range:
       type: object
       nullable: true

@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
+import { Plus, Trash2, Loader2, AlertCircle, Search } from "lucide-react";
 import { ApiRequestError } from "@/lib/api-client";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -55,17 +55,35 @@ export default function HostsPage() {
   const queryClient = useQueryClient();
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedType, setSelectedType] = useState("1");
+  const [selectedType, setSelectedType] = useState("host");
   const [typeTouched, setTypeTouched] = useState(false);
   const [deleteHostname, setDeleteHostname] = useState<string | null>(null);
   const [selectedNet, setSelectedNet] = useState("manual");
   const [searchParams, setSearchParams] = useSearchParams();
+  const [searchInput, setSearchInput] = useState(searchParams.get("q") ?? "");
+  const search = searchParams.get("q") ?? "";
+  const typeFilter = searchParams.get("type") ?? "";
   const pagination = useMemo<PaginationState>(() => {
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
     const perPageRaw = parseInt(searchParams.get("per_page") || "50", 10) || 50;
     const perPage = Math.min(100, Math.max(1, perPageRaw));
     return { pageIndex: page - 1, pageSize: perPage };
   }, [searchParams]);
+
+  const applyFilters = (next: { q?: string; type?: string }) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        for (const [key, value] of Object.entries(next)) {
+          if (value) params.set(key, value);
+          else params.delete(key);
+        }
+        params.set("page", "1");
+        return params;
+      },
+      { replace: true }
+    );
+  };
 
   const updatePagination = (next: PaginationState) => {
     setSearchParams(
@@ -222,12 +240,17 @@ export default function HostsPage() {
   };
 
   // List hosts in zone
+  const listFilters = useMemo(
+    () => ({ q: search, ...(typeFilter ? { type: typeFilter } : {}) }),
+    [search, typeFilter]
+  );
   const { data: hostsResponse, isLoading } = useQuery({
-    queryKey: ["hosts", serverName, zoneName, pagination.pageIndex, pagination.pageSize],
+    queryKey: ["hosts", serverName, zoneName, pagination.pageIndex, pagination.pageSize, listFilters],
     queryFn: () =>
       hostsApi.list(serverName!, zoneName!, {
         page: pagination.pageIndex + 1,
         per_page: pagination.pageSize,
+        filters: listFilters,
       }),
     enabled: !!serverName && !!zoneName,
   });
@@ -272,6 +295,7 @@ export default function HostsPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    applyFilters({ q: searchInput });
   };
 
   const columns: ColumnDef<HostListItem>[] = [
@@ -287,10 +311,10 @@ export default function HostsPage() {
       accessorKey: "type",
       header: "Type",
       cell: ({ getValue }) => {
-        const t = getValue() as number;
+        const t = getValue() as string;
         return (
           <Badge variant="outline" className="text-xs">
-            {HOST_TYPES[t] || `Type ${t}`}
+            {HOST_TYPES[t] || t}
           </Badge>
         );
       },
@@ -366,19 +390,34 @@ export default function HostsPage() {
         )}
       </div>
 
-      {/* Search bar — disabled until search API is available */}
+      {/* Search bar */}
       <form onSubmit={handleSearch} className="flex gap-2">
         <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            value=""
-            readOnly
-            placeholder="Search coming soon..."
-            className="pl-9 opacity-50"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search fields (regex: location, user, dept, info, ...)"
+            className="pl-9"
           />
         </div>
-        <Button type="submit" variant="secondary" disabled>
-          Search
-        </Button>
+        <Select
+          value={typeFilter || "all"}
+          onValueChange={(v) => applyFilters({ type: v === "all" ? "" : v })}
+        >
+          <SelectTrigger className="w-44">
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            {Object.entries(HOST_TYPES).map(([val, label]) => (
+              <SelectItem key={val} value={val}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button type="submit" variant="secondary">Search</Button>
       </form>
 
       {/* Results */}
@@ -507,7 +546,7 @@ export default function HostsPage() {
                   <Input id="ips" name="ips" placeholder="192.168.1.10" />
                 </div>
               )}
-              {needsNet && selectedType === "101" && (
+              {needsNet && selectedType === "reservation" && (
                 <div className="space-y-2">
                   <Label htmlFor="ether">MAC Address</Label>
                   <Input id="ether" name="ether" placeholder="aa:bb:cc:dd:ee:ff" />

@@ -18,6 +18,36 @@ get:
     - $ref: '../components/parameters.yaml#/server'
     - $ref: '../components/parameters.yaml#/page'
     - $ref: '../components/parameters.yaml#/per_page'
+    - $ref: '../components/parameters.yaml#/host_q'
+    - $ref: '../components/parameters.yaml#/host_domain'
+    - $ref: '../components/parameters.yaml#/host_type'
+    - $ref: '../components/parameters.yaml#/host_ip'
+    - $ref: '../components/parameters.yaml#/host_group'
+    - $ref: '../components/parameters.yaml#/host_txt'
+    - $ref: '../components/parameters.yaml#/host_mx'
+    - $ref: '../components/parameters.yaml#/host_sort'
+    - $ref: '../components/parameters.yaml#/host_ether'
+    - $ref: '../components/parameters.yaml#/host_duid'
+    - $ref: '../components/parameters.yaml#/host_iaid'
+    - $ref: '../components/parameters.yaml#/host_info'
+    - $ref: '../components/parameters.yaml#/host_huser'
+    - $ref: '../components/parameters.yaml#/host_location'
+    - $ref: '../components/parameters.yaml#/host_dept'
+    - $ref: '../components/parameters.yaml#/host_model'
+    - $ref: '../components/parameters.yaml#/host_serial'
+    - $ref: '../components/parameters.yaml#/host_misc'
+    - $ref: '../components/parameters.yaml#/host_asset_id'
+    - $ref: '../components/parameters.yaml#/host_hinfo'
+    - $ref: '../components/parameters.yaml#/host_dhcp_date_from'
+    - $ref: '../components/parameters.yaml#/host_dhcp_date_to'
+    - $ref: '../components/parameters.yaml#/host_dhcp_last_from'
+    - $ref: '../components/parameters.yaml#/host_dhcp_last_to'
+    - $ref: '../components/parameters.yaml#/host_cdate_from'
+    - $ref: '../components/parameters.yaml#/host_cdate_to'
+    - $ref: '../components/parameters.yaml#/host_mdate_from'
+    - $ref: '../components/parameters.yaml#/host_mdate_to'
+    - $ref: '../components/parameters.yaml#/host_expiration_from'
+    - $ref: '../components/parameters.yaml#/host_expiration_to'
   responses:
     '200':
       description: Paginated cross-zone list of hosts in the {data, metadata} envelope.
@@ -25,6 +55,12 @@ get:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/HostListResponse'
+    '400':
+      description: Invalid filter, sort or date value
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
     '404':
       description: Server not found
       content:

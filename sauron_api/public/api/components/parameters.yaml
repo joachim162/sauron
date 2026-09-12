@@ -61,3 +61,289 @@ per_page:
     default: 50
     example: 50
 
+
+# --- Host list filters and sorting (ADR 0007) ---
+
+host_q:
+  name: q
+  in: query
+  required: false
+  description: >
+    Free search: case-insensitive regular expression OR-matched against
+    location, huser, dept, info, serial, model, misc, asset_id, hinfo_hw
+    and hinfo_sw. Legacy <ANY> field search.
+  schema:
+    type: string
+    example: "rack 4"
+
+host_domain:
+  name: domain
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression matched against the hostname
+    label. On the server-scoped path the FQDN (label + zone) is also
+    matched. A leading `*.` is matched literally (wildcard record names).
+  schema:
+    type: string
+    example: "^web[0-9]+$"
+
+host_type:
+  name: type
+  in: query
+  required: false
+  description: >
+    Filter by host type. `host` also matches reservations; when omitted,
+    all types are returned.
+  schema:
+    $ref: '../components/schemas.yaml#/HostType'
+
+host_ip:
+  name: ip
+  in: query
+  required: false
+  description: >
+    A bare IP address matches hosts with that exact address; a CIDR
+    block (e.g. 10.0.0.0/8) matches hosts with any address inside it.
+  schema:
+    type: string
+    example: 10.0.0.0/24
+
+host_group:
+  name: group
+  in: query
+  required: false
+  description: >
+    Host group name (server-scoped). Matches hosts in the group or in
+    any of its subgroups. Unknown groups, or groups above the caller's
+    authorization level, return 400.
+  schema:
+    type: string
+    example: office
+
+host_txt:
+  name: txt
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression matched against the host's TXT
+    entries. Returns hosts that carry a matching entry — it does not
+    select objects of type txt (use `type` for that). Without an
+    explicit `type`, only TXT-capable types are searched; an explicitly
+    incompatible type returns an empty set.
+  schema:
+    type: string
+    example: "v=spf1"
+
+host_mx:
+  name: mx
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression matched against the name of the
+    zone-scoped MX template the host uses. Returns hosts using a
+    matching template — it does not select objects of type mx (use
+    `type` for that).
+  schema:
+    type: string
+    example: "^mail-"
+
+host_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction
+    defaults to asc). Fields: domain, ip, type, ether, cdate, mdate,
+    dhcp_date, expiration. `ip` orders by the host's primary (lowest)
+    address; hosts without addresses sort last in both directions.
+    Default sort: domain:asc.
+  schema:
+    type: string
+    example: "type,domain:desc"
+
+host_ether:
+  name: ether
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression matched against the MAC address
+    after normalization (uppercased, non-hex characters stripped).
+  schema:
+    type: string
+    example: "0011:22"
+
+host_duid:
+  name: duid
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression matched against the DUID after
+    normalization (uppercased, non-hex characters stripped).
+  schema:
+    type: string
+
+host_iaid:
+  name: iaid
+  in: query
+  required: false
+  description: >
+    IAID matched numerically after normalization (uppercased, non-hex
+    stripped; hex values are converted to decimal).
+  schema:
+    type: string
+    example: "0x1a2b3c4d"
+
+host_info:
+  name: info
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the info field.
+  schema:
+    type: string
+
+host_huser:
+  name: huser
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the user field.
+  schema:
+    type: string
+
+host_location:
+  name: location
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the location field.
+  schema:
+    type: string
+
+host_dept:
+  name: dept
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the department field.
+  schema:
+    type: string
+
+host_model:
+  name: model
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the model field.
+  schema:
+    type: string
+
+host_serial:
+  name: serial
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the serial field.
+  schema:
+    type: string
+
+host_misc:
+  name: misc
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the misc field.
+  schema:
+    type: string
+
+host_asset_id:
+  name: asset_id
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against the asset ID field.
+  schema:
+    type: string
+
+host_hinfo:
+  name: hinfo
+  in: query
+  required: false
+  description: Case-insensitive regular expression matched against HINFO hardware or software.
+  schema:
+    type: string
+
+host_dhcp_date_from:
+  name: dhcp_date_from
+  in: query
+  required: false
+  description: DHCP date range start (inclusive), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+    example: "2024-01-01"
+
+host_dhcp_date_to:
+  name: dhcp_date_to
+  in: query
+  required: false
+  description: DHCP date range end (inclusive, whole day), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+    example: "2024-12-31"
+
+host_dhcp_last_from:
+  name: dhcp_last_from
+  in: query
+  required: false
+  description: DHCP last-seen range start (inclusive), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+
+host_dhcp_last_to:
+  name: dhcp_last_to
+  in: query
+  required: false
+  description: DHCP last-seen range end (inclusive, whole day), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+
+host_cdate_from:
+  name: cdate_from
+  in: query
+  required: false
+  description: Creation date range start (inclusive), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+
+host_cdate_to:
+  name: cdate_to
+  in: query
+  required: false
+  description: Creation date range end (inclusive, whole day), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+
+host_mdate_from:
+  name: mdate_from
+  in: query
+  required: false
+  description: Modification date range start (inclusive), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+
+host_mdate_to:
+  name: mdate_to
+  in: query
+  required: false
+  description: Modification date range end (inclusive, whole day), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+
+host_expiration_from:
+  name: expiration_from
+  in: query
+  required: false
+  description: Expiration date range start (inclusive), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+
+host_expiration_to:
+  name: expiration_to
+  in: query
+  required: false
+  description: Expiration date range end (inclusive, whole day), ISO 8601 (YYYY-MM-DD). NULL expiration never matches any range.
+  schema:
+    type: string

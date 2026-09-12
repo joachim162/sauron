@@ -91,7 +91,7 @@ subtest 'GET server hosts - envelope and cross-zone items' => sub {
   ok(ref $body eq 'HASH' && ref $body->{data} eq 'ARRAY', 'paginated envelope');
   is($body->{metadata}{pagination}{page}, 1, 'default page 1');
   is($body->{metadata}{pagination}{per_page}, 50, 'default per_page 50');
-  is_deeply($body->{metadata}{sort}, [], 'sort metadata present');
+  is_deeply($body->{metadata}{sort}, [{ name => 'domain', direction => 'asc' }], 'default sort echoed');
   is_deeply($body->{metadata}{filters}, [], 'filters metadata present');
 
   my $n = scalar @{$body->{data}};

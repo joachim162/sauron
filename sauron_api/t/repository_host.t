@@ -101,7 +101,7 @@ subtest 'Exception shortcut constructors' => sub {
 subtest 'host_list returns paginated envelope with scalar columns' => sub {
   _reset_mocks;
   _mock_db(
-    'ORDER BY domain' => [ _list_row(100, 'a.example'), _list_row(101, 'b.example') ],
+    'ORDER BY h.domain' => [ _list_row(100, 'a.example'), _list_row(101, 'b.example') ],
     'a_entries'       => [],
     'COUNT(*)'        => [[2]],
   );
@@ -118,7 +118,7 @@ subtest 'host_list returns paginated envelope with scalar columns' => sub {
   is $meta->{pagination}{page}, 1, 'default page 1';
   is $meta->{pagination}{per_page}, 50, 'default per_page 50';
   is $meta->{pagination}{total_pages}, 1, 'total_pages';
-  is_deeply $meta->{sort}, [], 'empty sort';
+  is_deeply $meta->{sort}, [{ name => 'domain', direction => 'asc' }], 'default sort echoed';
   is_deeply $meta->{filters}, [], 'empty filters';
 };
 
@@ -126,7 +126,7 @@ subtest 'host_list binds zone, limit and offset' => sub {
   _reset_mocks;
   my (@list_bind, @count_bind);
   _mock_db(
-    'ORDER BY domain' => sub {
+    'ORDER BY h.domain' => sub {
       my ($sql, $out, @bind) = @_;
       @list_bind = @bind;
       @$out = ();
@@ -151,7 +151,7 @@ subtest 'host_list binds zone, limit and offset' => sub {
 subtest 'host_list empty zone gives zero totals' => sub {
   _reset_mocks;
   _mock_db(
-    'ORDER BY domain' => [],
+    'ORDER BY h.domain' => [],
     'COUNT(*)'        => [[0]],
   );
 
