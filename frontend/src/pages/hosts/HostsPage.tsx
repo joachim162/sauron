@@ -278,7 +278,7 @@ export default function HostsPage() {
     { accessorKey: "id", header: "ID", size: 60 },
     {
       accessorKey: "domain",
-      header: "Domain",
+      header: "Hostname",
       cell: ({ getValue }) => (
         <span className="font-mono text-sm">{getValue() as string}</span>
       ),
@@ -462,7 +462,7 @@ export default function HostsPage() {
               className="space-y-4"
             >
               <div className="space-y-2">
-                <Label htmlFor="domain">Domain</Label>
+                <Label htmlFor="domain">Hostname</Label>
                 <Input id="domain" name="domain" placeholder="server1" required />
               </div>
               <div className="space-y-2">
