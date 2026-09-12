@@ -6,7 +6,7 @@ use SauronAPI::AuthZ qw(check_perms visible_zone_ids);
 use SauronAPI::Exception ();
 use SauronAPI::Repository::Host qw(
   host_list host_list_server host_find host_create host_update host_delete
-  host_copy host_move
+  host_copy host_move host_type_code
 );
 
 # Required Host Fields check. Repository does not depend on $c; the controller
@@ -225,11 +225,14 @@ sub update_host ($self) {
   # permission and run get_host before authorization on every PUT.
   my $perm_type = 'host';
   if (exists $json->{type}) {
-    my $current = eval { host_find($server_id, $zone_id, $hostname) };
+    my $current = eval {
+      host_type_code($json->{type});
+      host_find($server_id, $zone_id, $hostname)
+    };
     return $self->render_exception($@) if $@;
-    if ($json->{type} != $current->{type}) {
-      if    ($current->{type} == 1 && $json->{type} == 101) { $perm_type = 'delhost'; }
-      elsif ($current->{type} == 101 && $json->{type} == 1) { $perm_type = 'host'; }
+    if ($json->{type} ne $current->{type}) {
+      if    ($current->{type} eq 'host' && $json->{type} eq 'reservation') { $perm_type = 'delhost'; }
+      elsif ($current->{type} eq 'reservation' && $json->{type} eq 'host') { $perm_type = 'host'; }
     }
   }
   return unless check_perms($self, type => $perm_type, hostname => $hostname, zone_id => $zone_id, server_id => $server_id);

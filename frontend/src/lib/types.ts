@@ -62,7 +62,7 @@ export interface Host {
   zone_id: number;
   server_id: number;
   server: string;
-  type: number;
+  type: string;
   ips: IpEntry[];
   ttl?: number;
   class?: string;
@@ -84,7 +84,7 @@ export interface Host {
 export interface HostListItem {
   id: number;
   domain: string;
-  type: number;
+  type: string;
   zone_id: number;
   server_id: number;
   ips: string[];
@@ -116,19 +116,24 @@ export interface HostListItem {
   [key: string]: unknown;
 }
 
-export const HOST_TYPES: Record<number, string> = {
-  0: "Misc",
-  1: "Host",
-  2: "Delegation",
-  3: "MX entry",
-  4: "Alias (CNAME)",
-  5: "Printer",
-  6: "Glue record",
-  7: "Alias (AREC)",
-  8: "SRV record",
-  9: "DHCP-only",
-  10: "Zone",
-  101: "Reservation",
+export const HOST_TYPES: Record<string, string> = {
+  misc: "Misc",
+  host: "Host",
+  delegation: "Delegation",
+  mx: "Plain MX",
+  alias: "Alias (CNAME)",
+  printer: "Printer",
+  glue: "Glue record",
+  alias_arec: "Alias (AREC)",
+  srv: "SRV record",
+  dhcp_only: "DHCP-only",
+  zone: "Zone",
+  sshfp: "SSHFP",
+  tlsa: "TLSA",
+  txt: "TXT",
+  naptr: "NAPTR",
+  caa: "CAA",
+  reservation: "Reservation",
 };
 
 export interface DhcpEntry {

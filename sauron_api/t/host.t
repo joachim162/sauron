@@ -98,22 +98,22 @@ subtest 'GET host on non-existent zone' => sub {
 };
 
 subtest 'POST without hostname' => sub {
-  $t->post_ok($URL => $SUPER => json => { type => 1 })
+  $t->post_ok($URL => $SUPER => json => { type => 'host' })
     ->status_is(400)
     ->json_has('/errors');
 };
 
 subtest 'POST with invalid field for host type' => sub {
-  $t->post_ok($URL => $SUPER => json => { hostname => "bad-${pid}", type => 6, mx_l => [{pri => 10, mx => 'mail.example.com'}] })
+  $t->post_ok($URL => $SUPER => json => { hostname => "bad-${pid}", type => 'glue', mx_l => [{pri => 10, mx => 'mail.example.com'}] })
     ->status_is(400)
     ->json_is('/error' => 'Bad Request')
     ->json_like('/message' => qr/not valid for host type/);
 };
 
 subtest 'POST duplicate host' => sub {
-  $t->post_ok($URL => $SUPER => json => { hostname => "dup-${pid}", type => 1, ips => [{ ip => '10.0.0.1' }] })
+  $t->post_ok($URL => $SUPER => json => { hostname => "dup-${pid}", type => 'host', ips => [{ ip => '10.0.0.1' }] })
     ->status_is(201);
-  $t->post_ok($URL => $SUPER => json => { hostname => "dup-${pid}", type => 1 })
+  $t->post_ok($URL => $SUPER => json => { hostname => "dup-${pid}", type => 'host' })
     ->status_is(409)
     ->json_is('/error' => 'Conflict');
 
@@ -134,7 +134,7 @@ sub _as_rhf {
 my $RHF = _as_rhf();
 
 subtest 'POST create host fails without required field (RHF)' => sub {
-  $t->post_ok($URL => $RHF => json => { hostname => "norhf-${pid}", type => 1 })
+  $t->post_ok($URL => $RHF => json => { hostname => "norhf-${pid}", type => 'host' })
     ->status_is(400)
     ->json_is('/error' => 'Bad Request')
     ->json_like('/message' => qr/dept/);
@@ -142,7 +142,7 @@ subtest 'POST create host fails without required field (RHF)' => sub {
 
 subtest 'POST create host succeeds with required field (RHF)' => sub {
   $t->post_ok($URL => $RHF => json => {
-    hostname => "yesrhf-${pid}", type => 1, dept => 'Engineering',
+    hostname => "yesrhf-${pid}", type => 'host', dept => 'Engineering',
     ips => [{ ip => '10.0.0.150' }],
   })
     ->status_is(201)
@@ -154,7 +154,7 @@ subtest 'POST create host succeeds with required field (RHF)' => sub {
 };
 
 subtest 'POST create host succeeds with whitespace-only field (RHF)' => sub {
-  $t->post_ok($URL => $RHF => json => { hostname => "wsrhf-${pid}", type => 1, dept => '  ' })
+  $t->post_ok($URL => $RHF => json => { hostname => "wsrhf-${pid}", type => 'host', dept => '  ' })
     ->status_is(400)
     ->json_is('/error' => 'Bad Request')
     ->json_like('/message' => qr/dept/);
@@ -193,7 +193,7 @@ subtest 'PUT update host allows omitting required field (RHF)' => sub {
 
 subtest 'Superuser bypasses RHF' => sub {
   $t->post_ok($URL => $SUPER => json => {
-    hostname => "suprhf-${pid}", type => 1,
+    hostname => "suprhf-${pid}", type => 'host',
     ips => [{ ip => '10.0.0.153' }],
   })
     ->status_is(201);
@@ -209,12 +209,12 @@ subtest 'Superuser bypasses RHF' => sub {
 subtest 'POST create host without IPs is rejected' => sub {
   # BackEnd requires at least one IP for type 1 (host_required_data_error);
   # the API maps that to a 400, not a 500.
-  $t->post_ok($URL => $USER => json => { hostname => "minimal-${pid}", type => 1 })
+  $t->post_ok($URL => $USER => json => { hostname => "minimal-${pid}", type => 'host' })
     ->status_is(400)
     ->json_is('/error' => 'Bad Request')
     ->json_like('/message' => qr/requires at least one IP address/);
 
-  $t->post_ok($URL => $USER => json => { hostname => "minimal-${pid}", type => 1, ips => [] })
+  $t->post_ok($URL => $USER => json => { hostname => "minimal-${pid}", type => 'host', ips => [] })
     ->status_is(400)
     ->json_is('/error' => 'Bad Request');
 };
@@ -222,7 +222,7 @@ subtest 'POST create host without IPs is rejected' => sub {
 subtest 'POST create host with IPs' => sub {
   $t->post_ok($URL => $USER => json => {
     hostname => "full-${pid}",
-    type     => 1,
+    type     => 'host',
     ips      => [{ ip => '10.0.0.10' }, { ip => '10.0.0.11' }],
     ttl      => 3600,
     comment  => 'test host with IPs',
@@ -244,7 +244,7 @@ subtest 'POST create host with IPs' => sub {
 subtest 'POST create host with scalar fields' => sub {
   $t->post_ok($URL => $USER => json => {
     hostname => "scalar-${pid}",
-    type     => 1,
+    type     => 'host',
     ips      => [{ ip => '10.0.0.20' }],
     ttl      => 7200,
     class    => 'IN',
@@ -278,7 +278,7 @@ subtest 'GET host' => sub {
   $t->get_ok("$URL/read-${pid}" => $SUPER)
     ->status_is(200)
     ->json_is('/domain'  => "read-${pid}")
-    ->json_is('/type'    => 1)
+    ->json_is('/type'    => 'host')
     ->json_is('/zone_id' => $z1)
     ->json_is('/server_id' => $srv)
     ->json_like('/fqdn' => qr/read-${pid}/);
@@ -353,6 +353,36 @@ subtest 'PUT update host ip flags' => sub {
   Sauron::BackEnd::delete_host($hid);
 };
 
+subtest 'POST create host with invalid type slug' => sub {
+  $t->post_ok($URL => $SUPER => json => { hostname => "badtype-${pid}", type => 'bogus' })
+    ->status_is(400)
+    ->json_has('/errors');
+};
+
+subtest 'PUT host type transition (host <-> reservation)' => sub {
+  $t->post_ok($URL => $SUPER => json => {
+    hostname => "trans-${pid}", type => 'host',
+    ips => [{ ip => '10.0.0.190' }],
+  })
+    ->status_is(201)
+    ->json_is('/type' => 'host');
+
+  $t->put_ok("$URL/trans-${pid}" => $SUPER => json => { type => 'reservation' })
+    ->status_is(200)
+    ->json_is('/type' => 'reservation');
+
+  $t->put_ok("$URL/trans-${pid}" => $SUPER => json => { type => 'host' })
+    ->status_is(200)
+    ->json_is('/type' => 'host');
+
+  $t->put_ok("$URL/trans-${pid}" => $SUPER => json => { type => 'alias' })
+    ->status_is(400)
+    ->json_is('/error' => 'Bad Request');
+
+  my $id = Sauron::BackEnd::get_host_id($z1, "trans-${pid}");
+  Sauron::BackEnd::delete_host($id) if $id > 0;
+};
+
 subtest 'PUT update non-existent host' => sub {
   $t->put_ok("$URL/nosuchhost" => $SUPER => json => { ttl => 999 })
     ->status_is(404)
@@ -362,7 +392,7 @@ subtest 'PUT update non-existent host' => sub {
 subtest 'DELETE host' => sub {
   # Create via API
   $t->post_ok($URL => $USER => json => {
-    hostname => "del-${pid}", type => 1,
+    hostname => "del-${pid}", type => 'host',
     ips => [{ ip => '10.0.0.156' }],
   })
     ->status_is(201);
@@ -421,7 +451,7 @@ subtest 'POST copy empty body' => sub {
 
   $t->post_ok("$URL/src1-${pid}/copies" => $SUPER => json => {})
     ->status_is(201)
-    ->json_is('/type' => 1)
+    ->json_is('/type' => 'host')
     ->json_is('/comment' => 'copy me')
     ->json_is('/info' => 'original info')
     ->json_is('/ether' => undef)
@@ -489,7 +519,7 @@ subtest 'POST copy with field overrides' => sub {
 subtest 'POST copy with type override drops invalid source arrays' => sub {
   # Source type 1 with MX + TXT records
   $t->post_ok($URL => $SUPER => json => {
-    hostname => "ovrsrc-${pid}", type => 1,
+    hostname => "ovrsrc-${pid}", type => 'host',
     ips   => [{ ip => '10.0.0.160' }],
     mx_l  => [{ pri => 10, mx => 'mail.example.com.' }],
     txt_l => [{ txt => 'source txt' }],
@@ -499,10 +529,10 @@ subtest 'POST copy with type override drops invalid source arrays' => sub {
   # Override type 1 -> 3 (plain MX): MX + TXT kept (both valid for type 3),
   # but no IP auto-assigned (type 3 holds no IPs)
   $t->post_ok("$URL/ovrsrc-${pid}/copies" => $SUPER => json => {
-    hostname => "ovrmx-${pid}", type => 3,
+    hostname => "ovrmx-${pid}", type => 'mx',
   })
     ->status_is(201)
-    ->json_is('/type'  => 3)
+    ->json_is('/type'  => 'mx')
     ->json_is('/ips'   => [])
     ->json_is('/mx_l/0/mx' => 'mail.example.com.')
     ->json_is('/txt_l/0/txt' => 'source txt');
@@ -510,10 +540,10 @@ subtest 'POST copy with type override drops invalid source arrays' => sub {
 
   # Override type 1 -> 9 (DHCP only): MX/TXT dropped (invalid for type 9)
   $t->post_ok("$URL/ovrsrc-${pid}/copies" => $SUPER => json => {
-    hostname => "ovrdhcp-${pid}", type => 9, ips => [{ ip => '10.0.0.161' }],
+    hostname => "ovrdhcp-${pid}", type => 'dhcp_only', ips => [{ ip => '10.0.0.161' }],
   })
     ->status_is(201)
-    ->json_is('/type'  => 9)
+    ->json_is('/type'  => 'dhcp_only')
     ->json_is('/mx_l'  => undef)
     ->json_is('/txt_l' => undef);
   my $dhcp_id = $t->tx->res->json->{id};
@@ -521,7 +551,7 @@ subtest 'POST copy with type override drops invalid source arrays' => sub {
   # Same-type copy (empty body): source arrays inherited, IP auto-assigned
   $t->post_ok("$URL/ovrsrc-${pid}/copies" => $SUPER => json => {})
     ->status_is(201)
-    ->json_is('/type' => 1)
+    ->json_is('/type' => 'host')
     ->json_is('/mx_l/0/mx' => 'mail.example.com.')
     ->json_is('/txt_l/0/txt' => 'source txt')
     ->json_has('/ips/0/ip');

@@ -116,7 +116,7 @@ export const hostsApi = {
   },
   get: (serverName: string, zoneName: string, hostname: string) =>
     api.get<Host>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts/${encodeURIComponent(hostname)}`),
-  create: (serverName: string, zoneName: string, data: { hostname: string; type: number; ips?: IpEntry[]; [key: string]: unknown }) =>
+  create: (serverName: string, zoneName: string, data: { hostname: string; type: string; ips?: IpEntry[]; [key: string]: unknown }) =>
     api.post<Host>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts`, data),
   update: (serverName: string, zoneName: string, hostname: string, data: Partial<Host>) =>
     api.put<Host>(`/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/hosts/${encodeURIComponent(hostname)}`, data),

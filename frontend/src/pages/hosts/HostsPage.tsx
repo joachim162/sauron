@@ -95,7 +95,7 @@ export default function HostsPage() {
     );
   }, [zoneName, setSearchParams]);
 
-  const needsNet = ["1", "101"].includes(selectedType);
+  const needsNet = ["host", "reservation"].includes(selectedType);
 
   const { data: assignableNets } = useQuery({
     queryKey: ["assignable-subnets", serverName],
@@ -103,19 +103,19 @@ export default function HostsPage() {
     enabled: !!serverName && createOpen && needsNet,
   });
 
-  const HOST_CREATE_FIELDS: Record<number, {
+  const HOST_CREATE_FIELDS: Record<string, {
     inputs: Array<{ key: string; label: string; placeholder: string }>;
     toPayload: (fd: FormData) => Record<string, unknown>;
   }> = {
-    1: {
+    host: {
       inputs: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10" }],
       toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [{ ip: v }] } : {}; },
     },
-    2: {
+    delegation: {
       inputs: [{ key: "ns", label: "NS Server", placeholder: "ns1.example.com" }],
       toPayload: (fd) => { const v = fd.get("ns") as string; return v ? { ns_l: [{ ns: v, comment: "" }] } : {}; },
     },
-    3: {
+    mx: {
       inputs: [
         { key: "pri", label: "Priority", placeholder: "10" },
         { key: "mx", label: "MX Target", placeholder: "mail.example.com" },
@@ -126,23 +126,23 @@ export default function HostsPage() {
         return (pri && mx) ? { mx_l: [{ pri: Number(pri), mx, comment: "" }] } : {};
       },
     },
-    4: {
+    alias: {
       inputs: [{ key: "cname_txt", label: "CNAME Target", placeholder: "target.example.com." }],
       toPayload: (fd) => { const v = fd.get("cname_txt") as string; return v ? { cname_txt: v } : {}; },
     },
-    5: {
+    printer: {
       inputs: [{ key: "printer", label: "Printer Name", placeholder: "printer-name" }],
       toPayload: (fd) => { const v = fd.get("printer") as string; return v ? { printer_l: [{ printer: v, comment: "" }] } : {}; },
     },
-    6: {
+    glue: {
       inputs: [{ key: "ips", label: "IP Address", placeholder: "192.168.1.10" }],
       toPayload: (fd) => { const v = fd.get("ips") as string; return v ? { ips: [{ ip: v }] } : {}; },
     },
-    7: {
+    alias_arec: {
       inputs: [{ key: "arec", label: "AREC Target", placeholder: "192.168.1.10" }],
       toPayload: (fd) => { const v = fd.get("arec") as string; return v ? { alias_a: [{ arec: v }] } : {}; },
     },
-    8: {
+    srv: {
       inputs: [
         { key: "pri", label: "Priority", placeholder: "0" },
         { key: "weight", label: "Weight", placeholder: "100" },
@@ -159,7 +159,7 @@ export default function HostsPage() {
           : {};
       },
     },
-    9: {
+    dhcp_only: {
       inputs: [
         { key: "ether", label: "MAC Address", placeholder: "aa:bb:cc:dd:ee:ff" },
         { key: "ips", label: "IP Address", placeholder: "192.168.1.10" },
@@ -171,7 +171,7 @@ export default function HostsPage() {
         return p;
       },
     },
-    11: {
+    sshfp: {
       inputs: [
         { key: "algorithm", label: "Algorithm", placeholder: "1" },
         { key: "hashtype", label: "Hash Type", placeholder: "1" },
@@ -186,7 +186,7 @@ export default function HostsPage() {
           : {};
       },
     },
-    12: {
+    tlsa: {
       inputs: [
         { key: "usage", label: "Usage", placeholder: "0" },
         { key: "selector", label: "Selector", placeholder: "0" },
@@ -203,11 +203,11 @@ export default function HostsPage() {
           : {};
       },
     },
-    13: {
+    txt: {
       inputs: [{ key: "txt", label: "TXT Value", placeholder: "v=spf1 ..." }],
       toPayload: (fd) => { const v = fd.get("txt") as string; return v ? { txt_l: [{ txt: v, comment: "" }] } : {}; },
     },
-    101: {
+    reservation: {
       inputs: [
         { key: "ether", label: "MAC Address", placeholder: "aa:bb:cc:dd:ee:ff" },
         { key: "ips", label: "IP Address", placeholder: "192.168.1.10" },
@@ -251,7 +251,7 @@ export default function HostsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: (data: { hostname: string; type: number; [key: string]: unknown }) =>
+    mutationFn: (data: { hostname: string; type: string; [key: string]: unknown }) =>
       hostsApi.create(serverName!, zoneName!, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
@@ -435,13 +435,13 @@ export default function HostsPage() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
-                const type = Number(fd.get("type"));
-                const payload: { hostname: string; type: number; [key: string]: unknown } = {
+                const type = fd.get("type") as string;
+                const payload: { hostname: string; type: string; [key: string]: unknown } = {
                   hostname: fd.get("domain") as string,
                   type,
                 };
                 const cfg = HOST_CREATE_FIELDS[type];
-                if (type === 1 || type === 101) {
+                if (type === "host" || type === "reservation") {
                   if (selectedNet !== "manual") {
                     payload.net = selectedNet;
                     const ether = (fd.get("ether") as string) || "";
@@ -467,7 +467,7 @@ export default function HostsPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="type">Type</Label>
-                <Select name="type" defaultValue="1" onValueChange={(v) => { setSelectedType(v); setTypeTouched(true); setSelectedNet("manual"); }}>
+                <Select name="type" defaultValue="host" onValueChange={(v) => { setSelectedType(v); setTypeTouched(true); setSelectedNet("manual"); }}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -513,7 +513,7 @@ export default function HostsPage() {
                   <Input id="ether" name="ether" placeholder="aa:bb:cc:dd:ee:ff" />
                 </div>
               )}
-              {typeTouched && !needsNet && HOST_CREATE_FIELDS[Number(selectedType)]?.inputs.map((field) => (
+              {typeTouched && !needsNet && HOST_CREATE_FIELDS[selectedType]?.inputs.map((field) => (
                 <div className="space-y-2" key={field.key}>
                   <Label htmlFor={field.key}>{field.label}</Label>
                   <Input id={field.key} name={field.key} placeholder={field.placeholder} />

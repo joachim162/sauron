@@ -323,7 +323,7 @@ export default function HostDetailPage() {
   const [editing, setEditing] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [aliasOpen, setAliasOpen] = useState(false);
-  const [aliasType, setAliasType] = useState<string>("4");
+  const [aliasType, setAliasType] = useState<string>("alias");
   const [aliasError, setAliasError] = useState<string | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyHostname, setCopyHostname] = useState("");
@@ -355,7 +355,7 @@ export default function HostDetailPage() {
   const { data: assignableNets } = useQuery({
     queryKey: ["assignable-subnets", serverName],
     queryFn: () => netsApi.assignable(serverName!),
-    enabled: !!serverName && (copyOpen || moveOpen) && (host?.type === 1 || host?.type === 101),
+    enabled: !!serverName && (copyOpen || moveOpen) && (host?.type === "host" || host?.type === "reservation"),
   });
 
   // Pre-select the source host's subnet in the copy dialog (matches CGI
@@ -422,7 +422,7 @@ export default function HostDetailPage() {
   });
 
   const aliasMutation = useMutation({
-    mutationFn: (data: { hostname: string; type: number; alias: number; ttl?: number }) =>
+    mutationFn: (data: { hostname: string; type: string; alias: number; ttl?: number }) =>
       hostsApi.create(serverName!, zoneName!, data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["hosts"] });
@@ -657,7 +657,7 @@ export default function HostDetailPage() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    disabled={host.type !== 1}
+                    disabled={host.type !== "host"}
                     onClick={() => {
                       const d = host as Record<string, unknown>;
                       const domain = d.domain as string;
@@ -679,9 +679,9 @@ export default function HostDetailPage() {
                     <Copy className="mr-2 h-4 w-4" /> Copy
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={host.type !== 1}
+                    disabled={host.type !== "host"}
                     onClick={() => {
-                      setAliasType("4");
+                      setAliasType("alias");
                       setAliasError(null);
                       setAliasOpen(true);
                     }}
@@ -689,7 +689,7 @@ export default function HostDetailPage() {
                     <Link className="mr-2 h-4 w-4" /> Add Alias
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={host.type !== 1}
+                    disabled={host.type !== "host"}
                     onClick={() => {
                       const d = host as Record<string, unknown>;
                       const ips = (d.ips as { ip: string }[] | undefined) ?? [];
@@ -704,16 +704,16 @@ export default function HostDetailPage() {
                     <ArrowRightLeft className="mr-2 h-4 w-4" /> Move
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={host.type !== 1 && host.type !== 101}
+                    disabled={host.type !== "host" && host.type !== "reservation"}
                     onClick={() => {
-                      if (host.type === 1) {
-                        updateMutation.mutate({ type: 101 } as Partial<Host>);
+                      if (host.type === "host") {
+                        updateMutation.mutate({ type: "reservation" } as Partial<Host>);
                       } else {
-                        updateMutation.mutate({ type: 1 } as Partial<Host>);
+                        updateMutation.mutate({ type: "host" } as Partial<Host>);
                       }
                     }}
                   >
-                    {host.type === 101 ? (
+                    {host.type === "reservation" ? (
                       <><Play className="mr-2 h-4 w-4" /> Enable</>
                     ) : (
                       <><Ban className="mr-2 h-4 w-4" /> Disable</>
@@ -754,7 +754,7 @@ export default function HostDetailPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
                       <Label htmlFor="type" className="text-xs">Type</Label>
-                      <Select name="type" defaultValue={String(host.type)}>
+                      <Select name="type" defaultValue={host.type}>
                         <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           {Object.entries(HOST_TYPES).map(([val, label]) => (
@@ -1152,9 +1152,9 @@ export default function HostDetailPage() {
                 setAliasError("Hostname is required.");
                 return;
               }
-              const data: { hostname: string; type: number; alias: number; ttl?: number } = {
+              const data: { hostname: string; type: string; alias: number; ttl?: number } = {
                 hostname: aliasHostname,
-                type: Number(aliasType),
+                type: aliasType,
                 alias: host.id,
               };
               // TODO: move TTL inheritance to the API repository so the frontend
@@ -1177,8 +1177,8 @@ export default function HostDetailPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="4">CNAME alias</SelectItem>
-                  <SelectItem value="7">AREC alias</SelectItem>
+                  <SelectItem value="alias">CNAME alias</SelectItem>
+                  <SelectItem value="alias_arec">AREC alias</SelectItem>
                 </SelectContent>
               </Select>
             </div>

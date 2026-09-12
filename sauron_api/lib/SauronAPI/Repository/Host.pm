@@ -5,7 +5,7 @@ use warnings;
 use Exporter 'import';
 our @EXPORT_OK = qw(
   host_list host_list_server host_find host_create host_update host_delete
-  host_copy host_move
+  host_copy host_move host_type_code host_type_slug
 );
 
 use Sauron::BackEnd ();
@@ -126,10 +126,49 @@ sub _validate_type_fields {
   my %valid = map { $_ => 1 } @{$TYPE_FIELDS{$type} // []};
   for my $field (keys %$json) {
     next if $UNIVERSAL_FIELDS{$field};
-    return "Field '$field' is not valid for host type $type"
+    return "Field '$field' is not valid for host type '" . host_type_slug($type) . "'"
       unless $valid{$field};
   }
   return undef;
+}
+
+# ---------------------------------------------------------------------------
+# Host type slugs (ADR 0006). Wire representation is the slug; the database
+# and BackEnd keep integer codes. This module owns the translation.
+# ---------------------------------------------------------------------------
+
+my %TYPE_CODE = (
+  misc        => 0,
+  host        => 1,
+  delegation  => 2,
+  mx          => 3,
+  alias       => 4,
+  printer     => 5,
+  glue        => 6,
+  alias_arec  => 7,
+  srv         => 8,
+  dhcp_only   => 9,
+  zone        => 10,
+  sshfp       => 11,
+  tlsa        => 12,
+  txt         => 13,
+  naptr       => 14,
+  caa         => 15,
+  reservation => 101,
+);
+my %TYPE_SLUG = reverse %TYPE_CODE;
+
+sub host_type_code {
+  my ($slug) = @_;
+  SauronAPI::Exception->validation(
+    "Invalid host type '" . (defined $slug ? $slug : 'undef') . "'"
+  ) unless defined $slug && exists $TYPE_CODE{$slug};
+  return $TYPE_CODE{$slug};
+}
+
+sub host_type_slug {
+  my ($code) = @_;
+  return $TYPE_SLUG{$code} // $code;
 }
 
 # ---------------------------------------------------------------------------
@@ -266,6 +305,7 @@ sub _build_host_list_item {
 
   my %item;
   @item{@LIST_COLUMNS} = @$row;
+  $item{type} = host_type_slug($item{type});
   $item{cuser} =~ s/\s+$// if defined $item{cuser};
   $item{muser} =~ s/\s+$// if defined $item{muser};
   $item{zone_id} = $zone_id;
@@ -299,7 +339,8 @@ sub host_create {
     );
   }
 
-  my $type = $input->{type} // 1;
+  my $type = exists $input->{type} ? host_type_code($input->{type}) : 1;
+  $input->{type} = $type;
 
   if (my $err = _validate_type_fields($input, $type)) {
     SauronAPI::Exception->validation($err);
@@ -354,12 +395,15 @@ sub host_update {
   check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Failed to retrieve host data');
 
-  if (exists $input->{type} && $input->{type} != $host_data{type}) {
-    my $from = $host_data{type};
-    my $to   = $input->{type};
-    unless (($from == 1 && $to == 101) || ($from == 101 && $to == 1)) {
-      SauronAPI::Exception->validation("'type' is immutable after creation");
+  if (exists $input->{type}) {
+    my $to = host_type_code($input->{type});
+    if ($to != $host_data{type}) {
+      my $from = $host_data{type};
+      unless (($from == 1 && $to == 101) || ($from == 101 && $to == 1)) {
+        SauronAPI::Exception->validation("'type' is immutable after creation");
+      }
     }
+    $input->{type} = $to;
   }
 
   if (my $err = _validate_type_fields($input, $host_data{type})) {
@@ -428,8 +472,9 @@ sub host_copy {
   check_rc(Sauron::BackEnd::get_host($source_id, \%source),
          'Failed to retrieve source host data');
 
-  # Determine effective type for validation
-  my $effective_type = exists $input->{type} ? $input->{type} : $source{type};
+  # Determine effective type for validation (input is a slug, stored type a code)
+  my $effective_type = exists $input->{type} ? host_type_code($input->{type}) : $source{type};
+  $input->{type} = $effective_type if exists $input->{type};
 
   # Validate array fields against the effective type (parity with host_create)
   if (my $err = _validate_type_fields($input, $effective_type)) {
@@ -579,7 +624,7 @@ sub host_move {
          'Failed to retrieve host data');
 
   if ($host{type} != 1) {
-    SauronAPI::Exception->validation("Move is only available for host type 1");
+    SauronAPI::Exception->validation("Move is only available for host type 'host'");
   }
 
   my $has_ip   = exists $input->{ip};
@@ -747,7 +792,7 @@ sub _add_host {
   if ($host_id == -27) {
     my $err = Sauron::BackEnd::host_required_data_error($rec);
     SauronAPI::Exception->validation(
-      ($err && $err ne '') ? $err : "Missing required data for host type $rec->{type}"
+      ($err && $err ne '') ? $err : "Missing required data for host type '" . host_type_slug($rec->{type}) . "'"
     );
   }
   if ($host_id < 0) {
@@ -779,7 +824,7 @@ sub _resolve_ips_for_create {
   if ($net) {
     unless ($type == 1 || $type == 101) {
       SauronAPI::Exception->validation(
-        "Auto-assignment ('net') is only valid for host types 1 and 101"
+      "Auto-assignment ('net') is only valid for host types 'host' and 'reservation'"
       );
     }
   }
@@ -909,7 +954,7 @@ sub _build_host_response {
     zone_id           => $zone_id,
     server_id         => $server_id,
     server            => $server_name,
-    type              => $host_data->{type},
+    type              => host_type_slug($host_data->{type}),
     ttl               => $host_data->{ttl},
     class             => $host_data->{class},
     grp               => $host_data->{grp},

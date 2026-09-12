@@ -174,7 +174,7 @@ subtest 'host_find throws not_found when host missing' => sub {
 
 subtest 'host_create throws validation when hostname missing' => sub {
   _reset_mocks;
-  eval { host_create(7, 42, { type => 1 }) };
+  eval { host_create(7, 42, { type => 'host' }) };
   isa_ok $@, 'SauronAPI::Exception';
   is $@->status, 400, 'status 400';
   like $@->message, qr/hostname/, 'mentions hostname';
@@ -185,10 +185,19 @@ subtest 'host_create throws conflict when hostname already exists' => sub {
   _mock_back_end(
     get_host_id => sub { 99 },
   );
-  eval { host_create(7, 42, { hostname => 'dup', type => 1 }) };
+  eval { host_create(7, 42, { hostname => 'dup', type => 'host' }) };
   isa_ok $@, 'SauronAPI::Exception';
   is $@->status, 409, 'status 409';
   like $@->message, qr/already exists/, 'mentions existing host';
+};
+
+subtest 'host_create rejects unknown type slug' => sub {
+  _reset_mocks;
+  _mock_back_end( get_host_id => sub { -1 } );
+  eval { host_create(7, 42, { hostname => 'x', type => 'bogus' }) };
+  isa_ok $@, 'SauronAPI::Exception';
+  is $@->status, 400, 'status 400';
+  like $@->message, qr/Invalid host type 'bogus'/, 'mentions invalid type slug';
 };
 
 subtest 'host_create throws validation on type-invalid field' => sub {
@@ -198,7 +207,7 @@ subtest 'host_create throws validation on type-invalid field' => sub {
   );
   eval {
     host_create(7, 42, {
-      hostname => 'newone', type => 4, srv_l => [{ pri => 1, weight => 1, port => 80, target => 'x', comment => '' }],
+      hostname => 'newone', type => 'alias', srv_l => [{ pri => 1, weight => 1, port => 80, target => 'x', comment => '' }],
     });
   };
   isa_ok $@, 'SauronAPI::Exception';
@@ -268,7 +277,7 @@ subtest 'host_create auto-assign invokes on_ip callback' => sub {
   my $on_ip = sub { $checked_ip = $_[0] };
   my $host = eval {
     host_create(7, 42,
-      { hostname => 'auto', type => 1, net => '10.0.0.0/24' },
+      { hostname => 'auto', type => 'host', net => '10.0.0.0/24' },
       on_ip => $on_ip);
   };
   ok !$@, 'no exception: ' . ($@ // '');
@@ -286,7 +295,7 @@ subtest 'host_create on_ip throwing forbidden aborts create' => sub {
   my $on_ip = sub { SauronAPI::Exception->forbidden('denied') };
   eval {
     host_create(7, 42,
-      { hostname => 'x', type => 1, ips => [{ ip => '10.0.0.5' }] },
+      { hostname => 'x', type => 'host', ips => [{ ip => '10.0.0.5' }] },
       on_ip => $on_ip);
   };
   isa_ok $@, 'SauronAPI::Exception';
@@ -307,7 +316,7 @@ subtest 'host_create ips flags default to t,t and explicit flags preserved' => s
 
   my $host = eval {
     host_create(7, 42, {
-      hostname => 'flags', type => 1,
+      hostname => 'flags', type => 'host',
       ips => [
         { ip => '10.0.0.1' },
         { ip => '10.0.0.2', reverse => 0, forward => 0 },
@@ -326,7 +335,7 @@ subtest 'host_create ips flags default to t,t and explicit flags preserved' => s
 subtest 'host_create rejects malformed ips items' => sub {
   _reset_mocks;
   _mock_back_end( get_host_id => sub { -1 } );
-  eval { host_create(7, 42, { hostname => 'x', type => 1, ips => ['10.0.0.5'] }) };
+  eval { host_create(7, 42, { hostname => 'x', type => 'host', ips => ['10.0.0.5'] }) };
   isa_ok $@, 'SauronAPI::Exception';
   is $@->status, 400, 'plain string item rejected with 400';
 };
@@ -349,6 +358,7 @@ subtest 'host_find decodes ips into objects with boolean flags' => sub {
 
   my $host = eval { host_find(7, 10, 'web01') };
   ok !$@, 'no exception: ' . ($@ // '');
+  is $host->{type}, 'host', 'type encoded as slug';
   is scalar @{$host->{ips}}, 2, 'two ip entries';
   is $host->{ips}[0]{ip}, '10.0.0.9', 'first ip';
   ok $host->{ips}[0]{reverse}, 'first reverse true';

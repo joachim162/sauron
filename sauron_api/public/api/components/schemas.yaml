@@ -870,6 +870,31 @@ UpdateZone:
         by the backend but is automatically populated from the existing zone value
         to maintain immutability semantics.
 
+HostType:
+  type: string
+  enum:
+    - misc
+    - host
+    - delegation
+    - mx
+    - alias
+    - printer
+    - glue
+    - alias_arec
+    - srv
+    - dhcp_only
+    - zone
+    - sshfp
+    - tlsa
+    - txt
+    - naptr
+    - caa
+    - reservation
+  description: >
+    Host record type. 'host' includes 'reservation' matches when filtering
+    (a reservation is a disabled host). 'reservation' is a disabled host
+    (address reservation without DNS).
+  example: host
 HostFields:
   type: object
   description: >
@@ -1274,14 +1299,7 @@ Host:
           type: string
           example: example-server
         type:
-          type: integer
-          example: 1
-          description: >
-            Host type:
-            0=misc, 1=host, 2=subdomain (delegation), 3=mx entry,
-            4=alias (cname), 5=printer, 6=glue record, 7=alias (arec),
-            8=srv entry, 9=dhcp only, 10=zone, 11=sshfp entry,
-            12=tlsa entry, 13=txt entry, 14=naptr entry, 101=host reservation
+          $ref: '#/HostType'
         dhcp_date:
           type: integer
           nullable: true
@@ -1327,8 +1345,7 @@ HostListItem:
       type: string
       example: www
     type:
-      type: integer
-      example: 1
+      $ref: '#/HostType'
     zone_id:
       type: integer
       example: 10
@@ -1443,14 +1460,7 @@ NewHost:
           description: Hostname within the zone (e.g., www, db01)
           example: www
         type:
-          type: integer
-          description: >
-            Host type:
-            0=misc, 1=host, 2=subdomain (delegation), 3=mx entry,
-            4=alias (cname), 5=printer, 6=glue record, 7=alias (arec),
-            8=srv entry, 9=dhcp only, 10=zone, 11=sshfp entry,
-            12=tlsa entry, 13=txt entry, 14=naptr entry, 101=host reservation
-          example: 1
+          $ref: '#/HostType'
         net:
           type: string
           nullable: true
@@ -1458,7 +1468,7 @@ NewHost:
             Network identifier (CIDR or netname) for automatic IP assignment.
             When provided, the API assigns a free IP from the specified
             network instead of using the 'ips' field. Only valid for host
-            types 1 (host) and 101 (host reservation).
+            types 'host' and 'reservation'.
           example: 192.168.1.0/24
 
 UpdateHost:
@@ -1469,13 +1479,11 @@ UpdateHost:
         Schema for updating an existing host. All fields are optional;
         only provided fields are updated. Array fields use replace-all
         semantics (all existing records of the same type are replaced).
+        The 'type' field only allows the 'host' ↔ 'reservation' transition
+        (disabling/enabling a host); any other type change is rejected.
       properties:
         type:
-          type: integer
-          description: >
-            Host type. Only the 1↔101 transition (host ↔ reservation) is
-            allowed after creation; any other type change is rejected.
-          example: 101
+          $ref: '#/HostType'
 
 CopyHost:
   allOf:

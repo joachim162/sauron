@@ -138,6 +138,8 @@ components:
       $ref: './components/schemas.yaml#/NewZone'
     UpdateZone:
       $ref: './components/schemas.yaml#/UpdateZone'
+    HostType:
+      $ref: './components/schemas.yaml#/HostType'
     HostFields:
       $ref: './components/schemas.yaml#/HostFields'
     Host:
