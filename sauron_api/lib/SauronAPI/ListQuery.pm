@@ -142,8 +142,9 @@ sub _kind_cidr {
     return ([$entry->{col} . " $op ?"], [$value], _echo($name, $value), 0);
   }
   if ($within) {
+    # Bare address: the row (net) containing the address.
     SauronAPI::Exception->validation("Invalid IP address '$value' for '$name'") unless is_ip($value);
-    return ([$entry->{col} . ' = ?'], [$value], _echo($name, $value), 0);
+    return ([$entry->{col} . ' >>= ?'], [$value], _echo($name, $value), 0);
   }
   SauronAPI::Exception->validation("Invalid CIDR '$value' for '$name' (prefix length required)");
 }
@@ -189,7 +190,8 @@ sub parse_sort {
 
   my $default  = $opts{default};
   my $tiebreak = $opts{tiebreak} // 'id';
-  die 'parse_sort requires a default field' unless defined $default;
+  my @default_fields = defined $default ? (ref $default ? @$default : ($default)) : ();
+  die 'parse_sort requires a default field' unless @default_fields;
 
   my @keys;
   if (defined $param && $param ne '') {
@@ -206,7 +208,13 @@ sub parse_sort {
       push @keys, { field => $field, col => $col, dir => $dir };
     }
   }
-  push @keys, { field => $default, col => $columns->{$default}, dir => 'asc' } unless @keys;
+  unless (@keys) {
+    for my $field (@default_fields) {
+      my $col = $columns->{$field}
+        or die "Unknown default sort field '$field'";
+      push @keys, { field => $field, col => $col, dir => 'asc' };
+    }
+  }
   return { keys => \@keys, tiebreak => $tiebreak };
 }
 

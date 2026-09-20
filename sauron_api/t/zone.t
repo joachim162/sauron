@@ -3,6 +3,7 @@ use Mojo::Base -strict;
 use Test::More;
 use Test::Mojo;
 use JSON::PP;
+use Time::Local qw(timegm);
 use FindBin;
 use lib "$FindBin::Bin/lib";
 
@@ -33,8 +34,13 @@ END {
 
 my $srv = create_test_server(name => "srv-zone-${pid}", comment => 'Zone CRUD test');
 my $z1  = create_test_zone(server_id => $srv, name => "zone1-${pid}.example.com");
+my $z2  = create_test_zone(server_id => $srv, name => "zone2-${pid}.example.com", type => 'S');
+Sauron::DB::db_query('UPDATE zones SET comment = ? WHERE id = ?', [], 'Secondary zone fixture', $z2);
+my $z3  = create_test_zone(server_id => $srv, name => "zexp-${pid}.example.com");
+my $z3_expiration = timegm(0, 0, 0, 15, 5, 2035);
+Sauron::DB::db_query('UPDATE zones SET expiration = ? WHERE id = ?', [], $z3_expiration, $z3);
 push @servers, $srv;
-push @zones, $z1;
+push @zones, $z1, $z2, $z3;
 
 my $super = create_test_user(username => "zsuper_${pid}", email => "zsuper_${pid}\@example.com", superuser => 1);
 my $zr    = create_test_user(username => "zr_${pid}",  email => "zr_${pid}\@example.com");
@@ -342,6 +348,118 @@ subtest 'GET zones - totals reflect the authz allowlist' => sub {
   $t->get_ok($URL => $SUPER)->status_is(200);
   is($svr_total, $t->tx->res->json->{metadata}{pagination}{total},
      'server-granted user totals match superuser (mode 0 fallback)');
+};
+
+# ========================================================================
+# FILTERS AND SORTING
+# ========================================================================
+
+subtest 'GET zones - filters (name, type, comment, expiration)' => sub {
+  my $match = "(zone1|zone2|zexp)-${pid}";
+
+  $t->get_ok("$URL?name=^zone" => $SUPER)->status_is(200);
+  my $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 2, 'name regex excludes zexp');
+  ok((grep { $_->{name} eq "zexp-${pid}.example.com" } @{$body->{data}}) == 0,
+     'zexp not matched by ^zone');
+  is_deeply($body->{metadata}{filters}, [ { name => 'name', value => '^zone' } ],
+     'filter echoed');
+  is($body->{metadata}{pagination}{total}, 2, 'total reflects the filtered set');
+
+  $t->get_ok("$URL?type=S&name=^zone" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 1, 'type S filter (within ^zone)');
+  is($body->{data}[0]{name}, "zone2-${pid}.example.com", 'type S is zone2');
+  is_deeply($body->{metadata}{filters}, [
+    { name => 'name', value => '^zone' },
+    { name => 'type', value => 'S' },
+  ], 'name+type echoed, name-sorted');
+
+  $t->get_ok("$URL?comment=Secondary" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 1, 'comment regex matches one zone');
+  is($body->{data}[0]{name}, "zone2-${pid}.example.com", 'comment hit is zone2');
+  is_deeply($body->{metadata}{filters}, [ { name => 'comment', value => 'Secondary' } ],
+     'comment echoed');
+
+  $t->get_ok("$URL?name=$match" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 3, 'all three fixture zones match');
+  my ($hit) = grep { $_->{name} eq "zexp-${pid}.example.com" } @{$body->{data}};
+  is($hit->{expiration}, $z3_expiration, 'expiration present in list items');
+  ok((grep { !defined $_->{expiration} }
+      grep { $_->{name} =~ /^(zone1|zone2)-${pid}/ } @{$body->{data}}) == 2,
+     'zones without expiry have null expiration');
+
+  $t->get_ok("$URL?expiration_from=2035-06-01&expiration_to=2035-06-30&name=$match" => $SUPER)
+    ->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 1, 'expiration range selects only zexp');
+  is($body->{data}[0]{name}, "zexp-${pid}.example.com", 'range hit is zexp');
+  is_deeply($body->{metadata}{filters}, [
+    { name => 'expiration_from', value => '2035-06-01' },
+    { name => 'expiration_to',   value => '2035-06-30' },
+    { name => 'name',            value => $match },
+  ], 'from/to echoed as separate params, name-sorted');
+
+  $t->get_ok("$URL?expiration_from=2036-01-01&expiration_to=2036-12-31&name=$match" => $SUPER)
+    ->status_is(200);
+  is(scalar @{$t->tx->res->json->{data}}, 0, 'expiration range can be empty');
+  is($t->tx->res->json->{metadata}{pagination}{total}, 0, 'empty filtered set totals 0');
+};
+
+subtest 'GET zones - sorting' => sub {
+  my $match = "(zone1|zone2|zexp)-${pid}";
+
+  # Default sort: type, reverse, reversenet, name (M before S, name within type)
+  $t->get_ok("$URL?name=$match" => $SUPER)->status_is(200);
+  my $names = [ map { $_->{name} } @{$t->tx->res->json->{data}} ];
+  is_deeply($names, [ "zexp-${pid}.example.com", "zone1-${pid}.example.com",
+                      "zone2-${pid}.example.com" ],
+     'default order: M zones (zexp < zone1) before the S zone');
+  is_deeply($t->tx->res->json->{metadata}{sort}, [
+    { name => 'type',       direction => 'asc' },
+    { name => 'reverse',    direction => 'asc' },
+    { name => 'reversenet', direction => 'asc' },
+    { name => 'name',       direction => 'asc' },
+  ], 'compound default sort echoed');
+
+  $t->get_ok("$URL?name=$match&sort=name:desc" => $SUPER)->status_is(200);
+  $names = [ map { $_->{name} } @{$t->tx->res->json->{data}} ];
+  is_deeply($names, [ "zone2-${pid}.example.com", "zone1-${pid}.example.com",
+                     "zexp-${pid}.example.com" ], 'explicit name:desc');
+  is_deeply($t->tx->res->json->{metadata}{sort},
+    [ { name => 'name', direction => 'desc' } ], 'explicit sort echoed');
+
+  $t->get_ok("$URL?name=$match&sort=type,name:desc" => $SUPER)->status_is(200);
+  $names = [ map { $_->{name} } @{$t->tx->res->json->{data}} ];
+  is_deeply($names, [ "zone1-${pid}.example.com", "zexp-${pid}.example.com",
+                     "zone2-${pid}.example.com" ],
+     'compound explicit sort: type asc, name desc within type');
+};
+
+subtest 'GET zones - invalid filters and sorts return 400' => sub {
+  $t->get_ok("$URL?type=X" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?bogus=1" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?name=%5B" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?sort=bogus" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?sort=name:sideways" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?expiration_from=not-a-date" => $SUPER)->status_is(400);
+};
+
+subtest 'GET zones - filters compose with the authz allowlist' => sub {
+  # zone-R sees only z1: the type filter must be applied on top of the
+  # allowlist and the total must reflect both.
+  $t->get_ok("$URL?type=S" => $ZONE_R)->status_is(200);
+  my $body = $t->tx->res->json;
+  is_deeply($body->{data}, [], 'type S outside the allowlist: empty');
+  is($body->{metadata}{pagination}{total}, 0, 'total 0');
+
+  $t->get_ok("$URL?type=M" => $ZONE_R)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 1, 'type M within the allowlist: only z1');
+  is($body->{data}[0]{name}, "zone1-${pid}.example.com", 'z1 only (zexp invisible)');
+  is($body->{metadata}{pagination}{total}, 1, 'total reflects allowlist + filter');
 };
 
 done_testing();

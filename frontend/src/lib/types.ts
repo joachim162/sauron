@@ -46,6 +46,7 @@ export interface Zone {
   type: string;
   reverse: boolean;
   comment?: string;
+  expiration?: number | null;
   [key: string]: unknown;
 }
 

@@ -398,7 +398,7 @@ subtest 'GET networks - always-on pagination envelope' => sub {
     ->json_is('/metadata/pagination/per_page'    => 2)
     ->json_is('/metadata/pagination/total'       => $baseline + 5)
     ->json_is('/metadata/pagination/total_pages' => int(($baseline + 5 + 1) / 2))
-    ->json_is('/metadata/sort'                   => [])
+    ->json_is('/metadata/sort'                   => [ { name => 'net', direction => 'asc' } ])
     ->json_is('/metadata/filters'                => []);
   is(scalar @{$t->tx->res->json->{data}}, 2, 'page 1 holds 2 rows');
 
@@ -444,11 +444,11 @@ subtest 'GET networks - free list mode returns unallocated blocks' => sub {
   ok($sub > 0, "created subnet (id=$sub)");
   push @nets, $top, $sub;
 
-  # The removed ?free= boolean is ignored: the request behaves like the
-  # default list=all and shows no gap rows.
-  $t->get_ok("$BASE/networks?free=1&per_page=100" => $SUPER)->status_is(200);
+  # The removed ?free= boolean is rejected as an unknown filter (the
+  # strict unknown-parameter policy replaced the old silent ignoring).
+  $t->get_ok("$BASE/networks?free=1&per_page=100" => $SUPER)->status_is(400);
   my $body = $t->tx->res->json->{data};
-  is(scalar(grep { $_->{id} == -1 } @$body), 0, 'legacy ?free=1 param ignored: no gap rows');
+  is(scalar(grep { $_->{id} == -1 } @$body), 0, 'no gap rows for the rejected request');
 
   # list=free includes the gap rows; totals cover the UNION (single page)
   $t->get_ok("$BASE/networks?list=free&per_page=100" => $SUPER)->status_is(200);
@@ -505,6 +505,87 @@ subtest 'GET networks - free list mode degrades to all for low-alevel users' => 
   is($t->tx->res->json->{metadata}{pagination}{total},
      $free->{metadata}{pagination}{total},
      'downgraded free totals equal list=all totals');
+};
+
+subtest 'GET networks - filters (net, name, netname, comment, vlan)' => sub {
+  # netname regex: exactly the five pagination nets
+  $t->get_ok("$BASE/networks?netname=^page-net&per_page=100" => $SUPER)->status_is(200);
+  my $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 5, 'netname regex matches the five pagination nets');
+  is($body->{metadata}{pagination}{total}, 5, 'total reflects the filtered set');
+  is_deeply($body->{metadata}{filters}, [ { name => 'netname', value => '^page-net' } ],
+     'filter echoed');
+
+  # description regex
+  $t->get_ok("$BASE/networks?name=^Pagination&per_page=100" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 5, 'name (description) regex matches');
+
+  # CIDR containment: nets within 10.160.X.0/24
+  $t->get_ok("$BASE/networks?net=10.160.${OCTET}.0/24&per_page=100" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 3, 'net CIDR: top net, its subnet and the dummy net');
+  ok((grep { $_->{net} eq "10.160.${OCTET}.0/24" } @{$body->{data}}) == 1, 'top net included');
+  ok((grep { $_->{net} eq "10.160.${OCTET}.0/26" } @{$body->{data}}) == 1, 'subnet included');
+  ok((grep { $_->{net} eq "10.160.${OCTET}.128/26" } @{$body->{data}}) == 1, 'dummy net included');
+
+  # Bare address: the net containing the address
+  $t->get_ok("$BASE/networks?net=10.88.${OCTET}.1&per_page=100" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 1, 'bare IP matches exactly one containing net');
+  is($body->{data}[0]{net}, $CIDR, 'containing net is the fixture subnet');
+
+  # comment regex: the PUT subtests leave the fixture comment as 'Partial update only'
+  $t->get_ok("$BASE/networks?comment=^Partial&per_page=100" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar(grep { $_->{netname} eq $NETNAME } @{$body->{data}}), 1,
+     'comment regex matches the fixture net');
+
+  # Empty result: filter applies, envelope intact
+  $t->get_ok("$BASE/networks?netname=^no-such-net" => $SUPER)->status_is(200);
+  $body = $t->tx->res->json;
+  is_deeply($body->{data}, [], 'non-matching netname: empty data');
+  is($body->{metadata}{pagination}{total}, 0, 'empty filtered set totals 0');
+
+  # Server-R user sees the same filtered set
+  $t->get_ok("$BASE/networks?netname=^page-net&per_page=100" => $RUSER)->status_is(200);
+  is($t->tx->res->json->{metadata}{pagination}{total}, 5, 'server-R user filtered totals');
+};
+
+subtest 'GET networks - sorting' => sub {
+  $t->get_ok("$BASE/networks?netname=^page-net&sort=netname:desc" => $SUPER)->status_is(200);
+  my $body = $t->tx->res->json;
+  is_deeply([ map { $_->{netname} } @{$body->{data}} ],
+    [ map { "page-net${_}-${pid}" } reverse 1 .. 5 ], 'netname:desc order');
+  is_deeply($body->{metadata}{sort},
+    [ { name => 'netname', direction => 'desc' } ], 'explicit sort echoed');
+
+  $t->get_ok("$BASE/networks?netname=^page-net&sort=net:desc" => $SUPER)->status_is(200);
+  my @nets = map { $_->{net} } @{$t->tx->res->json->{data}};
+  is_deeply(\@nets, [ map { '10.' . (150 + $_) . ".$OCTET.0/24" } reverse 1 .. 5 ],
+     'net:desc orders by descending inet value');
+};
+
+subtest 'GET networks - invalid filters and sorts return 400' => sub {
+  $t->get_ok("$BASE/networks?bogus=1" => $SUPER)->status_is(400);
+  $t->get_ok("$BASE/networks?name=%5B" => $SUPER)->status_is(400);
+  $t->get_ok("$BASE/networks?net=10.0.0.0/33" => $SUPER)->status_is(400);
+  $t->get_ok("$BASE/networks?net=banana" => $SUPER)->status_is(400);
+  $t->get_ok("$BASE/networks?vlan=abc" => $SUPER)->status_is(400);
+  $t->get_ok("$BASE/networks?sort=bogus" => $SUPER)->status_is(400);
+};
+
+subtest 'GET networks - free mode ignores filters for pseudo rows' => sub {
+  # Filters apply to real nets only: a filter matching nothing must not
+  # remove the unallocated pseudo rows, and the total must stay consistent.
+  $t->get_ok("$BASE/networks?list=free&netname=^no-such-net&per_page=100" => $SUPER)
+    ->status_is(200);
+  my $body = $t->tx->res->json;
+  my @gaps = grep { $_->{id} == -1 } @{$body->{data}};
+  ok(@gaps > 0, 'pseudo rows survive the filter');
+  is(scalar @{$body->{data}}, scalar @gaps, 'no real nets match the filter');
+  is($body->{metadata}{pagination}{total}, scalar @{$body->{data}},
+     'totals stay consistent (single page)');
 };
 
 done_testing();

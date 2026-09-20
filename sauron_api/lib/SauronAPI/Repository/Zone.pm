@@ -11,7 +11,8 @@ use Sauron::BackEnd ();
 use Sauron::Util   ();
 use SauronAPI::Codecs     qw(aml mx value forwarder);
 use SauronAPI::Exception  ();
-use SauronAPI::Repository qw(dbq check_rc);
+use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
+use SauronAPI::Repository  qw(dbq check_rc with_statement_timeout);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -45,6 +46,31 @@ my @COPY_FIELDS = qw(
 );
 
 # ---------------------------------------------------------------------------
+# List filters and sorting
+# ---------------------------------------------------------------------------
+
+# Defensive statement timeout for the filtered list queries (ADR 0007):
+# user-supplied regex must not be able to pin database resources.
+my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
+
+my %FILTER_SPEC = (
+  name       => { kind => 'regex', col => 'name' },
+  type       => { kind => 'enum',  col => 'type', values => [qw(M S H F C A)] },
+  reverse    => { kind => 'bool',  col => 'reverse' },
+  comment    => { kind => 'regex', col => 'comment' },
+  expiration => { kind => 'date_range', col => 'expiration' },
+);
+
+my %SORT_COLUMN = (
+  name       => 'name',
+  type       => 'type',
+  reverse    => 'reverse',
+  reversenet => 'reversenet',
+  expiration => 'expiration',
+  comment    => 'comment',
+);
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -55,48 +81,49 @@ sub zone_list {
   my $per_page = $opts{per_page} // 50;
   my $ids      = $opts{ids};    # undef = no authz filter
 
+  my $sort = parse_sort($opts{sort}, \%SORT_COLUMN,
+    default => [qw(type reverse reversenet name)], tiebreak => 'id');
+  my $filters = compile_filters($opts{params} // {}, \%FILTER_SPEC);
+  my $meta = list_metadata($page, $per_page, sort_echo($sort), $filters->{echo});
+
   my @bind = ($server_id);
-  my $where = " WHERE server=? ";
+  my @where = ('server=?');
   if ($ids) {
-    return ([], _list_metadata($page, $per_page, 0)) unless @$ids;
-    $where .= " AND id IN (" . join(',', ('?') x @$ids) . ")";
+    return ([], $meta) unless @$ids;
+    push @where, 'id IN (' . join(',', ('?') x @$ids) . ')';
     push @bind, @$ids;
   }
+  if ($filters->{empty}) {
+    return ([], $meta);
+  }
+  if ($filters->{where}) {
+    push @where, $filters->{where};
+    push @bind,  @{$filters->{bind}};
+  }
+  my $where = ' WHERE ' . join(' AND ', @where);
 
-  my $rows = dbq(
-    "SELECT name,id,type,reverse,comment FROM zones" . $where .
-    " ORDER BY type,reverse,reversenet,name LIMIT ? OFFSET ?",
-    @bind, $per_page, ($page - 1) * $per_page
-  );
+  my ($rows, $count_rows);
+  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+    $rows = dbq(
+      'SELECT name,id,type,reverse,comment,expiration FROM zones' . $where .
+      ' ' . sort_sql($sort) . ' LIMIT ? OFFSET ?',
+      @bind, $per_page, ($page - 1) * $per_page
+    );
+    $count_rows = dbq('SELECT COUNT(*) FROM zones' . $where, @bind);
+  });
+  set_total($meta, $count_rows->[0][0] // 0);
 
   my $zones = [ map { +{
-    id        => $_->[1],
-    server_id => $server_id,
-    name      => $_->[0],
-    type      => $_->[2],
-    reverse   => (($_->[3] // '') eq 't' ? JSON::PP::true : JSON::PP::false),
-    comment   => $_->[4] // '',
+    id         => $_->[1],
+    server_id  => $server_id,
+    name       => $_->[0],
+    type       => $_->[2],
+    reverse    => (($_->[3] // '') eq 't' ? JSON::PP::true : JSON::PP::false),
+    comment    => $_->[4] // '',
+    expiration => $_->[5],
   } } @$rows ];
 
-  my $count_rows = dbq("SELECT COUNT(*) FROM zones" . $where, @bind);
-  my $total = $count_rows->[0][0] // 0;
-
-  return ($zones, _list_metadata($page, $per_page, $total));
-}
-
-sub _list_metadata {
-  my ($page, $per_page, $total) = @_;
-
-  return {
-    pagination => {
-      total       => $total,
-      page        => $page,
-      per_page    => $per_page,
-      total_pages => $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0,
-    },
-    sort    => [],
-    filters => [],
-  };
+  return ($zones, $meta);
 }
 
 sub zone_find {

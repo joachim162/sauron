@@ -306,4 +306,59 @@ subtest 'GET /servers - totals reflect the authz allowlist' => sub {
   is($none->{metadata}{pagination}{total_pages}, 0, 'no-access total_pages 0');
 };
 
+# ========================================================================
+# FILTERS AND SORTING
+# ========================================================================
+
+subtest 'GET /servers - filters (name, comment)' => sub {
+  # Server-R user's allowlist is exactly the fixture server, so the
+  # filtered total is deterministic even with unrelated servers in the DB.
+  $t->get_ok("$URL?name=srv-server-${pid}" => $SVR_R)->status_is(200);
+  my $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 1, 'name regex matches the fixture server');
+  is($body->{data}[0]{id}, $srv, 'hit is the fixture server');
+  is($body->{metadata}{pagination}{total}, 1, 'total reflects allowlist + filter');
+  is_deeply($body->{metadata}{filters}, [ { name => 'name', value => "srv-server-${pid}" } ],
+     'filter echoed');
+
+  $t->get_ok("$URL?name=^no-such-server" => $SVR_R)->status_is(200);
+  $body = $t->tx->res->json;
+  is_deeply($body->{data}, [], 'non-matching regex: empty data');
+  is($body->{metadata}{pagination}{total}, 0, 'empty filtered set totals 0');
+
+  # The PUT round-trip subtests leave the fixture comment as 'rw edit'.
+  $t->get_ok("$URL?comment=rw%20edit" => $SVR_R)->status_is(200);
+  $body = $t->tx->res->json;
+  is(scalar @{$body->{data}}, 1, 'comment regex matches');
+  is($body->{data}[0]{id}, $srv, 'comment hit is the fixture server');
+  is_deeply($body->{metadata}{filters}, [ { name => 'comment', value => 'rw edit' } ],
+     'comment echoed');
+};
+
+subtest 'GET /servers - sorting' => sub {
+  $t->get_ok("$URL" => $SVR_R)->status_is(200);
+  is_deeply($t->tx->res->json->{metadata}{sort},
+    [ { name => 'name', direction => 'asc' } ], 'default sort echoed');
+  is_deeply([ map { $_->{name} } @{$t->tx->res->json->{data}} ],
+    [ "srv-server-${pid}" ], 'single visible server sorted by name');
+
+  # Compare the API against itself: name:desc must be the exact reverse of
+  # name asc (avoids depending on the database collation in the test).
+  $t->get_ok("$URL?per_page=100&sort=name" => $SUPER)->status_is(200);
+  my @asc = map { $_->{name} } @{$t->tx->res->json->{data}};
+  $t->get_ok("$URL?per_page=100&sort=name:desc" => $SUPER)->status_is(200);
+  my @desc = map { $_->{name} } @{$t->tx->res->json->{data}};
+  ok(scalar(@asc) >= 1, 'at least one visible server for the order check');
+  is_deeply(\@desc, [ reverse @asc ], 'name:desc is the reverse of name asc');
+  is_deeply($t->tx->res->json->{metadata}{sort},
+    [ { name => 'name', direction => 'desc' } ], 'explicit sort echoed');
+};
+
+subtest 'GET /servers - invalid filters and sorts return 400' => sub {
+  $t->get_ok("$URL?bogus=1" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?name=%5B" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?sort=bogus" => $SUPER)->status_is(400);
+  $t->get_ok("$URL?sort=name:sideways" => $SUPER)->status_is(400);
+};
+
 done_testing();

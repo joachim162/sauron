@@ -122,7 +122,7 @@ subtest 'cidr kind' => sub {
   is_deeply($r->{bind}, ['10.0.0.0/24']);
 
   $r = compile_filters({ net => '10.0.0.1' }, \%SPEC);
-  is($r->{where}, 'n.net = ?', 'bare address -> equality');
+  is($r->{where}, 'n.net >>= ?', 'bare address -> containing net');
   is_deeply($r->{bind}, ['10.0.0.1']);
 
   for my $bad (qw(10.0.0.999 10.0.0.0/33 banana)) {

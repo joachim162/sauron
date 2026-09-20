@@ -11,8 +11,32 @@ use Sauron::BackEnd ();
 use Sauron::Util   ();
 use SauronAPI::Codecs     qw(value);
 use SauronAPI::Exception  ();
-use SauronAPI::Repository qw(dbq check_rc);
+use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
+use SauronAPI::Repository qw(dbq check_rc with_statement_timeout);
 use JSON::PP ();
+
+# ---------------------------------------------------------------------------
+# List filters and sorting
+# ---------------------------------------------------------------------------
+
+# Defensive statement timeout for the filtered list queries (ADR 0007):
+# user-supplied regex must not be able to pin database resources.
+my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
+
+my %FILTER_SPEC = (
+  net     => { kind => 'cidr',   col => 'net', within => 1 },
+  name    => { kind => 'regex',  col => 'name' },
+  netname => { kind => 'regex',  col => 'netname' },
+  comment => { kind => 'regex',  col => 'comment' },
+  vlan    => { kind => 'int',    col => 'vlan' },
+);
+
+my %SORT_COLUMN = (
+  net     => 'net',
+  name    => 'name',
+  netname => 'netname',
+  vlan    => 'vlan',
+);
 
 # ---------------------------------------------------------------------------
 # Field tables (moved from SauronAPI::Controller::Net)
@@ -53,35 +77,47 @@ sub net_id_for {
 sub net_list {
   my ($server_id, %opts) = @_;
 
-  my $rows = _list_rows($server_id, %opts);
-  my $vlan_map = $opts{include_vlan_names} ? _vlan_map($server_id) : undef;
-  my @nets = map { _build_net_list_response($_, $vlan_map) } @$rows;
+  # Sort spec and filters; the `list` mode is repo-local (ADR 0003) and must
+  # not be rejected as an unknown filter when the raw params hash is passed.
+  my $sort = parse_sort($opts{sort}, \%SORT_COLUMN, default => 'net', tiebreak => 'id');
+  my $filters = compile_filters($opts{params} // {}, \%FILTER_SPEC,
+    ignore => [qw(list)]);
+  my %qopts = (filters => $filters, %opts);
 
   # Unpaginated when page/per_page are absent; this path is only for
   # assignable-subnets. The networks endpoint always passes both.
-  if ($opts{page} && $opts{per_page}) {
-    my $total = _list_count($server_id, %opts);
-    my $per_page = $opts{per_page};
-    my $metadata = {
-      pagination => {
-        total       => $total,
-        page        => $opts{page},
-        per_page    => $per_page,
-        total_pages => $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0,
-      },
-      sort    => [],
-      filters => [],
-    };
-    return (\@nets, $metadata);
+  my $paginated = $opts{page} && $opts{per_page};
+  my $meta = $paginated
+    ? list_metadata($opts{page}, $opts{per_page}, sort_echo($sort), $filters->{echo})
+    : undef;
+
+  return ([], $meta) if $filters->{empty};
+
+  my $vlan_map = $opts{include_vlan_names} ? _vlan_map($server_id) : undef;
+
+  my ($rows, $count);
+  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+    $rows = _list_rows($server_id, %qopts, sort => $sort);
+    $count = _list_count($server_id, %qopts) if $paginated;
+  });
+  my @nets = map { _build_net_list_response($_, $vlan_map) } @$rows;
+
+  if ($paginated) {
+    set_total($meta, $count // 0);
+    return (\@nets, $meta);
   }
   return \@nets;
 }
 
 # Core SELECT/WHERE (plus free-block UNION) shared by row fetch and COUNT.
+# Filters apply to the real-net branch only: unallocated pseudo rows are a
+# view mode, not rows being filtered, so they survive any filter (which
+# also keeps the COUNT consistent with the visible rows).
 sub _list_query {
   my ($server_id, %opts) = @_;
 
   my $list = $opts{list} // 'all';
+  my $filters = $opts{filters};
 
   my @bind = ($server_id);
   my $where = " WHERE server=? ";
@@ -94,6 +130,11 @@ sub _list_query {
   # List modes mirror the legacy CGI browse_nets skip rules.
   $where .= " AND dummy=false AND subnet=false " if $list eq 'top';
   $where .= " AND dummy=false " if $list eq 'sub';
+
+  if ($filters->{where}) {
+    $where .= " AND $filters->{where} ";
+    push @bind, @{$filters->{bind}};
+  }
 
   my $sql =
     "SELECT net,id,name,netname,comment,no_dhcp,dummy,vlan,alevel,subnet " .
@@ -115,7 +156,7 @@ sub _list_rows {
   my ($server_id, %opts) = @_;
 
   my ($sql, @bind) = _list_query($server_id, %opts);
-  $sql .= " ORDER BY net ";
+  $sql .= ' ' . sort_sql($opts{sort});
   if ($opts{page} && $opts{per_page}) {
     $sql .= " LIMIT ? OFFSET ? ";
     push @bind, $opts{per_page}, ($opts{page} - 1) * $opts{per_page};

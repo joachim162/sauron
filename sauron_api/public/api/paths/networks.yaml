@@ -23,29 +23,20 @@ get:
         blocks (gaps between subnets inside each top-level net) as pseudo
         records with id=-1. 'free' requires authorization level 3 or
         superuser; for other users it silently behaves like 'all'.
+        Filters apply to real network records only and do not remove
+        unallocated blocks from the 'free' listing.
       schema:
         type: string
         enum: [ top, sub, all, free ]
         default: all
-    - name: page
-      in: query
-      required: false
-      description: Page number (1-based).
-      schema:
-        type: integer
-        minimum: 1
-        default: 1
-        example: 1
-    - name: per_page
-      in: query
-      required: false
-      description: Number of items per page (1..100).
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 100
-        default: 50
-        example: 50
+    - $ref: '../components/parameters.yaml#/page'
+    - $ref: '../components/parameters.yaml#/per_page'
+    - $ref: '../components/parameters.yaml#/net_net'
+    - $ref: '../components/parameters.yaml#/net_name'
+    - $ref: '../components/parameters.yaml#/net_netname'
+    - $ref: '../components/parameters.yaml#/net_comment'
+    - $ref: '../components/parameters.yaml#/net_vlan'
+    - $ref: '../components/parameters.yaml#/net_sort'
   responses:
     '200':
       description: Paginated list of networks in the {data, metadata} envelope.
@@ -53,6 +44,12 @@ get:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/NetListResponse'
+    '400':
+      description: Invalid filter or sort value
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
     '404':
       description: Server not found
       content:

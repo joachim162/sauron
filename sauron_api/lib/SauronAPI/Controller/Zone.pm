@@ -22,7 +22,11 @@ sub list_zones ($self) {
   my $per_page = $self->param('per_page') // 50;
 
   my ($zones, $meta) = eval {
-    zone_list($server_id, ids => $ids, page => $page, per_page => $per_page)
+    zone_list($server_id,
+      ids => $ids, page => $page, per_page => $per_page,
+      sort => scalar $self->param('sort'),
+      params => $self->req->query_params->to_hash,
+    )
   };
   return $self->render_exception($@) if $@;
 

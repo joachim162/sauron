@@ -369,3 +369,167 @@ host_expiration_to:
   description: Expiration date range end (inclusive, whole day), ISO 8601 (YYYY-MM-DD). NULL expiration never matches any range.
   schema:
     type: string
+zone_name:
+  name: name
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression (PostgreSQL ARE syntax) matched
+    against the zone name. Mirrors the legacy CGI zone list filter.
+  schema:
+    type: string
+    maxLength: 40
+    example: "example\\.(com|net)"
+
+zone_type:
+  name: type
+  in: query
+  required: false
+  description: Filter by zone type (M=master, S=slave, H=hint, F=forward, C=catalog, A=aggregate catalog).
+  schema:
+    type: string
+    enum: [ M, S, H, F, C, A ]
+    example: M
+
+zone_reverse:
+  name: reverse
+  in: query
+  required: false
+  description: Filter by reverse-zone flag.
+  schema:
+    type: boolean
+
+zone_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the zone comment.
+  schema:
+    type: string
+    maxLength: 60
+
+zone_expiration_from:
+  name: expiration_from
+  in: query
+  required: false
+  description: Zone expiration range start (inclusive), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+    example: "2024-01-01"
+
+zone_expiration_to:
+  name: expiration_to
+  in: query
+  required: false
+  description: Zone expiration range end (inclusive), ISO 8601 (YYYY-MM-DD).
+  schema:
+    type: string
+    example: "2024-12-31"
+
+zone_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction
+    defaults to asc). Fields: name, type, reverse, reversenet,
+    expiration, comment. Default sort: type,reverse,reversenet,name.
+  schema:
+    type: string
+    example: "name:desc"
+
+server_name:
+  name: name
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression (PostgreSQL ARE syntax) matched
+    against the server name.
+  schema:
+    type: string
+    maxLength: 40
+    example: "^ns"
+
+server_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the server comment.
+  schema:
+    type: string
+    maxLength: 60
+
+server_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction
+    defaults to asc). Fields: name, comment. Default sort: name.
+  schema:
+    type: string
+    example: "name:desc"
+
+net_net:
+  name: net
+  in: query
+  required: false
+  description: >
+    Filter by network. A CIDR matches all networks contained within it
+    (`net <<= value`); a bare IP address matches the network(s)
+    containing that address. Filters apply to real network records;
+    unallocated blocks from `list=free` are not affected.
+  schema:
+    type: string
+    example: "10.0.0.0/8"
+
+net_name:
+  name: name
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression (PostgreSQL ARE syntax) matched
+    against the network description.
+  schema:
+    type: string
+    maxLength: 60
+
+net_netname:
+  name: netname
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the netname.
+  schema:
+    type: string
+    maxLength: 32
+
+net_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the network comment.
+  schema:
+    type: string
+    maxLength: 60
+
+net_vlan:
+  name: vlan
+  in: query
+  required: false
+  description: Filter by VLAN id (exact match).
+  schema:
+    type: integer
+    minimum: 0
+    example: 10
+
+net_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction
+    defaults to asc). Fields: net, name, netname, vlan. Default
+    sort: net.
+  schema:
+    type: string
+    example: "netname:desc"

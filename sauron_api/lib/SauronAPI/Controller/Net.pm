@@ -35,7 +35,9 @@ sub list_nets ($self) {
              list => $list,
              alevel => $user_alevel,
              include_vlan_names => $include_vlan_names,
-             page => $page, per_page => $per_page);
+             page => $page, per_page => $per_page,
+             sort => scalar $self->param('sort'),
+             params => $self->req->query_params->to_hash);
   };
   return $self->render_exception($@) if $@;
 

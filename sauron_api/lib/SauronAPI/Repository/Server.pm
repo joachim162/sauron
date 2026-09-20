@@ -10,8 +10,27 @@ our @EXPORT_OK = qw(
 use Sauron::BackEnd ();
 use SauronAPI::Codecs     qw(aml value forwarder);
 use SauronAPI::Exception  ();
-use SauronAPI::Repository qw(dbq check_rc);
+use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
+use SauronAPI::Repository qw(dbq check_rc with_statement_timeout);
 use JSON::PP ();
+
+# ---------------------------------------------------------------------------
+# List filters and sorting
+# ---------------------------------------------------------------------------
+
+# Defensive statement timeout for the filtered list queries (ADR 0007):
+# user-supplied regex must not be able to pin database resources.
+my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
+
+my %FILTER_SPEC = (
+  name    => { kind => 'regex', col => 'name' },
+  comment => { kind => 'regex', col => 'comment' },
+);
+
+my %SORT_COLUMN = (
+  name    => 'name',
+  comment => 'comment',
+);
 
 # ---------------------------------------------------------------------------
 # Field tables (moved from SauronAPI::Controller::Server)
@@ -69,19 +88,36 @@ sub server_list {
   my $per_page = $opts{per_page} // 50;
   my $ids      = $opts{ids};    # undef = no authz filter
 
+  my $sort = parse_sort($opts{sort}, \%SORT_COLUMN, default => 'name', tiebreak => 'id');
+  my $filters = compile_filters($opts{params} // {}, \%FILTER_SPEC);
+  my $meta = list_metadata($page, $per_page, sort_echo($sort), $filters->{echo});
+
   my @bind;
-  my $where = "";
+  my @where;
   if ($ids) {
-    return ([], _list_metadata($page, $per_page, 0)) unless @$ids;
-    $where .= " WHERE id IN (" . join(',', ('?') x @$ids) . ")";
+    return ([], $meta) unless @$ids;
+    push @where, 'id IN (' . join(',', ('?') x @$ids) . ')';
     push @bind, @$ids;
   }
+  if ($filters->{empty}) {
+    return ([], $meta);
+  }
+  if ($filters->{where}) {
+    push @where, $filters->{where};
+    push @bind,  @{$filters->{bind}};
+  }
+  my $where = @where ? ' WHERE ' . join(' AND ', @where) : '';
 
-  my $rows = dbq(
-    "SELECT id,name,comment FROM servers" . $where .
-    " ORDER BY name LIMIT ? OFFSET ?",
-    @bind, $per_page, ($page - 1) * $per_page
-  );
+  my ($rows, $count_rows);
+  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+    $rows = dbq(
+      'SELECT id,name,comment FROM servers' . $where .
+      ' ' . sort_sql($sort) . ' LIMIT ? OFFSET ?',
+      @bind, $per_page, ($page - 1) * $per_page
+    );
+    $count_rows = dbq('SELECT COUNT(*) FROM servers' . $where, @bind);
+  });
+  set_total($meta, $count_rows->[0][0] // 0);
 
   my $servers = [ map { +{
     id      => $_->[0],
@@ -89,25 +125,7 @@ sub server_list {
     comment => $_->[2] // '',
   } } @$rows ];
 
-  my $count_rows = dbq("SELECT COUNT(*) FROM servers" . $where, @bind);
-  my $total = $count_rows->[0][0] // 0;
-
-  return ($servers, _list_metadata($page, $per_page, $total));
-}
-
-sub _list_metadata {
-  my ($page, $per_page, $total) = @_;
-
-  return {
-    pagination => {
-      total       => $total,
-      page        => $page,
-      per_page    => $per_page,
-      total_pages => $per_page > 0 ? int(($total + $per_page - 1) / $per_page) : 0,
-    },
-    sort    => [],
-    filters => [],
-  };
+  return ($servers, $meta);
 }
 
 sub server_find {
