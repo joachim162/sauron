@@ -87,9 +87,16 @@ defaults), `[]` when none.
 
 - `HostListItem` gains `fqdn` (label + zone) so `domain` and its FQDN matching
   map to returned data on both paths.
-- `Host`/`HostListItem` gain `host_group` (base group name), included only when
-  the group's alevel does not exceed the caller's — the `vlan_name` gating
-  precedent. The `grp` id field keeps its current name in this change; the
+- `Host`/`HostListItem` gain `host_group` (base group name), shown to any
+  caller who can read the host — legacy display parity: the CGI host view
+  prints the current group's name ungated (`grp_rec`), and alevel gating
+  applies to the group *picker* (assignment) and the `group` filter, not to
+  display. (An earlier revision of this ADR gated `host_group` by alevel,
+  citing a `vlan_name` gating precedent; that precedent does not hold —
+  legacy `get_vlan_list` and the API's `_vlan_map` are both ungated — and
+  the gate was removed, which also resolved an inconsistency where the
+  ungated `grp_rec` field exposed the same name in detail responses.)
+  The `grp` id field keeps its current name in this change; the
   `grp` → `host_group_id` rename is deferred to a separate change that can
   also touch the write path.
 

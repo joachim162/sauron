@@ -56,14 +56,6 @@ sub _host_list_opts {
   );
 }
 
-sub _host_user_ctx {
-  my ($c) = @_;
-  return (
-    alevel    => $c->stash('api_perms')->{alevel} // 0,
-    superuser => $c->stash('api_superuser') // 0,
-  );
-}
-
 # --- CRUD subroutines ---
 
 # GET /servers/{server}/hosts
@@ -120,7 +112,7 @@ sub get_host ($self) {
   my $zone_id   = $self->get_zone_id_or_404($server_id, $self->param("zone")) or return;
   return unless check_perms($self, type => 'zone', zone_id => $zone_id, server_id => $server_id, rule => 'R');
 
-  my $host = eval { host_find($server_id, $zone_id, $hostname, _host_user_ctx($self)) };
+  my $host = eval { host_find($server_id, $zone_id, $hostname) };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => $host);
@@ -281,7 +273,7 @@ sub update_host ($self) {
     );
   }
 
-  my $host = eval { host_update($server_id, $zone_id, $hostname, $json, _host_user_ctx($self)) };
+  my $host = eval { host_update($server_id, $zone_id, $hostname, $json) };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => $host);

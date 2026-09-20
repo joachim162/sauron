@@ -25,6 +25,7 @@ $VERSION = '$Id:$ ';
 	     db_lastid
 	     db_errormsg
 	     db_lasterrormsg
+	     db_last_error_info
 	     db_debug
 	     db_vacuum
 	     db_begin
@@ -57,6 +58,7 @@ my $dbh = 0;
 my $db_last_result = 0;
 my $db_debug_flag = 0;
 my $db_last_error_msg = '';
+my $db_last_error_state = '';
 # my $db_last_oid = 0; # ** Removed 2018-09-25 TVu
 my $db_last_id = 0; # ** Added 2018-09-25 TVu
 my $db_ignore_begin_and_commit_flag = 0;
@@ -92,11 +94,13 @@ sub db_exec($) {
 
   unless ($sth = $dbh->prepare($sqlstr)) {
     $db_last_error_msg=$dbh->errstr;
+    $db_last_error_state=$dbh->state;
     return -1;
   }
 
   unless ($sth->execute()) {
     $db_last_error_msg=$dbh->errstr;
+    $db_last_error_state=$dbh->state;
     return -2;
   }
 
@@ -121,11 +125,13 @@ sub db_query($$;@) {
 
   unless ($sth = $dbh->prepare($sqlstr)) {
     $db_last_error_msg=$dbh->errstr;
+    $db_last_error_state=$dbh->state;
     return -1;
   }
 
   unless ($sth->execute(@bind_vals)) {
     $db_last_error_msg=$dbh->errstr;
+    $db_last_error_state=$dbh->state;
     return -2;
   }
 
@@ -157,6 +163,10 @@ sub db_errormsg() {
 
 sub db_lasterrormsg() {
   return $db_last_error_msg;
+}
+
+sub db_last_error_info() {
+  return { message => $db_last_error_msg, sqlstate => $db_last_error_state };
 }
 
 sub db_debug($) {

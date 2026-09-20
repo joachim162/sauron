@@ -277,7 +277,10 @@ subtest 'group filter gated by alevel' => sub {
     ->json_like('/message' => qr/Unknown group/);
 };
 
-subtest 'host_group enrichment is alevel-gated' => sub {
+subtest 'host_group enrichment' => sub {
+  # Display is ungated (legacy parity): the CGI host view prints the current
+  # group's name regardless of its alevel; alevel gating applies to the
+  # group picker and the group filter, not to display.
   $t->get_ok("$ZURL?domain=web1\$" => $SUPER)->status_is(200);
   is($t->tx->res->json->{data}[0]{host_group}, "office-${pid}", 'superuser sees group name');
   is($t->tx->res->json->{data}[0]{fqdn}, "web1.${ZONE1}", 'fqdn present');
@@ -436,6 +439,30 @@ subtest 'mutation responses carry host_group' => sub {
   $t->post_ok("$ZURL/web1copy/move" => $SUPER => json => { ip => '10.0.0.98' });
   $t->status_is(200);
   is($t->tx->res->json->{host_group}, "office-${pid}", 'move response includes host_group');
+
+  # Regression: host_group display is ungated in mutation responses too
+  # (create/copy/move), matching GET — legacy view parity.
+  my $sec = _post_host({
+    hostname => 'sec1', type => 'host', ips => [{ ip => '10.0.0.40' }],
+    grp => $grp_sub,
+  });
+  is($sec->{host_group}, "office-sub-${pid}", 'create response shows alevel-1 group');
+
+  $t->post_ok("$ZURL/sec1/copies" => $SUPER => json =>
+    { hostname => 'sec1copy', ips => [{ ip => '10.0.0.41' }] });
+  $t->status_is(201);
+  is($t->tx->res->json->{host_group}, "office-sub-${pid}", 'copy response shows alevel-1 group');
+
+  $t->post_ok("$ZURL/sec1copy/move" => $SUPER => json => { ip => '10.0.0.42' });
+  $t->status_is(200);
+  is($t->tx->res->json->{host_group}, "office-sub-${pid}", 'move response shows alevel-1 group');
+
+  # Any caller who can read the host sees the group name, in list and detail.
+  $t->get_ok("$ZURL/sec1" => $USER)->status_is(200);
+  is($t->tx->res->json->{host_group}, "office-sub-${pid}", 'alevel-0 user sees alevel-1 group name in detail');
+
+  $t->get_ok("$ZURL?domain=sec1\$" => $USER)->status_is(200);
+  is($t->tx->res->json->{data}[0]{host_group}, "office-sub-${pid}", 'alevel-0 user sees alevel-1 group name in list');
 };
 
 subtest 'apex record matches its FQDN' => sub {

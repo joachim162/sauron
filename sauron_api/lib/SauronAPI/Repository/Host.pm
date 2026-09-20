@@ -423,20 +423,19 @@ sub _build_host_filters {
   return (join(' AND ', @where), \@bind, \@echo, $empty);
 }
 
-# Group names for list/detail enrichment, gated by alevel (vlan_name
-# precedent). Only groups whose alevel does not exceed the caller's resolve.
+# Group names for list/detail enrichment. Ungated (legacy parity): the CGI
+# host view prints the current group's name regardless of its alevel
+# (grp_rec); alevel gating applies to group selection and the group
+# filter, not to display.
 sub _group_names {
-  my ($grps, $alevel, $superuser) = @_;
+  my ($grps) = @_;
   my %names;
   my %seen;
   my @ids = grep { defined $_ && $_ > 0 && !$seen{$_}++ } @$grps;
   return %names unless @ids;
   my $placeholders = join ',', ('?') x @ids;
-  my $rows = dbq("SELECT id, name, alevel FROM groups WHERE id IN ($placeholders)", @ids);
-  for my $row (@$rows) {
-    next if !$superuser && ($row->[2] // 0) > $alevel;
-    $names{$row->[0]} = $row->[1];
-  }
+  my $rows = dbq("SELECT id, name FROM groups WHERE id IN ($placeholders)", @ids);
+  $names{$_->[0]} = $_->[1] for @$rows;
   return %names;
 }
 
@@ -486,7 +485,7 @@ sub host_list {
     });
 
     my %host_ips  = _batch_host_ips($rows);
-    my %grp_names = _group_names([map $_->[5], @$rows], $opts{alevel} // 0, $opts{superuser} // 0);
+    my %grp_names = _group_names([map $_->[5], @$rows]);
 
     for my $row (@$rows) {
       push @data, _build_host_list_item($server_id, $zone_id, $zone_name, $row, $host_ips{$row->[0]}, \%grp_names);
@@ -550,7 +549,7 @@ sub host_list_server {
     my @host_ids = map $_->[1], @$rows;
     %host_ips = _batch_host_ips_ids(@host_ids);
   }
-  my %grp_names = _group_names([map $_->[6], @$rows], $opts{alevel} // 0, $opts{superuser} // 0);
+  my %grp_names = _group_names([map $_->[6], @$rows]);
 
   my @data;
   for my $row (@$rows) {
@@ -1248,7 +1247,7 @@ sub _build_host_response {
     }
   }
 
-  my %grp_names = _group_names([$host_data->{grp}], $opts->{alevel} // 0, $opts->{superuser} // 0);
+  my %grp_names = _group_names([$host_data->{grp}]);
 
   # Same fqdn construction as the list items (_build_host_list_item):
   # the bare zone name for apex records, no trailing dot. BackEnd's own

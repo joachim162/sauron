@@ -39,8 +39,9 @@ sub validate_regex {
   my @probe;
   my $rc = Sauron::DB::db_query("SELECT '' ~* ?", \@probe, $pattern);
   if ($rc < 0) {
-    my $state = $DBI::err // '';
-    my $msg   = Sauron::DB::db_lasterrormsg() // '';
+    my $err   = Sauron::DB::db_last_error_info();
+    my $state = $err->{sqlstate} // '';
+    my $msg   = $err->{message}  // '';
     SauronAPI::Exception->validation("Invalid regular expression for '$name'")
       if $state =~ /^2201[BC]$/ || $msg =~ /invalid regular expression/i;
     SauronAPI::Exception->persistence('Regex validation query failed');
@@ -57,8 +58,10 @@ sub with_statement_timeout {
   my @ret;
   my $ok = eval { @ret = $code->(); 1 };
   my $err = $@;
-  Sauron::DB::db_exec('SET statement_timeout = DEFAULT');
+  my $restored = Sauron::DB::db_exec('SET statement_timeout = DEFAULT') == 0;
   die $err unless $ok;
+  SauronAPI::Exception->persistence('Failed to restore statement_timeout')
+    unless $restored;
   return wantarray ? @ret : $ret[0];
 }
 
