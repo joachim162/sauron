@@ -13,7 +13,7 @@ use Sauron::Util   qw(is_cidr is_ip);
 use SauronAPI::Codecs       qw(mx value);
 use SauronAPI::Exception    ();
 use SauronAPI::FieldCodec;
-use SauronAPI::Repository   qw(dbq check_rc);
+use SauronAPI::Repository   qw(dbq check_rc with_statement_timeout validate_regex);
 use JSON::PP ();
 use Time::Local qw(timegm);
 
@@ -186,6 +186,10 @@ my @LIST_COLUMNS = qw(
 # List filters and sorting (ADR 0007)
 # ---------------------------------------------------------------------------
 
+# Defensive statement timeout for the filtered list queries (ADR 0007):
+# user-supplied regex must not be able to pin database resources.
+my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
+
 my %FILTER_COLUMN = map { $_ => "h.$_" } qw(
   ether duid info huser location dept model serial misc asset_id
 );
@@ -209,10 +213,21 @@ my @TXT_CAPABLE_CODES = (1, 3, 4, 7); # host, mx, alias, alias_arec
 
 sub _valid_regex {
   my ($name, $pattern) = @_;
-  my $ok = eval { qr/$pattern/; 1 };
-  SauronAPI::Exception->validation("Invalid regular expression for '$name'")
-    unless $ok;
-  return $pattern;
+  return validate_regex($name, $pattern);
+}
+
+# FQDN expression matching _build_host_list_item's fqdn construction: an
+# apex record ('@') is the bare zone name, everything else label + zone.
+# On the server-scoped path the zone name comes from the zones join; on the
+# zone-scoped path it is bound. Returns ($sql, $zone_binds).
+sub _fqdn_expr {
+  my ($opts) = @_;
+  if ($opts->{match_fqdn}) {
+    return q{(CASE WHEN h.domain='@' THEN z.name ELSE h.domain || '.' || z.name END)}, [];
+  }
+  return undef unless defined $opts->{zone_name};
+  return q{(CASE WHEN h.domain='@' THEN ? ELSE h.domain || '.' || ? END)},
+    [($opts->{zone_name}) x 2];
 }
 
 sub _parse_sort {
@@ -275,10 +290,21 @@ sub _build_host_filters {
 
   if (defined (my $v = $f->{q})) {
     my $p = _valid_regex('q', $v);
-    push @where, "(h.location ~* ? OR h.huser ~* ? OR h.dept ~* ? OR h.info ~* ? OR " .
-                 "h.serial ~* ? OR h.model ~* ? OR h.misc ~* ? OR h.asset_id ~* ? OR " .
-                 "h.hinfo_hw ~* ? OR h.hinfo_sw ~* ?)";
-    push @bind, ($p) x 10;
+    # q includes the hostname (label and FQDN) as well as the legacy <ANY>
+    # metadata fields, so the motivating workflow — finding a host by name —
+    # works through the free search (ADR 0007 divergence).
+    my @clauses = ('h.domain ~* ?');
+    my @binds   = ($p);
+    my ($fqdn, $zone_binds) = _fqdn_expr($opts);
+    if ($fqdn) {
+      push @clauses, "$fqdn ~* ?";
+      push @binds, @$zone_binds, $p;
+    }
+    push @clauses, map { "h.$_ ~* ?" }
+      qw(location huser dept info serial model misc asset_id hinfo_hw hinfo_sw);
+    push @binds, ($p) x 10;
+    push @where, '(' . join(' OR ', @clauses) . ')';
+    push @bind, @binds;
     push @echo, { name => 'q', value => $v };
   }
 
@@ -287,7 +313,7 @@ sub _build_host_filters {
     (my $p = $v) =~ s/^\*\./\\\*\\\./;
     $p = _valid_regex('domain', $p);
     if ($opts->{match_fqdn}) {
-      push @where, "(h.domain ~* ? OR (h.domain || '.' || z.name) ~* ?)";
+      push @where, q{(h.domain ~* ? OR (CASE WHEN h.domain='@' THEN z.name ELSE h.domain || '.' || z.name END) ~* ?)};
       push @bind, $p, $p;
     } else {
       push @where, "h.domain ~* ?";
@@ -428,10 +454,13 @@ sub host_list {
   my $per_page = $opts{per_page} // 50;
   my $offset   = ($page - 1) * $per_page;
 
+  my $zone_row  = dbq("SELECT name FROM zones WHERE id=?", $zone_id);
+  my $zone_name = @$zone_row ? $zone_row->[0][0] : undef;
+
   my $sort = _parse_sort($opts{sort});
   my ($where, $bind, $filter_echo, $empty) = _build_host_filters(
     $server_id, $opts{filters} // {},
-    { alevel => $opts{alevel} // 0, superuser => $opts{superuser} // 0 }
+    { alevel => $opts{alevel} // 0, superuser => $opts{superuser} // 0, zone_name => $zone_name }
   );
   my $meta = _list_metadata($page, $per_page, 0, _sort_echo($sort), $filter_echo);
 
@@ -443,26 +472,26 @@ sub host_list {
       $where_sql .= " AND $where";
       push @bind, @$bind;
     }
-    my $rows = dbq(
-      "SELECT " . join(',', map { "h.$_" } @LIST_COLUMNS) . " FROM hosts h$where_sql " .
-      _sort_sql($sort) . " LIMIT ? OFFSET ?",
-      @bind, $per_page, $offset
-    );
+    my ($rows, $total_rows);
+    with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+      $rows = dbq(
+        "SELECT " . join(',', map { "h.$_" } @LIST_COLUMNS) . " FROM hosts h$where_sql " .
+        _sort_sql($sort) . " LIMIT ? OFFSET ?",
+        @bind, $per_page, $offset
+      );
+      $total_rows = dbq(
+        "SELECT COUNT(*) FROM hosts h$where_sql",
+        @bind
+      );
+    });
 
     my %host_ips  = _batch_host_ips($rows);
     my %grp_names = _group_names([map $_->[5], @$rows], $opts{alevel} // 0, $opts{superuser} // 0);
-
-    my $zone_row  = dbq("SELECT name FROM zones WHERE id=?", $zone_id);
-    my $zone_name = @$zone_row ? $zone_row->[0][0] : undef;
 
     for my $row (@$rows) {
       push @data, _build_host_list_item($server_id, $zone_id, $zone_name, $row, $host_ips{$row->[0]}, \%grp_names);
     }
 
-    my $total_rows = dbq(
-      "SELECT COUNT(*) FROM hosts h$where_sql",
-      @bind
-    );
     _set_meta_total($meta, $total_rows->[0][0] // 0);
   }
 
@@ -501,11 +530,18 @@ sub host_list_server {
   }
 
   my @cols = map { "h.$_" } @LIST_COLUMNS;
-  my $rows = dbq(
-    "SELECT h.zone," . join(',', @cols) . ",z.name " .
-    "FROM hosts h JOIN zones z ON z.id=h.zone$where " . _sort_sql($sort) . " LIMIT ? OFFSET ?",
-    @bind, $per_page, $offset
-  );
+  my ($rows, $total_rows);
+  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+    $rows = dbq(
+      "SELECT h.zone," . join(',', @cols) . ",z.name " .
+      "FROM hosts h JOIN zones z ON z.id=h.zone$where " . _sort_sql($sort) . " LIMIT ? OFFSET ?",
+      @bind, $per_page, $offset
+    );
+    $total_rows = dbq(
+      "SELECT COUNT(*) FROM hosts h JOIN zones z ON z.id=h.zone$where",
+      @bind
+    );
+  });
 
   # Row layout: h.zone, LIST_COLUMNS..., z.name. Shift/pop off the extras
   # so %host_ips keys on the id column before item building.
@@ -524,10 +560,6 @@ sub host_list_server {
     push @data, _build_host_list_item($server_id, $zone_id, $zone_name, \@values, $host_ips{$row->[1]}, \%grp_names);
   }
 
-  my $total_rows = dbq(
-    "SELECT COUNT(*) FROM hosts h JOIN zones z ON z.id=h.zone$where",
-    @bind
-  );
   _set_meta_total($meta, $total_rows->[0][0] // 0);
 
   return (\@data, $meta);
@@ -656,7 +688,7 @@ sub host_create {
   check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Host created but failed to retrieve data');
 
-  return _build_host_response($host_id, \%host_data, $zone_id, $server_id);
+  return _build_host_response($host_id, \%host_data, $zone_id, $server_id, \%opts);
 }
 
 sub host_update {
@@ -853,7 +885,7 @@ sub host_copy {
   check_rc(Sauron::BackEnd::get_host($host_id, \%host_data),
          'Host created but failed to retrieve data');
 
-  return _build_host_response($host_id, \%host_data, $zone_id, $server_id);
+  return _build_host_response($host_id, \%host_data, $zone_id, $server_id, \%opts);
 }
 
 sub _auto_hostname {
@@ -998,7 +1030,7 @@ sub _move_ip {
   my %updated;
   check_rc(Sauron::BackEnd::get_host($host_id, \%updated),
          'Host moved but failed to retrieve data');
-  return _build_host_response($host_id, \%updated, $host->{zone}, $server_id);
+  return _build_host_response($host_id, \%updated, $host->{zone}, $server_id, $opts);
 }
 
 sub _move_zone {
@@ -1040,7 +1072,7 @@ sub _move_zone {
   my %updated;
   check_rc(Sauron::BackEnd::get_host($host_id, \%updated),
          'Host moved but failed to retrieve data');
-  return _build_host_response($host_id, \%updated, $new_zone_id, $server_id);
+  return _build_host_response($host_id, \%updated, $new_zone_id, $server_id, $opts);
 }
 
 # ---------------------------------------------------------------------------
@@ -1188,16 +1220,12 @@ sub _normalize_ip_entries {
 sub _build_host_response {
   my ($host_id, $host_data, $zone_id, $server_id, $opts) = @_;
 
-  my $server_name = '';
-  if ($server_id) {
-    my %server_data;
-    if (Sauron::BackEnd::get_server($server_id, \%server_data) == 0) {
-      $server_name = $server_data{name};
-    }
-  } elsif ($zone_id > 0) {
+  my ($server_name, $zone_name);
+  if ($zone_id > 0) {
     my %zone_data;
     if (Sauron::BackEnd::get_zone($zone_id, \%zone_data) == 0) {
-      my $sid = $zone_data{server};
+      $zone_name = $zone_data{name};
+      my $sid = $server_id || $zone_data{server};
       if ($sid > 0) {
         my %server_data;
         if (Sauron::BackEnd::get_server($sid, \%server_data) == 0) {
@@ -1222,10 +1250,17 @@ sub _build_host_response {
 
   my %grp_names = _group_names([$host_data->{grp}], $opts->{alevel} // 0, $opts->{superuser} // 0);
 
+  # Same fqdn construction as the list items (_build_host_list_item):
+  # the bare zone name for apex records, no trailing dot. BackEnd's own
+  # fqdn ('\@.zone.') would not round-trip with the list or the filters.
+  my $fqdn = defined $zone_name && defined $host_data->{domain}
+    ? ($host_data->{domain} // '') eq q{@} ? $zone_name : "$host_data->{domain}.$zone_name"
+    : ($host_data->{fqdn} // '');
+
   my $response = {
     id                => $host_id,
     domain            => $host_data->{domain},
-    fqdn              => $host_data->{fqdn} // '',
+    fqdn              => $fqdn,
     zone_id           => $zone_id,
     server_id         => $server_id,
     server            => $server_name,

@@ -27,8 +27,8 @@ Both list endpoints receive the same filter set symmetrically:
 
 | Parameter | Matches | Notes |
 | --- | --- | --- |
-| `q` | OR-across-fields free search | case-insensitive regex over location, user, dept, info, serial, model, misc, asset ID, HINFO hw/sw. Legacy `<ANY>` field. |
-| `domain` | hostname label regex | case-insensitive regex. Server-scoped path also matches the FQDN (label + zone) so full names are findable. Leading `*` is literal (wildcard record names like `*.foo`). |
+| `q` | OR-across-fields free search | case-insensitive regex over the hostname (label and FQDN) plus location, user, dept, info, serial, model, misc, asset ID, HINFO hw/sw. Superset of the legacy `<ANY>` field search (divergence 9). |
+| `domain` | hostname label regex | case-insensitive regex. Server-scoped path also matches the FQDN (label + zone) so full names are findable; an apex record (`@`) matches the bare zone name — the same expression used to build the returned `fqdn`. Leading `*` is literal (wildcard record names like `*.foo`). |
 | `type` | string enum (ADR 0006) | exact match; `host` includes `reservation` (legacy parity); omitted = all types. |
 | `ip` | address or CIDR block | bare address = exact match; block = containment (`<<=`). |
 | `group` | host group **name** | per-server name resolution; matches base group **or** any subgroup (legacy parity). Unknown or above the caller's alevel → 400. |
@@ -43,6 +43,18 @@ exact `COUNT(*)` over the filtered set (ADR 0003). All values are bound
 parameters; filter targets are hardcoded identifier maps (ADR 0001). Invalid
 regex, invalid IP/CIDR, invalid date, unknown type/group, or an unknown sort
 field → 400.
+
+### Regex dialect and resource limits
+
+The patterns are evaluated by PostgreSQL `~*`, not by Perl — the dialects
+differ (`\K`, `\R` and possessive quantifiers are valid Perl but invalid
+PostgreSQL ARE). Patterns are therefore **validated by the database engine
+itself** (a one-row probe compile) and SQLSTATE 2201B/2201C map to a 400;
+no Perl-side regex compilation is involved. Pattern length is capped at
+the legacy CGI limits (40 characters, TXT 80) via OpenAPI `maxLength`, and
+the filtered row/count queries run under a defensive `statement_timeout`
+so an authenticated client cannot pin database resources with an expensive
+pattern.
 
 A `zone` filter is **deferred**: a required-ish zone filter is a missing path
 resource (the book's own example in 9.6.4) — the zone-scoped endpoint already
@@ -97,6 +109,21 @@ defaults), `[]` when none.
    already ruled this for the API).
 8. **`ip` sort keeps one row per host** (primary IP); legacy's join emits one
    row per (host, address) pair.
+9. **`q` includes the hostname** (label and FQDN) in addition to the legacy
+   `<ANY>` metadata fields: the motivating workflow — finding a host by name —
+   must work through the free search bar, which exposes only `q` and `type`.
+10. **Regex patterns are PostgreSQL ARE**, engine-validated, length-capped
+    (40; TXT 80) and executed under a statement timeout; the legacy CGI
+    accepts Perl-flavoured patterns up to its HTML input limits.
+11. **Apex records (`@`) render as their FQDN.** Legacy displays the apex
+    record as `@.zone` in the any-zone browser — a naive
+    `a.domain || '.' || z.name` concatenation, not a valid DNS name — and
+    its domain filter matches the label only. The API renders the bare
+    zone name in `fqdn` (list and detail responses) and matches that same
+    expression in the server-scoped `domain` filter and in `q`, so a
+    client can round-trip a returned `fqdn` into a filter. The zone-scoped
+    `domain` filter stays label-only (legacy parity); the apex is
+    findable there via `domain=@`.
 
 ## Alternatives considered
 
@@ -108,6 +135,10 @@ defaults), `[]` when none.
   names are resolvable per-server. Stored references stay id-based.
 - **`net` + `cidr` as separate params** — redundant; any net-based query is a
   CIDR query against a discoverable nets list; rejected per book 9.6.4.
+- **Strict CGI parity for apex records** (`fqdn` = `@.zone`, label-only
+  filtering everywhere) — faithful, but it publishes a pseudo-FQDN that is
+  not a valid DNS name and breaks the round-trip between the returned
+  `fqdn` and the `domain` filter (the original review finding); rejected.
 - **`has_mx` boolean** — subsumed by `mx=.`; rejected per 9.6.4.
 - **Query DSL in `q`** (Lucene-style) — overkill for the target workflows;
   plain regex over the fixed column set, composable with discrete filters.

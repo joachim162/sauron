@@ -143,6 +143,41 @@ export interface DhcpEntry {
   comment?: string;
 }
 
+// Host list query filters (ADR 0007). Regex filters are PostgreSQL ARE
+// syntax, case-insensitive; max length 40 (txt: 80).
+export interface HostListFilters {
+  q?: string;
+  domain?: string;
+  type?: string;
+  ip?: string;
+  group?: string;
+  txt?: string;
+  mx?: string;
+  ether?: string;
+  duid?: string;
+  iaid?: string;
+  info?: string;
+  huser?: string;
+  location?: string;
+  dept?: string;
+  model?: string;
+  serial?: string;
+  misc?: string;
+  asset_id?: string;
+  hinfo?: string;
+  dhcp_date_from?: string;
+  dhcp_date_to?: string;
+  dhcp_last_from?: string;
+  dhcp_last_to?: string;
+  cdate_from?: string;
+  cdate_to?: string;
+  mdate_from?: string;
+  mdate_to?: string;
+  expiration_from?: string;
+  expiration_to?: string;
+  sort?: string;
+}
+
 export interface Net {
   id: number;
   server_id: number;

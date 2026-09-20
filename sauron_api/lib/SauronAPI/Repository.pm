@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use Exporter 'import';
-our @EXPORT_OK = qw(dbq check_rc);
+our @EXPORT_OK = qw(dbq check_rc with_statement_timeout validate_regex);
 
 use Sauron::DB           ();
 use SauronAPI::Exception ();
@@ -28,6 +28,38 @@ sub check_rc {
   my ($rc, $err) = @_;
   return if $rc == 0;
   SauronAPI::Exception->persistence($err);
+}
+
+# Regex filters are evaluated by PostgreSQL (~*), not by Perl — the dialects
+# differ (\K, \R, possessive quantifiers are Perl-only). Compile the pattern
+# against the real engine and map SQLSTATE 2201B/2201C (invalid regular
+# expression / invalid escape) to a 400 per ADR 0007.
+sub validate_regex {
+  my ($name, $pattern) = @_;
+  my @probe;
+  my $rc = Sauron::DB::db_query("SELECT '' ~* ?", \@probe, $pattern);
+  if ($rc < 0) {
+    my $state = $DBI::err // '';
+    my $msg   = Sauron::DB::db_lasterrormsg() // '';
+    SauronAPI::Exception->validation("Invalid regular expression for '$name'")
+      if $state =~ /^2201[BC]$/ || $msg =~ /invalid regular expression/i;
+    SauronAPI::Exception->persistence('Regex validation query failed');
+  }
+  return $pattern;
+}
+
+# Defensive statement timeout (ADR 0007): queries driven by user-supplied
+# regex filters must not be able to pin database resources with an expensive
+# pattern. The default is restored even when the guarded code throws.
+sub with_statement_timeout {
+  my ($ms, $code) = @_;
+  return $code->() if Sauron::DB::db_exec("SET statement_timeout = ${ms}") < 0;
+  my @ret;
+  my $ok = eval { @ret = $code->(); 1 };
+  my $err = $@;
+  Sauron::DB::db_exec('SET statement_timeout = DEFAULT');
+  die $err unless $ok;
+  return wantarray ? @ret : $ret[0];
 }
 
 1;

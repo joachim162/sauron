@@ -169,6 +169,17 @@ subtest 'q free search' => sub {
 
   $t->get_ok("$ZURL?q=Ops" => $SUPER)->status_is(200);
   is_deeply([ map { $_->{domain} } @{$t->tx->res->json->{data}} ], ['app1'], 'q matches dept');
+
+  # q also searches the hostname so the search bar can find hosts by name
+  # (ADR 0007 divergence 9).
+  $t->get_ok("$ZURL?q=^web1\$" => $SUPER)->status_is(200);
+  is_deeply([ map { $_->{domain} } @{$t->tx->res->json->{data}} ], ['web1'], 'q matches hostname label');
+
+  $t->get_ok("$ZURL?q=^web1[.]${ZONE1}\$" => $SUPER)->status_is(200);
+  is_deeply([ map { $_->{domain} } @{$t->tx->res->json->{data}} ], ['web1'], 'q matches FQDN on zone path');
+
+  $t->get_ok("$SURL?q=^web1[.]${ZONE1}\$" => $SUPER)->status_is(200);
+  is_deeply([ map { $_->{domain} } @{$t->tx->res->json->{data}} ], ['web1'], 'q matches FQDN on server path');
 };
 
 subtest 'field regex filters' => sub {
@@ -393,6 +404,58 @@ subtest 'invalid filter values return 400' => sub {
     $t->get_ok("$ZURL?$qs" => $SUPER)->status_is(400, $label)
       ->json_is('/error' => 'Bad Request');
   }
+};
+
+subtest 'regex dialect is PostgreSQL, not Perl' => sub {
+  # Valid Perl but invalid PostgreSQL ARE patterns must map to 400, not 500.
+  my @perl_only = ('q=\\Kfoo', 'q=foo%2B%2B', 'q=\\R', 'domain=a{2,1}');
+  for my $qs (@perl_only) {
+    $t->get_ok("$ZURL?$qs" => $SUPER)->status_is(400, "$qs -> 400")
+      ->json_like('/message' => qr/Invalid regular expression/);
+  }
+};
+
+subtest 'pattern length is capped at legacy CGI limits' => sub {
+  my $long = 'a' x 41;
+  $t->get_ok("$ZURL?q=$long" => $SUPER)->status_is(400, 'q over 40 chars');
+  $t->get_ok("$ZURL?domain=$long" => $SUPER)->status_is(400, 'domain over 40 chars');
+  my $long_txt = 'a' x 81;
+  $t->get_ok("$ZURL?txt=$long_txt" => $SUPER)->status_is(400, 'txt over 80 chars');
+  my $ok_txt = 'a' x 80;
+  $t->get_ok("$ZURL?txt=$ok_txt" => $SUPER)->status_is(200, 'txt at exactly 80');
+};
+
+subtest 'mutation responses carry host_group' => sub {
+  is($web1->{host_group}, "office-${pid}", 'create response includes host_group');
+
+  $t->post_ok("$ZURL/web1/copies" => $SUPER => json =>
+    { hostname => 'web1copy', ips => [{ ip => '10.0.0.99' }] });
+  $t->status_is(201);
+  is($t->tx->res->json->{host_group}, "office-${pid}", 'copy response includes host_group');
+
+  $t->post_ok("$ZURL/web1copy/move" => $SUPER => json => { ip => '10.0.0.98' });
+  $t->status_is(200);
+  is($t->tx->res->json->{host_group}, "office-${pid}", 'move response includes host_group');
+};
+
+subtest 'apex record matches its FQDN' => sub {
+  # An apex record's fqdn is the bare zone name; filtering by the exact
+  # returned fqdn must find it on both paths. The zone's own apex record
+  # (created with the zone) is the fixture.
+  my $apex_id = _one("SELECT id FROM hosts WHERE zone=${z1} AND domain='\@'");
+  ok($apex_id, 'zone apex record exists');
+
+  $t->get_ok("$ZURL/@" => $SUPER)->status_is(200);
+  is($t->tx->res->json->{fqdn}, $ZONE1, 'detail fqdn is the bare zone name');
+
+  $t->get_ok("$SURL?domain=^${ZONE1}\$" => $SUPER)->status_is(200);
+  my @hits = grep { $_->{domain} eq '@' } @{$t->tx->res->json->{data}};
+  is(scalar @hits, 1, 'server path: apex found by exact FQDN');
+  is($hits[0]{fqdn}, $ZONE1, 'apex fqdn in response');
+
+  $t->get_ok("$ZURL?q=^${ZONE1}\$" => $SUPER)->status_is(200);
+  is(scalar(grep { $_->{domain} eq '@' } @{$t->tx->res->json->{data}}), 1,
+    'zone path: apex found via q on its FQDN');
 };
 
 # ========================================================================

@@ -20,7 +20,7 @@
 
 - **Field search** — Filtering the host list by a pattern against one specific host attribute (e.g. MAC address, DUID, department). The legacy CGI offers this as a "search field" selector plus one pattern; the API exposes each field as its own filter parameter.
 - **Free search** — A single term matched across all free-text host attributes (location, user, department, info, serial, model, misc, asset ID, HINFO hardware/software), OR-combined. Equivalent to the legacy "Search field = <ANY>" option. Not to be confused with a field search, which matches one named attribute only.
-- **Domain pattern** — A case-insensitive regular expression matched against a host's hostname label (the `domain` field, e.g. `www`). On cross-zone (server-level) search it additionally matches the FQDN (label + zone), so full names like `www.example.com` are findable. A leading `*` in the pattern is literal — it matches wildcard record names like `*.foo`, it is not a regex quantifier.
+- **Domain pattern** — A case-insensitive regular expression matched against a host's hostname label (the `domain` field, e.g. `www`). On cross-zone (server-level) search it additionally matches the FQDN (label + zone), so full names like `www.example.com` are findable. A leading `*` in the pattern is literal — it matches wildcard record names like `*.foo`, it is not a regex quantifier. For an apex record (`domain` = `@`, one per zone), the FQDN is the bare zone name itself (e.g. `example.com`); zone-scoped search matches only the label, so the apex is findable there via `domain=@`.
 
 ## Subdomain (Delegation)
 

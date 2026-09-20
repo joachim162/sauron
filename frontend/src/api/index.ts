@@ -11,6 +11,7 @@ import type {
   Net,
   NewNet,
   UpdateNet,
+  HostListFilters,
 } from "@/lib/types";
 
 export interface PageOpts {
@@ -108,7 +109,7 @@ export const hostsApi = {
   list: (
     serverName: string,
     zoneName: string,
-    opts?: { page?: number; per_page?: number; filters?: Record<string, string> }
+    opts?: { page?: number; per_page?: number; filters?: HostListFilters }
   ) => {
     const params = new URLSearchParams();
     if (opts?.page !== undefined) params.set("page", String(opts.page));

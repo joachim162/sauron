@@ -69,11 +69,13 @@ host_q:
   in: query
   required: false
   description: >
-    Free search: case-insensitive regular expression OR-matched against
-    location, huser, dept, info, serial, model, misc, asset_id, hinfo_hw
-    and hinfo_sw. Legacy <ANY> field search.
+    Free search: case-insensitive regular expression (PostgreSQL ARE
+    syntax) OR-matched against the hostname (label and FQDN) plus
+    location, huser, dept, info, serial, model, misc, asset_id,
+    hinfo_hw and hinfo_sw.
   schema:
     type: string
+    maxLength: 40
     example: "rack 4"
 
 host_domain:
@@ -81,11 +83,14 @@ host_domain:
   in: query
   required: false
   description: >
-    Case-insensitive regular expression matched against the hostname
-    label. On the server-scoped path the FQDN (label + zone) is also
-    matched. A leading `*.` is matched literally (wildcard record names).
+    Case-insensitive regular expression (PostgreSQL ARE syntax)
+    matched against the hostname label. On the server-scoped path the
+    FQDN (label + zone) is also matched; an apex record matches the
+    bare zone name. A leading `*.` is matched literally (wildcard
+    record names).
   schema:
     type: string
+    maxLength: 40
     example: "^web[0-9]+$"
 
 host_type:
@@ -126,13 +131,15 @@ host_txt:
   in: query
   required: false
   description: >
-    Case-insensitive regular expression matched against the host's TXT
+    Case-insensitive regular expression (PostgreSQL ARE syntax)
+    matched against the host's TXT
     entries. Returns hosts that carry a matching entry — it does not
     select objects of type txt (use `type` for that). Without an
     explicit `type`, only TXT-capable types are searched; an explicitly
     incompatible type returns an empty set.
   schema:
     type: string
+    maxLength: 80
     example: "v=spf1"
 
 host_mx:
@@ -140,12 +147,14 @@ host_mx:
   in: query
   required: false
   description: >
-    Case-insensitive regular expression matched against the name of the
+    Case-insensitive regular expression (PostgreSQL ARE syntax)
+    matched against the name of the
     zone-scoped MX template the host uses. Returns hosts using a
     matching template — it does not select objects of type mx (use
     `type` for that).
   schema:
     type: string
+    maxLength: 40
     example: "^mail-"
 
 host_sort:
@@ -167,10 +176,12 @@ host_ether:
   in: query
   required: false
   description: >
-    Case-insensitive regular expression matched against the MAC address
+    Case-insensitive regular expression (PostgreSQL ARE syntax)
+    matched against the MAC address
     after normalization (uppercased, non-hex characters stripped).
   schema:
     type: string
+    maxLength: 40
     example: "0011:22"
 
 host_duid:
@@ -178,10 +189,12 @@ host_duid:
   in: query
   required: false
   description: >
-    Case-insensitive regular expression matched against the DUID after
+    Case-insensitive regular expression (PostgreSQL ARE syntax)
+    matched against the DUID after
     normalization (uppercased, non-hex characters stripped).
   schema:
     type: string
+    maxLength: 40
 
 host_iaid:
   name: iaid
@@ -198,73 +211,82 @@ host_info:
   name: info
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the info field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the info field.
   schema:
     type: string
+    maxLength: 40
 
 host_huser:
   name: huser
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the user field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the user field.
   schema:
     type: string
+    maxLength: 40
 
 host_location:
   name: location
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the location field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the location field.
   schema:
     type: string
+    maxLength: 40
 
 host_dept:
   name: dept
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the department field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the department field.
   schema:
     type: string
+    maxLength: 40
 
 host_model:
   name: model
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the model field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the model field.
   schema:
     type: string
+    maxLength: 40
 
 host_serial:
   name: serial
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the serial field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the serial field.
   schema:
     type: string
+    maxLength: 40
 
 host_misc:
   name: misc
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the misc field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the misc field.
   schema:
     type: string
+    maxLength: 40
 
 host_asset_id:
   name: asset_id
   in: query
   required: false
-  description: Case-insensitive regular expression matched against the asset ID field.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the asset ID field.
   schema:
     type: string
+    maxLength: 40
 
 host_hinfo:
   name: hinfo
   in: query
   required: false
-  description: Case-insensitive regular expression matched against HINFO hardware or software.
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against HINFO hardware or software.
   schema:
     type: string
+    maxLength: 40
 
 host_dhcp_date_from:
   name: dhcp_date_from

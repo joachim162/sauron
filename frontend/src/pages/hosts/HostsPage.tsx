@@ -63,6 +63,10 @@ export default function HostsPage() {
   const [searchInput, setSearchInput] = useState(searchParams.get("q") ?? "");
   const search = searchParams.get("q") ?? "";
   const typeFilter = searchParams.get("type") ?? "";
+  // Keep the displayed input in sync with the URL (browser back/forward).
+  useEffect(() => {
+    setSearchInput(search);
+  }, [search]);
   const pagination = useMemo<PaginationState>(() => {
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1);
     const perPageRaw = parseInt(searchParams.get("per_page") || "50", 10) || 50;
@@ -397,7 +401,7 @@ export default function HostsPage() {
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search fields (regex: location, user, dept, info, ...)"
+            placeholder="Search hostname or fields (regex)"
             className="pl-9"
           />
         </div>

@@ -46,6 +46,7 @@ sub _mock_db {
     return 0;
   });
   $mod->mock('db_encode_str', sub { my $v = shift; $v =~ s/'/''/g; "'$v'" });
+  $mod->mock('db_exec', sub { 0 });
   push @MOCKS, $mod;
   return $mod;
 }
@@ -271,6 +272,7 @@ subtest 'host_create auto-assign invokes on_ip callback' => sub {
     get_free_ip_by_net => sub { '10.0.0.42' },
     add_host           => sub { 200 },
     get_host           => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'auto'; return 0; },
+    get_zone           => sub { $_[1]{name} = 'z1.example'; return 0; },
     get_server         => sub { $_[1]{name} = 'srv-host-test'; return 0; },
   );
 
@@ -311,6 +313,7 @@ subtest 'host_create ips flags default to t,t and explicit flags preserved' => s
     ip_in_use   => sub { 0 },
     add_host    => sub { $captured = $_[0]; 200 },
     get_host    => sub { $_[1]{zone} = 42; $_[1]{type} = 1; $_[1]{domain} = 'flags'; return 0; },
+    get_zone    => sub { $_[1]{name} = 'z1.example'; return 0; },
     get_server  => sub { $_[1]{name} = 'srv'; return 0; },
   );
 
@@ -353,6 +356,7 @@ subtest 'host_find decodes ips into objects with boolean flags' => sub {
       ];
       return 0;
     },
+    get_zone => sub { $_[1]{name} = 'z1.example'; return 0; },
     get_server => sub { $_[1]{name} = 'srv'; return 0; },
   );
 

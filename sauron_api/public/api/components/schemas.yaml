@@ -1288,7 +1288,8 @@ Host:
           example: www
         fqdn:
           type: string
-          example: www.example.com.
+          description: Fully qualified name (label + zone, no trailing dot); the zone itself for '@' records
+          example: www.example.com
         zone_id:
           type: integer
           example: 10
