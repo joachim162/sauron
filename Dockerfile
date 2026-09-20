@@ -14,7 +14,7 @@ RUN apt-get update -qq && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN cpanm Mojolicious::Plugin::SwaggerUI
+RUN cpanm Mojolicious::Plugin::SwaggerUI Test::MockModule
 
 # Redocly CLI for OpenAPI spec validation & bundling
 RUN apt-get update -qq && apt-get install -y nodejs npm \
