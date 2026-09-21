@@ -409,6 +409,15 @@ subtest 'invalid filter values return 400' => sub {
   }
 };
 
+subtest 'unknown filter params return 400 on both host endpoints' => sub {
+  # Previously silently ignored (controller-side whitelist); the ListQuery
+  # spec is now the single source of truth.
+  $t->get_ok("$ZURL?bogus=1" => $SUPER)->status_is(400)
+    ->json_like('/message' => qr/Unknown filter 'bogus'/);
+  $t->get_ok("$SURL?bogus=1" => $SUPER)->status_is(400)
+    ->json_like('/message' => qr/Unknown filter 'bogus'/);
+};
+
 subtest 'regex dialect is PostgreSQL, not Perl' => sub {
   # Valid Perl but invalid PostgreSQL ARE patterns must map to 400, not 500.
   my @perl_only = ('q=\\Kfoo', 'q=foo%2B%2B', 'q=\\R', 'domain=a{2,1}');
@@ -492,8 +501,10 @@ subtest 'apex record matches its FQDN' => sub {
 subtest 'filters compose with AND' => sub {
   $t->get_ok("$ZURL?type=host&dept=IT&ip=10.0.0.8/29" => $SUPER)->status_is(200);
   is_deeply([ map { $_->{domain} } @{$t->tx->res->json->{data}} ], ['web1'], 'type+dept+ip');
+  # Echo order is param-name sorted (deterministic since the ListQuery
+  # migration); it no longer follows the legacy fixed compile order.
   is_deeply($t->tx->res->json->{metadata}{filters},
-    [ { name => 'type', value => 'host' }, { name => 'ip', value => '10.0.0.8/29' }, { name => 'dept', value => 'IT' } ],
+    [ { name => 'dept', value => 'IT' }, { name => 'ip', value => '10.0.0.8/29' }, { name => 'type', value => 'host' } ],
     'multiple filters echoed');
 };
 

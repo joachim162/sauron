@@ -41,8 +41,10 @@ Filters compose with AND and always compose **inside** the
 `visible_zone_ids` permission restriction (ADR 0004/0005); totals remain
 exact `COUNT(*)` over the filtered set (ADR 0003). All values are bound
 parameters; filter targets are hardcoded identifier maps (ADR 0001). Invalid
-regex, invalid IP/CIDR, invalid date, unknown type/group, or an unknown sort
-field → 400.
+regex, invalid IP/CIDR, invalid date, unknown type/group, an unknown sort
+field, or an unknown filter parameter → 400 (the filter spec is the single
+source of truth; query parameters outside it are rejected rather than
+silently ignored).
 
 ### Regex dialect and resource limits
 

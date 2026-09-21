@@ -33,26 +33,17 @@ sub _check_rhf {
   return @missing ? \@missing : undef;
 }
 
-# Query parameters accepted by both host list endpoints (ADR 0007).
-my @HOST_FILTER_PARAMS = qw(
-  q domain type ip group txt mx
-  ether duid iaid info huser location dept model serial misc asset_id hinfo
-  dhcp_date_from dhcp_date_to dhcp_last_from dhcp_last_to
-  cdate_from cdate_to mdate_from mdate_to expiration_from expiration_to
-);
-
+# Query parameters for the host list endpoints (ADR 0007). The raw params
+# hash reaches the repository; ListQuery rejects anything outside the
+# filter spec. The group alevel ceiling is derived here (policy): undef
+# means no ceiling (superuser).
 sub _host_list_opts {
   my ($c) = @_;
-  my %filters;
-  for my $name (@HOST_FILTER_PARAMS) {
-    my $v = $c->param($name);
-    $filters{$name} = $v if defined $v && length $v;
-  }
+  my $superuser = $c->stash('api_superuser') // 0;
   return (
-    filters   => \%filters,
-    sort      => scalar $c->param('sort'),
-    alevel    => $c->stash('api_perms')->{alevel} // 0,
-    superuser => $c->stash('api_superuser') // 0,
+    params           => $c->req->query_params->to_hash,
+    sort             => scalar $c->param('sort'),
+    max_group_alevel => $superuser ? undef : ($c->stash('api_perms')->{alevel} // 0),
   );
 }
 
