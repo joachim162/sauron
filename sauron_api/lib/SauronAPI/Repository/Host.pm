@@ -218,127 +218,147 @@ sub _hex_transform {
 }
 
 # Filter spec for ListQuery (ADR 0007). Declarative entries cover the plain
-# column regexes, hinfo, and the date ranges; the custom closures own the
-# host-specific semantics (q's free-search surface, wildcard-label domain
-# matching, the txt/type interaction, IP containment, group membership with
-# the picker-parity alevel ceiling, IAID normalization, MX template matching).
-# The spec is built per call: the closures capture the raw params, the FQDN
-# context and the caller-derived group ceiling — never caller identity.
+# column regexes, hinfo, and the date ranges; the custom entries own the
+# host-specific semantics. The spec is built per call: context (FQDN
+# expression, caller-derived group ceiling, whether txt/type were supplied)
+# is captured into an explicit hash that the named _filter_* functions
+# receive — never caller identity.
+
+my %SIMPLE_REGEX_FILTERS = (map { $_ => { kind => 'regex', col => "h.$_" } }
+  qw(info huser location dept model serial misc asset_id));
+
+my %DATE_RANGE_FILTERS = (map { $_ => { kind => 'date_range', col => "h.$_" } }
+  qw(dhcp_date dhcp_last cdate mdate expiration));
+
+# q includes the hostname (label and FQDN) as well as the legacy <ANY>
+# metadata fields, so finding a host by name works through the free
+# search (ADR 0007 divergence).
+sub _filter_q {
+  my ($v, $ctx) = @_;
+  my $p = validate_regex('q', $v);
+  my @clauses = ('h.domain ~* ?');
+  my @bind = ($p);
+  if ($ctx->{fqdn}) {
+    push @clauses, "$ctx->{fqdn} ~* ?";
+    push @bind, @{$ctx->{fqdn_binds}}, $p;
+  }
+  push @clauses, map { "h.$_ ~* ?" }
+    qw(location huser dept info serial model misc asset_id hinfo_hw hinfo_sw);
+  push @bind, ($p) x 10;
+  return { clauses => [ '(' . join(' OR ', @clauses) . ')' ], bind => \@bind };
+}
+
+# Leading *. is a literal wildcard record label, not a regex quantifier.
+sub _filter_domain {
+  my ($v, $ctx) = @_;
+  (my $p = $v) =~ s/^\*\./\\\*\\\./;
+  $p = validate_regex('domain', $p);
+  return { clauses => [ $ctx->{match_fqdn}
+    ? q{(h.domain ~* ? OR (CASE WHEN h.domain='@' THEN z.name ELSE h.domain || '.' || z.name END) ~* ?)}
+    : 'h.domain ~* ?'
+  ], bind => $ctx->{match_fqdn} ? [$p, $p] : [$p] };
+}
+
+sub _filter_txt {
+  my ($v, $ctx) = @_;
+  my $p = validate_regex('txt', $v);
+  my @clauses =
+    ('EXISTS (SELECT 1 FROM txt_entries te WHERE te.type=2 AND te.ref=h.id AND te.txt ~* ?)');
+  # legacy parity
+  push @clauses, 'h.type IN (1,3,4,7)' unless $ctx->{type_supplied};
+  return { clauses => \@clauses, bind => [$p] };
+}
+
+sub _filter_type {
+  my ($v, $ctx) = @_;
+  my $code = host_type_code($v);
+  # txt + a TXT-incapable type is a provably empty combination
+  # (ADR 0007): short-circuit instead of silently ignoring a filter.
+  return { clauses => [], bind => [], empty => 1 }
+    if $ctx->{txt_supplied} && !grep { $_ == $code } @TXT_CAPABLE_CODES;
+  return { clauses => ['(h.type=1 OR h.type=101)'] } # host includes reservation
+    if $code == 1;
+  return { clauses => ['h.type=?'], bind => [$code] };
+}
+
+sub _filter_ip {
+  my ($v) = @_;
+  my $op;
+  if ($v =~ m{/}) {
+    SauronAPI::Exception->validation("Invalid CIDR '$v' for 'ip'") unless is_cidr($v);
+    $op = '<<=';
+  } else {
+    SauronAPI::Exception->validation("Invalid IP address '$v' for 'ip'") unless is_ip($v);
+    $op = '=';
+  }
+  return { clauses =>
+    ["EXISTS (SELECT 1 FROM a_entries ae WHERE ae.host=h.id AND ae.ip $op ?)"],
+    bind => [$v] };
+}
+
+# Group picker parity (ADR 0007): a group above the caller's derived
+# ceiling behaves as unknown.
+sub _filter_group {
+  my ($v, $ctx) = @_;
+  my $rows = dbq("SELECT id, alevel FROM groups WHERE server=? AND name=?",
+    $ctx->{server_id}, $v);
+  if (!@$rows || (defined $ctx->{ceiling} && ($rows->[0][1] // 0) > $ctx->{ceiling})) {
+    SauronAPI::Exception->validation("Unknown group '$v'");
+  }
+  my $gid = $rows->[0][0];
+  return {
+    clauses => ['(h.grp=? OR EXISTS (SELECT 1 FROM group_entries ge WHERE ge.host=h.id AND ge.grp=?))'],
+    bind    => [$gid, $gid],
+  };
+}
+
+sub _filter_iaid {
+  my ($v) = @_;
+  my $p = uc $v;
+  $p =~ s/[^0-9A-F]//g;
+  $p = hex($p) if $p ne '' && $p !~ /^\d+$/;
+  SauronAPI::Exception->validation("Invalid IAID '$v'")
+    unless defined $p && $p =~ /^\d+$/ && $p > 0 && $p < 2**32;
+  return { clauses => ['h.iaid = ?'], bind => [$p] };
+}
+
+sub _filter_mx {
+  my ($v) = @_;
+  my $p = validate_regex('mx', $v);
+  return {
+    clauses => ['EXISTS (SELECT 1 FROM mx_templates m WHERE m.id=h.mx AND m.zone=h.zone AND m.name ~* ?)'],
+    bind    => [$p],
+  };
+}
+
 sub _filter_spec {
   my ($server_id, $f, $opts) = @_;
 
   my ($fqdn, $fqdn_binds) = _fqdn_expr($opts);
-  my $ceiling = $opts->{max_group_alevel};
-  my $txt_supplied  = defined $f->{txt}  && length $f->{txt};
-  my $type_supplied = defined $f->{type} && length $f->{type};
+  my $ctx = {
+    server_id     => $server_id,
+    fqdn          => $fqdn,
+    fqdn_binds    => $fqdn_binds,
+    match_fqdn    => $opts->{match_fqdn},
+    ceiling       => $opts->{max_group_alevel},
+    txt_supplied  => defined $f->{txt} && length $f->{txt},
+    type_supplied => defined $f->{type} && length $f->{type},
+  };
 
   return {
-    (map { $_ => { kind => 'regex', col => "h.$_" } }
-      qw(info huser location dept model serial misc asset_id)),
+    %SIMPLE_REGEX_FILTERS,
     ether => { kind => 'regex', col => 'h.ether', transform => \&_hex_transform },
     duid  => { kind => 'regex', col => 'h.duid',  transform => \&_hex_transform },
     hinfo => { kind => 'regex_any', cols => ['h.hinfo_hw', 'h.hinfo_sw'] },
-    (map { $_ => { kind => 'date_range', col => "h.$_" } }
-      qw(dhcp_date dhcp_last cdate mdate expiration)),
-
-    # q includes the hostname (label and FQDN) as well as the legacy <ANY>
-    # metadata fields, so finding a host by name works through the free
-    # search (ADR 0007 divergence).
-    q => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      my $p = validate_regex('q', $v);
-      my @clauses = ('h.domain ~* ?');
-      my @bind = ($p);
-      if ($fqdn) {
-        push @clauses, "$fqdn ~* ?";
-        push @bind, @$fqdn_binds, $p;
-      }
-      push @clauses, map { "h.$_ ~* ?" }
-        qw(location huser dept info serial model misc asset_id hinfo_hw hinfo_sw);
-      push @bind, ($p) x 10;
-      return { clauses => [ '(' . join(' OR ', @clauses) . ')' ], bind => \@bind };
-    } },
-
-    # Leading *. is a literal wildcard record label, not a regex quantifier.
-    domain => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      (my $p = $v) =~ s/^\*\./\\\*\\\./;
-      $p = validate_regex('domain', $p);
-      return { clauses => [ $opts->{match_fqdn}
-        ? q{(h.domain ~* ? OR (CASE WHEN h.domain='@' THEN z.name ELSE h.domain || '.' || z.name END) ~* ?)}
-        : 'h.domain ~* ?'
-      ], bind => $opts->{match_fqdn} ? [$p, $p] : [$p] };
-    } },
-
-    txt => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      my $p = validate_regex('txt', $v);
-      my @clauses =
-        ('EXISTS (SELECT 1 FROM txt_entries te WHERE te.type=2 AND te.ref=h.id AND te.txt ~* ?)');
-      push @clauses, 'h.type IN (1,3,4,7)' unless $type_supplied; # legacy parity
-      return { clauses => \@clauses, bind => [$p] };
-    } },
-
-    type => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      my $code = host_type_code($v);
-      # txt + a TXT-incapable type is a provably empty combination
-      # (ADR 0007): short-circuit instead of silently ignoring a filter.
-      return { clauses => [], bind => [], empty => 1 }
-        if $txt_supplied && !grep { $_ == $code } @TXT_CAPABLE_CODES;
-      return { clauses => ['(h.type=1 OR h.type=101)'] } # host includes reservation
-        if $code == 1;
-      return { clauses => ['h.type=?'], bind => [$code] };
-    } },
-
-    ip => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      my $op;
-      if ($v =~ m{/}) {
-        SauronAPI::Exception->validation("Invalid CIDR '$v' for 'ip'") unless is_cidr($v);
-        $op = '<<=';
-      } else {
-        SauronAPI::Exception->validation("Invalid IP address '$v' for 'ip'") unless is_ip($v);
-        $op = '=';
-      }
-      return { clauses =>
-        ["EXISTS (SELECT 1 FROM a_entries ae WHERE ae.host=h.id AND ae.ip $op ?)"],
-        bind => [$v] };
-    } },
-
-    # Group picker parity (ADR 0007): a group above the caller's derived
-    # ceiling behaves as unknown.
-    group => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      my $rows = dbq("SELECT id, alevel FROM groups WHERE server=? AND name=?", $server_id, $v);
-      if (!@$rows || (defined $ceiling && ($rows->[0][1] // 0) > $ceiling)) {
-        SauronAPI::Exception->validation("Unknown group '$v'");
-      }
-      my $gid = $rows->[0][0];
-      return {
-        clauses => ['(h.grp=? OR EXISTS (SELECT 1 FROM group_entries ge WHERE ge.host=h.id AND ge.grp=?))'],
-        bind    => [$gid, $gid],
-      };
-    } },
-
-    iaid => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      my $p = uc $v;
-      $p =~ s/[^0-9A-F]//g;
-      $p = hex($p) if $p ne '' && $p !~ /^\d+$/;
-      SauronAPI::Exception->validation("Invalid IAID '$v'")
-        unless defined $p && $p =~ /^\d+$/ && $p > 0 && $p < 2**32;
-      return { clauses => ['h.iaid = ?'], bind => [$p] };
-    } },
-
-    mx => { kind => 'custom', code => sub {
-      my ($v) = @_;
-      my $p = validate_regex('mx', $v);
-      return {
-        clauses => ['EXISTS (SELECT 1 FROM mx_templates m WHERE m.id=h.mx AND m.zone=h.zone AND m.name ~* ?)'],
-        bind    => [$p],
-      };
-    } },
+    %DATE_RANGE_FILTERS,
+    q      => { kind => 'custom', code => sub { _filter_q($_[0], $ctx) } },
+    domain => { kind => 'custom', code => sub { _filter_domain($_[0], $ctx) } },
+    txt    => { kind => 'custom', code => sub { _filter_txt($_[0], $ctx) } },
+    type   => { kind => 'custom', code => sub { _filter_type($_[0], $ctx) } },
+    ip     => { kind => 'custom', code => sub { _filter_ip($_[0]) } },
+    group  => { kind => 'custom', code => sub { _filter_group($_[0], $ctx) } },
+    iaid   => { kind => 'custom', code => sub { _filter_iaid($_[0]) } },
+    mx     => { kind => 'custom', code => sub { _filter_mx($_[0]) } },
   };
 }
 
