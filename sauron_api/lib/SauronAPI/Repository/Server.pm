@@ -11,16 +11,12 @@ use Sauron::BackEnd ();
 use SauronAPI::Codecs     qw(aml value forwarder);
 use SauronAPI::Exception  ();
 use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
-use SauronAPI::Repository qw(dbq check_rc with_statement_timeout);
+use SauronAPI::Repository qw(dbq check_rc with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
 # List filters and sorting
 # ---------------------------------------------------------------------------
-
-# Defensive statement timeout for the filtered list queries (ADR 0007):
-# user-supplied regex must not be able to pin database resources.
-my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
 
 my %FILTER_SPEC = (
   name    => { kind => 'regex', col => 'name' },
@@ -109,7 +105,7 @@ sub server_list {
   my $where = @where ? ' WHERE ' . join(' AND ', @where) : '';
 
   my ($rows, $count_rows);
-  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+  with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
     $rows = dbq(
       'SELECT id,name,comment FROM servers' . $where .
       ' ' . sort_sql($sort) . ' LIMIT ? OFFSET ?',

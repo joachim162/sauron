@@ -14,7 +14,7 @@ use SauronAPI::Codecs       qw(mx value);
 use SauronAPI::Exception    ();
 use SauronAPI::FieldCodec;
 use SauronAPI::ListQuery    qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
-use SauronAPI::Repository   qw(dbq check_rc with_statement_timeout validate_regex);
+use SauronAPI::Repository   qw(dbq check_rc validate_regex with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -185,10 +185,6 @@ my @LIST_COLUMNS = qw(
 # ---------------------------------------------------------------------------
 # List filters and sorting (ADR 0007)
 # ---------------------------------------------------------------------------
-
-# Defensive statement timeout for the filtered list queries (ADR 0007):
-# user-supplied regex must not be able to pin database resources.
-my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
 
 my %SORT_COLUMN = (
   domain     => 'h.domain',
@@ -387,7 +383,7 @@ sub host_list {
       push @bind, @{$filters->{bind}};
     }
     my ($rows, $total_rows);
-    with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+    with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
       $rows = dbq(
         "SELECT " . join(',', map { "h.$_" } @LIST_COLUMNS) . " FROM hosts h$where_sql " .
         sort_sql($sort) . " LIMIT ? OFFSET ?",
@@ -444,7 +440,7 @@ sub host_list_server {
 
   my @cols = map { "h.$_" } @LIST_COLUMNS;
   my ($rows, $total_rows);
-  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+  with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
     $rows = dbq(
       "SELECT h.zone," . join(',', @cols) . ",z.name " .
       "FROM hosts h JOIN zones z ON z.id=h.zone$where " . sort_sql($sort) . " LIMIT ? OFFSET ?",

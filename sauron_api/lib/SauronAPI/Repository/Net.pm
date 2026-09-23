@@ -12,16 +12,12 @@ use Sauron::Util   ();
 use SauronAPI::Codecs     qw(value);
 use SauronAPI::Exception  ();
 use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
-use SauronAPI::Repository qw(dbq check_rc with_statement_timeout);
+use SauronAPI::Repository qw(dbq check_rc with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
 # List filters and sorting
 # ---------------------------------------------------------------------------
-
-# Defensive statement timeout for the filtered list queries (ADR 0007):
-# user-supplied regex must not be able to pin database resources.
-my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
 
 my %FILTER_SPEC = (
   net     => { kind => 'cidr',   col => 'net', within => 1 },
@@ -96,7 +92,7 @@ sub net_list {
   my $vlan_map = $opts{include_vlan_names} ? _vlan_map($server_id) : undef;
 
   my ($rows, $count);
-  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+  with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
     $rows = _list_rows($server_id, %qopts, sort => $sort);
     $count = _list_count($server_id, %qopts) if $paginated;
   });

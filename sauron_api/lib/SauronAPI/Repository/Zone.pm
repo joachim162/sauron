@@ -12,7 +12,7 @@ use Sauron::Util   ();
 use SauronAPI::Codecs     qw(aml mx value forwarder);
 use SauronAPI::Exception  ();
 use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
-use SauronAPI::Repository  qw(dbq check_rc with_statement_timeout);
+use SauronAPI::Repository  qw(dbq check_rc with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -48,10 +48,6 @@ my @COPY_FIELDS = qw(
 # ---------------------------------------------------------------------------
 # List filters and sorting
 # ---------------------------------------------------------------------------
-
-# Defensive statement timeout for the filtered list queries (ADR 0007):
-# user-supplied regex must not be able to pin database resources.
-my $LIST_STATEMENT_TIMEOUT_MS = 10_000;
 
 my %FILTER_SPEC = (
   name       => { kind => 'regex', col => 'name' },
@@ -103,7 +99,7 @@ sub zone_list {
   my $where = ' WHERE ' . join(' AND ', @where);
 
   my ($rows, $count_rows);
-  with_statement_timeout($LIST_STATEMENT_TIMEOUT_MS, sub {
+  with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
     $rows = dbq(
       'SELECT name,id,type,reverse,comment,expiration FROM zones' . $where .
       ' ' . sort_sql($sort) . ' LIMIT ? OFFSET ?',

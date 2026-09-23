@@ -3,7 +3,10 @@ use strict;
 use warnings;
 
 use Exporter 'import';
-our @EXPORT_OK = qw(dbq check_rc with_statement_timeout validate_regex);
+our @EXPORT_OK =
+  qw(dbq check_rc with_statement_timeout validate_regex LIST_STATEMENT_TIMEOUT_MS);
+
+use constant LIST_STATEMENT_TIMEOUT_MS => 10_000;
 
 use Sauron::DB           ();
 use SauronAPI::Exception ();
