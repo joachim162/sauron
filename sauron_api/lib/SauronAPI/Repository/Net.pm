@@ -82,7 +82,7 @@ sub net_list {
   my $sort = parse_sort($opts{sort}, \%SORT_COLUMN, default => 'net', tiebreak => 'id');
   my $filters = compile_filters($opts{params} // {}, \%FILTER_SPEC,
     ignore => [qw(list)]);
-  my %qopts = (filters => $filters, %opts);
+  my %qopts = (%opts, filters => $filters);
 
   # Unpaginated when page/per_page are absent; this path is only for
   # assignable-subnets. The networks endpoint always passes both.
