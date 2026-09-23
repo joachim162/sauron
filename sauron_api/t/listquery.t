@@ -249,6 +249,9 @@ subtest 'parse_sort errors' => sub {
   $e = _err(sub { parse_sort('name:up', \%COLS, default => 'name', tiebreak => 'z.id') });
   is($e->status, 400);
   like($e->message, qr/Invalid sort direction 'up' \(allowed: asc, desc\)/);
+
+  my $died = !eval { parse_sort('name', \%COLS, default => 'name', tiebreak => 'z.id; DROP TABLE hosts'); 1 };
+  ok($died, 'tiebreak is validated as a dotted identifier');
 };
 
 subtest 'list_metadata and set_total' => sub {

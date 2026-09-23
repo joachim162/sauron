@@ -190,6 +190,8 @@ sub parse_sort {
 
   my $default  = $opts{default};
   my $tiebreak = $opts{tiebreak} // 'id';
+  die "Invalid tiebreak '$tiebreak' (expected a dotted identifier)"
+    unless $tiebreak =~ /^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/;
   my @default_fields = defined $default ? (ref $default ? @$default : ($default)) : ();
   die 'parse_sort requires a default field' unless @default_fields;
 
