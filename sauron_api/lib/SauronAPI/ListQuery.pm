@@ -18,8 +18,15 @@ use SauronAPI::Repository qw(validate_regex);
 # superuser, stash or $c — authorization arrives as caller-derived
 # constraints composed into the repository's own WHERE. Values are always
 # bound; identifiers come only from hardcoded spec entries. Custom callbacks
-# are trusted application code and receive only the raw value; context
-# reaches them through closures, never a context parameter.
+# receive only the raw value — context reaches them through the closures
+# the repository builds, never a context parameter.
+#
+# This is deliberately a PostgreSQL compiler, not a generic parser: filter
+# kinds emit PG-specific SQL (ARE regex via ~*, inet operators <<=/>>=) and
+# regex patterns are validated against the live engine through
+# SauronAPI::Repository::validate_regex, so the module requires a database
+# connection — the dependency on Repository is intentional layering
+# (ListQuery → Repository → Sauron::DB), not an accident to be injected away.
 
 my @DEFAULT_IGNORE = qw(page per_page sort);
 
