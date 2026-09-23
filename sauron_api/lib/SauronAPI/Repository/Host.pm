@@ -378,51 +378,72 @@ sub _group_names {
   return %names;
 }
 
+# Shared preparation for both host list scopes (ADR 0007): page/per-page,
+# sort, filter compilation and the metadata envelope. The scope-specific
+# part is exactly $opts{spec_opts}: zone-scoped domain matching is
+# label-only (zone_name), server-scoped matching includes the FQDN
+# (match_fqdn, divergence 11 in docs/host-filtering-architecture-review.md).
+sub _prepare_host_list {
+  my ($server_id, %opts) = @_;
+  my $page    = $opts{page}     // 1;
+  my $per_page = $opts{per_page} // 50;
+  my $params  = $opts{params} // {};
+  my $sort    = parse_sort($opts{sort}, \%SORT_COLUMN, default => 'domain', tiebreak => 'h.id');
+  my $spec_opts = { max_group_alevel => $opts{max_group_alevel}, %{$opts{spec_opts} // {}} };
+  my $filters = compile_filters($params, _filter_spec($server_id, $params, $spec_opts));
+  my $meta    = list_metadata($page, $per_page, sort_echo($sort), $filters->{echo});
+  return ($meta, $sort, $filters, $page, $per_page);
+}
+
+# Shared execution for both host list scopes: an impossible filter
+# combination short-circuits to an empty page, and the row and count
+# queries always share the caller-built predicate (they are derived from
+# the same compiled $filters) and run under the defensive statement timeout.
+sub _run_host_list {
+  my (%args) = @_;
+  return ([], $args{meta}) if $args{filters}{empty};
+  my ($rows, $total_rows);
+  with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
+    $rows       = dbq($args{row_sql},   @{$args{row_bind}});
+    $total_rows = dbq($args{count_sql}, @{$args{count_bind}});
+  });
+  set_total($args{meta}, $total_rows->[0][0] // 0);
+  return ($rows, $args{meta});
+}
+
 sub host_list {
   my ($server_id, $zone_id, %opts) = @_;
-
-  my $page     = $opts{page}     // 1;
-  my $per_page = $opts{per_page} // 50;
-  my $offset   = ($page - 1) * $per_page;
 
   my $zone_row  = dbq("SELECT name FROM zones WHERE id=?", $zone_id);
   my $zone_name = @$zone_row ? $zone_row->[0][0] : undef;
 
-  my $params  = $opts{params} // {};
-  my $sort    = parse_sort($opts{sort}, \%SORT_COLUMN, default => 'domain', tiebreak => 'h.id');
-  my $filters = compile_filters($params, _filter_spec($server_id, $params,
-    { zone_name => $zone_name, max_group_alevel => $opts{max_group_alevel} }));
-  my $meta = list_metadata($page, $per_page, sort_echo($sort), $filters->{echo});
+  my ($meta, $sort, $filters, $page, $per_page) =
+    _prepare_host_list($server_id, %opts, spec_opts => { zone_name => $zone_name });
+  my $offset = ($page - 1) * $per_page;
+
+  my @bind  = ($zone_id);
+  my $where_sql = ' WHERE h.zone=?';
+  if ($filters->{where}) {
+    $where_sql .= " AND $filters->{where}";
+    push @bind, @{$filters->{bind}};
+  }
+
+  my ($rows) = _run_host_list(
+    meta       => $meta,
+    filters    => $filters,
+    row_sql    => "SELECT " . join(',', map { "h.$_" } @LIST_COLUMNS) . " FROM hosts h$where_sql " .
+                  sort_sql($sort) . " LIMIT ? OFFSET ?",
+    row_bind   => [@bind, $per_page, $offset],
+    count_sql  => "SELECT COUNT(*) FROM hosts h$where_sql",
+    count_bind => \@bind,
+  );
+
+  my %host_ips  = _batch_host_ips($rows);
+  my %grp_names = _group_names([map $_->[5], @$rows]);
 
   my @data;
-  unless ($filters->{empty}) {
-    my @bind  = ($zone_id);
-    my $where_sql = ' WHERE h.zone=?';
-    if ($filters->{where}) {
-      $where_sql .= " AND $filters->{where}";
-      push @bind, @{$filters->{bind}};
-    }
-    my ($rows, $total_rows);
-    with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
-      $rows = dbq(
-        "SELECT " . join(',', map { "h.$_" } @LIST_COLUMNS) . " FROM hosts h$where_sql " .
-        sort_sql($sort) . " LIMIT ? OFFSET ?",
-        @bind, $per_page, $offset
-      );
-      $total_rows = dbq(
-        "SELECT COUNT(*) FROM hosts h$where_sql",
-        @bind
-      );
-    });
-
-    my %host_ips  = _batch_host_ips($rows);
-    my %grp_names = _group_names([map $_->[5], @$rows]);
-
-    for my $row (@$rows) {
-      push @data, _build_host_list_item($server_id, $zone_id, $zone_name, $row, $host_ips{$row->[0]}, \%grp_names);
-    }
-
-    set_total($meta, $total_rows->[0][0] // 0);
+  for my $row (@$rows) {
+    push @data, _build_host_list_item($server_id, $zone_id, $zone_name, $row, $host_ips{$row->[0]}, \%grp_names);
   }
 
   return (\@data, $meta);
@@ -433,21 +454,13 @@ sub host_list {
 sub host_list_server {
   my ($server_id, %opts) = @_;
 
-  my $page     = $opts{page}     // 1;
-  my $per_page = $opts{per_page} // 50;
-  my $ids      = $opts{ids};
-  my $offset   = ($page - 1) * $per_page;
-
-  my $params  = $opts{params} // {};
-  my $sort    = parse_sort($opts{sort}, \%SORT_COLUMN, default => 'domain', tiebreak => 'h.id');
-  my $filters = compile_filters($params, _filter_spec($server_id, $params,
-    { match_fqdn => 1, max_group_alevel => $opts{max_group_alevel} }));
-  my $meta = list_metadata($page, $per_page, sort_echo($sort), $filters->{echo});
-
-  return ([], $meta) if $filters->{empty};
+  my ($meta, $sort, $filters, $page, $per_page) =
+    _prepare_host_list($server_id, %opts, spec_opts => { match_fqdn => 1 });
+  my $offset = ($page - 1) * $per_page;
 
   my @bind  = ($server_id);
   my $where = " WHERE z.server=?";
+  my $ids   = $opts{ids};
   if ($ids) {
     return ([], $meta) unless @$ids;
     $where .= " AND h.zone IN (" . join(',', ('?') x @$ids) . ")";
@@ -459,18 +472,15 @@ sub host_list_server {
   }
 
   my @cols = map { "h.$_" } @LIST_COLUMNS;
-  my ($rows, $total_rows);
-  with_statement_timeout(LIST_STATEMENT_TIMEOUT_MS, sub {
-    $rows = dbq(
-      "SELECT h.zone," . join(',', @cols) . ",z.name " .
-      "FROM hosts h JOIN zones z ON z.id=h.zone$where " . sort_sql($sort) . " LIMIT ? OFFSET ?",
-      @bind, $per_page, $offset
-    );
-    $total_rows = dbq(
-      "SELECT COUNT(*) FROM hosts h JOIN zones z ON z.id=h.zone$where",
-      @bind
-    );
-  });
+  my ($rows) = _run_host_list(
+    meta       => $meta,
+    filters    => $filters,
+    row_sql    => "SELECT h.zone," . join(',', @cols) . ",z.name " .
+                  "FROM hosts h JOIN zones z ON z.id=h.zone$where " . sort_sql($sort) . " LIMIT ? OFFSET ?",
+    row_bind   => [@bind, $per_page, $offset],
+    count_sql  => "SELECT COUNT(*) FROM hosts h JOIN zones z ON z.id=h.zone$where",
+    count_bind => \@bind,
+  );
 
   # Row layout: h.zone, LIST_COLUMNS..., z.name. Shift/pop off the extras
   # so %host_ips keys on the id column before item building.
@@ -488,8 +498,6 @@ sub host_list_server {
     my $zone_name = pop @values;
     push @data, _build_host_list_item($server_id, $zone_id, $zone_name, \@values, $host_ips{$row->[1]}, \%grp_names);
   }
-
-  set_total($meta, $total_rows->[0][0] // 0);
 
   return (\@data, $meta);
 }
