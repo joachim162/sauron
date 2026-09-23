@@ -22,8 +22,7 @@ sub list_servers ($self) {
   my ($servers, $meta) = eval {
     server_list(
       ids => $ids, page => $page, per_page => $per_page,
-      sort => scalar $self->param('sort'),
-      params => $self->req->query_params->to_hash,
+      $self->list_query_params,
     )
   };
   return $self->render_exception($@) if $@;

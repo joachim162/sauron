@@ -209,6 +209,13 @@ sub startup {
   $self->routes->get('/')->to(cb => sub ($c) { $c->redirect_to('/app/') });
 
   # Helpers
+  $self->helper(list_query_params => sub ($c) {
+    return (
+      params => $c->req->query_params->to_hash,
+      sort   => scalar $c->param('sort'),
+    );
+  });
+
   $self->helper(get_server_id_or_404 => sub ($c, $name) {
     my $id = Sauron::BackEnd::get_server_id($name);
     return $id if $id > 0;

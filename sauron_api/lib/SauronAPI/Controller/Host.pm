@@ -41,8 +41,7 @@ sub _host_list_opts {
   my ($c) = @_;
   my $superuser = $c->stash('api_superuser') // 0;
   return (
-    params           => $c->req->query_params->to_hash,
-    sort             => scalar $c->param('sort'),
+    $c->list_query_params,
     max_group_alevel => $superuser ? undef : ($c->stash('api_perms')->{alevel} // 0),
   );
 }
