@@ -207,6 +207,12 @@ subtest 'unknown filter' => sub {
   like($e->message, qr/Unknown filter 'bogus'/);
 };
 
+subtest 'unknown filter with empty value still rejected' => sub {
+  my $e = _err(sub { compile_filters({ bogus => '' }, \%SPEC) });
+  is($e->status, 400, 'empty unknown param raises validation error');
+  like($e->message, qr/Unknown filter 'bogus'/);
+};
+
 subtest 'empty string values are skipped' => sub {
   my $r = compile_filters({ name => '' }, \%SPEC);
   is($r->{where}, '', 'empty param produces no clause');

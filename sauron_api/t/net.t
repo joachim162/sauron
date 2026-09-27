@@ -568,6 +568,9 @@ subtest 'GET networks - sorting' => sub {
 
 subtest 'GET networks - invalid filters and sorts return 400' => sub {
   $t->get_ok("$BASE/networks?bogus=1" => $SUPER)->status_is(400);
+  # An empty value must not bypass the unknown-filter check.
+  $t->get_ok("$BASE/networks?bogus=" => $SUPER)->status_is(400)
+    ->json_like('/message' => qr/Unknown filter 'bogus'/);
   $t->get_ok("$BASE/networks?name=%5B" => $SUPER)->status_is(400);
   $t->get_ok("$BASE/networks?net=10.0.0.0/33" => $SUPER)->status_is(400);
   $t->get_ok("$BASE/networks?net=banana" => $SUPER)->status_is(400);

@@ -356,6 +356,9 @@ subtest 'GET /servers - sorting' => sub {
 
 subtest 'GET /servers - invalid filters and sorts return 400' => sub {
   $t->get_ok("$URL?bogus=1" => $SUPER)->status_is(400);
+  # An empty value must not bypass the unknown-filter check.
+  $t->get_ok("$URL?bogus=" => $SUPER)->status_is(400)
+    ->json_like('/message' => qr/Unknown filter 'bogus'/);
   $t->get_ok("$URL?name=%5B" => $SUPER)->status_is(400);
   $t->get_ok("$URL?sort=bogus" => $SUPER)->status_is(400);
   $t->get_ok("$URL?sort=name:sideways" => $SUPER)->status_is(400);

@@ -55,11 +55,15 @@ sub compile_filters {
 
   for my $name (sort keys %$params) {
     next if $ignore{$name};
+    # Reject unknown parameters before looking at their value: an unknown
+    # filter must be a 400 even when it is sent with an empty value
+    # (?bogus=), otherwise it silently bypasses the whitelist. Known
+    # filters with an empty value are still treated as "not applied".
+    my $entry = $param_to_entry{$name}
+      or SauronAPI::Exception->validation("Unknown filter '$name'");
     my $value = $params->{$name};
     $value = $value->[-1] if ref $value eq 'ARRAY';
     next unless defined $value && length $value;
-    my $entry = $param_to_entry{$name}
-      or SauronAPI::Exception->validation("Unknown filter '$name'");
 
     my ($clauses, $binds, $echo, $entry_empty) = _compile_entry($name, $value, $entry);
     push @where, @$clauses if @$clauses;

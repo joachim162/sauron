@@ -416,6 +416,11 @@ subtest 'unknown filter params return 400 on both host endpoints' => sub {
     ->json_like('/message' => qr/Unknown filter 'bogus'/);
   $t->get_ok("$SURL?bogus=1" => $SUPER)->status_is(400)
     ->json_like('/message' => qr/Unknown filter 'bogus'/);
+  # An empty value must not bypass the unknown-filter check.
+  $t->get_ok("$ZURL?bogus=" => $SUPER)->status_is(400)
+    ->json_like('/message' => qr/Unknown filter 'bogus'/);
+  $t->get_ok("$SURL?bogus=" => $SUPER)->status_is(400)
+    ->json_like('/message' => qr/Unknown filter 'bogus'/);
 };
 
 subtest 'regex dialect is PostgreSQL, not Perl' => sub {
