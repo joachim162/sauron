@@ -54,16 +54,20 @@ sub validate_regex {
 
 # Defensive statement timeout (ADR 0007): queries driven by user-supplied
 # regex filters must not be able to pin database resources with an expensive
-# pattern. The default is restored even when the guarded code throws.
+# pattern. Fails closed — if the guard cannot be armed the query does not run
+# unprotected, and the default is restored even when the guarded code throws.
+# Client-facing messages stay generic: DB/storage internals are not
+# API-consumer information.
 sub with_statement_timeout {
   my ($ms, $code) = @_;
-  return $code->() if Sauron::DB::db_exec("SET statement_timeout = ${ms}") < 0;
+  SauronAPI::Exception->persistence('Database error')
+    if Sauron::DB::db_exec("SET statement_timeout = ${ms}") < 0;
   my @ret;
   my $ok = eval { @ret = $code->(); 1 };
   my $err = $@;
   my $restored = Sauron::DB::db_exec('SET statement_timeout = DEFAULT') == 0;
   die $err unless $ok;
-  SauronAPI::Exception->persistence('Failed to restore statement_timeout')
+  SauronAPI::Exception->persistence('Database error')
     unless $restored;
   return wantarray ? @ret : $ret[0];
 }
