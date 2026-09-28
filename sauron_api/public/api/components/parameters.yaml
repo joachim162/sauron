@@ -533,3 +533,66 @@ net_sort:
   schema:
     type: string
     example: "netname:desc"
+
+# --- Host group parameters (ADR 0008) ---
+
+group:
+  name: group
+  in: path
+  required: true
+  description: Name of the host group
+  x-mojo-placeholder: '#'
+  schema:
+    type: string
+    example: office-laptops
+
+group_name:
+  name: name
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression (PostgreSQL ARE syntax) matched
+    against the group name.
+  schema:
+    type: string
+    maxLength: 40
+    example: "^office"
+
+group_type:
+  name: type
+  in: query
+  required: false
+  description: Filter by group type.
+  schema:
+    type: string
+    enum: [ normal, dynamic_pool, dhcp_class, custom_dhcp_class ]
+    example: normal
+
+group_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the group comment.
+  schema:
+    type: string
+    maxLength: 60
+
+group_vmps:
+  name: vmps
+  in: query
+  required: false
+  description: Filter by VMPS domain id (exact match).
+  schema:
+    type: integer
+    example: 3
+
+group_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction defaults
+    to asc). Fields: name, type, alevel. Default sort: name.
+  schema:
+    type: string
+    example: "name:desc"

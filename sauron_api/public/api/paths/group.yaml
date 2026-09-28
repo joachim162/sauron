@@ -1,0 +1,132 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get a host group
+  tags: [ groups ]
+  description: >
+    Returns the full host group record, including its DHCP/printer entry
+    arrays, VMPS domain name, and audit fields.
+  operationId: get_group
+  x-mojo-name: get_group
+  x-mojo-to: "Group#get_group"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/group'
+  responses:
+    '200':
+      description: Host group record
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Group'
+    '404':
+      description: Server or group not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update a host group
+  tags: [ groups ]
+  description: >
+    Partial update: only provided fields are changed; array fields use
+    replace-all semantics. Renaming changes the resource URL. Requires
+    server RW access and a group-name mask (grpmask) matching both the
+    current and the new name.
+  operationId: update_group
+  x-mojo-name: update_group
+  x-mojo-to: "Group#update_group"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/group'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateGroup'
+  responses:
+    '200':
+      description: Host group updated successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Group'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or group not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: A group with the new name already exists on the server
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a host group
+  tags: [ groups ]
+  description: >
+    Deletes the group. Member hosts are detached by default (base group
+    cleared, subgroup rows removed); pass reassign_to to move them to
+    another group first. Requires server RW access and a group-name mask
+    (grpmask) matching the group name.
+  operationId: delete_group
+  x-mojo-name: delete_group
+  x-mojo-to: "Group#delete_group"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/group'
+    - name: reassign_to
+      in: query
+      required: false
+      description: >
+        Name of the group that member hosts are moved to before deletion.
+        When omitted, members are detached instead.
+      schema:
+        type: string
+        example: office-desktops
+  responses:
+    '204':
+      description: Host group deleted
+    '400':
+      description: Invalid reassign_to value
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server, group, or reassign_to target not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

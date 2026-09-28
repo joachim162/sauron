@@ -18,6 +18,8 @@ tags:
     description: Authentication Endpoints
   - name: networks
     description: API Endpoints for Networks
+  - name: groups
+    description: API Endpoints for Host Groups
 
 paths:
   /auth/login:
@@ -120,6 +122,15 @@ paths:
   /servers/{server}/assignable-subnets:
     $ref: "./paths/assignable-subnets.yaml"
 
+  /servers/{server}/groups:
+    $ref: "./paths/groups.yaml"
+
+  /servers/{server}/groups/{group}:
+    $ref: "./paths/group.yaml"
+
+  /servers/{server}/assignable-groups:
+    $ref: "./paths/assignable-groups.yaml"
+
 components:
   schemas:
     ServerFields:
@@ -174,6 +185,20 @@ components:
       $ref: './components/schemas.yaml#/NewNet'
     UpdateNet:
       $ref: './components/schemas.yaml#/UpdateNet'
+    GroupType:
+      $ref: './components/schemas.yaml#/GroupType'
+    GroupSummary:
+      $ref: './components/schemas.yaml#/GroupSummary'
+    Group:
+      $ref: './components/schemas.yaml#/Group'
+    NewGroup:
+      $ref: './components/schemas.yaml#/NewGroup'
+    UpdateGroup:
+      $ref: './components/schemas.yaml#/UpdateGroup'
+    GroupAssignee:
+      $ref: './components/schemas.yaml#/GroupAssignee'
+    GroupListResponse:
+      $ref: './components/schemas.yaml#/GroupListResponse'
     Error:
       $ref: './components/schemas.yaml#/Error'
 

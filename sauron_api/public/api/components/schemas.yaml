@@ -1994,3 +1994,289 @@ Error:
       type: string
       example: Database connection failed
 
+GroupType:
+  type: string
+  enum:
+    - normal
+    - dynamic_pool
+    - dhcp_class
+    - custom_dhcp_class
+  description: >
+    Kind of configuration a host group carries. 'normal' and 'dynamic_pool'
+    groups may be a host's base group; 'dhcp_class' groups attach only as
+    subgroups; 'custom_dhcp_class' is never assignable to a host.
+  example: normal
+
+GroupSummary:
+  type: object
+  description: Lightweight host group record for list views.
+  required:
+    - id
+    - server_id
+    - name
+    - type
+    - alevel
+    - comment
+    - vmps
+  properties:
+    id:
+      type: integer
+      example: 7
+    server_id:
+      type: integer
+      example: 1
+    name:
+      type: string
+      description: Group name (unique per server)
+      example: office-laptops
+    type:
+      $ref: '#/GroupType'
+    alevel:
+      type: integer
+      description: Required authorization level
+      example: 0
+    comment:
+      type: string
+      description: Free-form comment; empty string when unset
+      example: Office laptops
+    vmps:
+      type: integer
+      nullable: true
+      description: VMPS domain id, or null when the group has none
+      example: 3
+
+Group:
+  allOf:
+    - $ref: '#/GroupSummary'
+    - type: object
+      required:
+        - vmps_name
+        - dhcp_l
+        - dhcp_l6
+        - printer_l
+        - cdate
+        - cuser
+        - mdate
+        - muser
+      properties:
+        vmps_name:
+          type: string
+          nullable: true
+          description: VMPS domain name, null when 'vmps' is null
+          example: office-vmps
+        dhcp_l:
+          type: array
+          description: IPv4 DHCP entries (dhcp_entries type=5)
+          items:
+            type: object
+            required:
+              - dhcp
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        dhcp_l6:
+          type: array
+          description: IPv6 DHCP entries (dhcp_entries type=15)
+          items:
+            type: object
+            required:
+              - dhcp
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        printer_l:
+          type: array
+          description: >
+            PRINTER entries (printer_entries type=1). Only meaningful for
+            'normal' groups; the write path rejects them for other types.
+          items:
+            type: object
+            required:
+              - printer
+            properties:
+              printer:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        cdate:
+          type: integer
+          nullable: true
+          description: Creation timestamp (Unix epoch)
+        cuser:
+          type: string
+          nullable: true
+          description: Created by user
+        mdate:
+          type: integer
+          nullable: true
+          description: Last modification timestamp (Unix epoch)
+        muser:
+          type: string
+          nullable: true
+          description: Last modified by user
+
+
+NewGroup:
+  type: object
+  description: >
+    Schema for creating a host group. The server is taken from the URL path.
+    'type' defaults to 'normal' when omitted.
+  required:
+    - name
+  properties:
+    name:
+      type: string
+      description: Group name (required, unique per server)
+      example: office-laptops
+    type:
+      $ref: '#/GroupType'
+    alevel:
+      type: integer
+      minimum: 0
+      description: Required authorization level (default 0)
+      example: 0
+    vmps:
+      type: integer
+      nullable: true
+      description: VMPS domain id on the same server, or null for none
+      example: 3
+    comment:
+      type: string
+      nullable: true
+    dhcp_l:
+      type: array
+      description: IPv4 DHCP entries (replace-all)
+      items:
+        type: object
+        required:
+          - dhcp
+        properties:
+          dhcp:
+            type: string
+          comment:
+            type: string
+            nullable: true
+    dhcp_l6:
+      type: array
+      description: IPv6 DHCP entries (replace-all)
+      items:
+        type: object
+        required:
+          - dhcp
+        properties:
+          dhcp:
+            type: string
+          comment:
+            type: string
+            nullable: true
+    printer_l:
+      type: array
+      description: PRINTER entries (replace-all); only valid for 'normal' groups
+      items:
+        type: object
+        required:
+          - printer
+        properties:
+          printer:
+            type: string
+          comment:
+            type: string
+            nullable: true
+
+UpdateGroup:
+  type: object
+  description: >
+    Schema for updating a host group. All fields are optional; only provided
+    fields are updated, and array fields use replace-all semantics. 'name' and
+    'type' are mutable; a rename changes the resource URL.
+  properties:
+    name:
+      type: string
+      example: office-laptops
+    type:
+      $ref: '#/GroupType'
+    alevel:
+      type: integer
+      minimum: 0
+      example: 0
+    vmps:
+      type: integer
+      nullable: true
+      example: 3
+    comment:
+      type: string
+      nullable: true
+    dhcp_l:
+      type: array
+      items:
+        type: object
+        required:
+          - dhcp
+        properties:
+          dhcp:
+            type: string
+          comment:
+            type: string
+            nullable: true
+    dhcp_l6:
+      type: array
+      items:
+        type: object
+        required:
+          - dhcp
+        properties:
+          dhcp:
+            type: string
+          comment:
+            type: string
+            nullable: true
+    printer_l:
+      type: array
+      items:
+        type: object
+        required:
+          - printer
+        properties:
+          printer:
+            type: string
+          comment:
+            type: string
+            nullable: true
+
+GroupAssignee:
+  type: object
+  description: Minimal group record for assignment pickers.
+  required:
+    - id
+    - name
+    - type
+  properties:
+    id:
+      type: integer
+      example: 7
+    name:
+      type: string
+      example: office-laptops
+    type:
+      $ref: '#/GroupType'
+
+GroupListResponse:
+  type: object
+  description: Paginated list of host groups.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/GroupSummary'
+    metadata:
+      $ref: '#/Metadata'

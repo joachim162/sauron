@@ -1,0 +1,97 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: List the groups of a server (paginated)
+  tags: [ groups ]
+  description: >
+    Returns the host groups defined on a server in the paginated
+    {data, metadata} envelope. The list is not filtered by the caller's
+    authorization level (legacy browse parity); use the assignable-groups
+    endpoint to obtain the groups that may be assigned to a host.
+  operationId: list_groups
+  x-mojo-name: list_groups
+  x-mojo-to: "Group#list_groups"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/page'
+    - $ref: '../components/parameters.yaml#/per_page'
+    - $ref: '../components/parameters.yaml#/group_name'
+    - $ref: '../components/parameters.yaml#/group_type'
+    - $ref: '../components/parameters.yaml#/group_comment'
+    - $ref: '../components/parameters.yaml#/group_vmps'
+    - $ref: '../components/parameters.yaml#/group_sort'
+  responses:
+    '200':
+      description: Paginated list of host groups in the {data, metadata} envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/GroupListResponse'
+    '400':
+      description: Invalid filter or sort value
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+post:
+  security:
+    - BearerAuth: []
+  summary: Create a host group
+  tags: [ groups ]
+  description: >
+    Creates a host group on the specified server. Requires server RW access
+    and a group-name mask (grpmask) matching the submitted name.
+  operationId: create_group
+  x-mojo-name: create_group
+  x-mojo-to: "Group#create_group"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/NewGroup'
+  responses:
+    '201':
+      description: Host group created successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Group'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: A group with this name already exists on the server
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

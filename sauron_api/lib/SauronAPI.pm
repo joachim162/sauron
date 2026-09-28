@@ -258,6 +258,20 @@ sub startup {
     return undef;
   });
 
+  $self->helper(get_group_id_or_404 => sub ($c, $server_id, $name) {
+    my $id = Sauron::BackEnd::get_group_by_name($server_id, $name);
+    return $id if $id > 0;
+
+    $c->render(
+      openapi => {
+        error   => 'Not Found',
+        message => "Group '$name' not found on this server"
+      },
+      status  => 404
+    );
+    return undef;
+  });
+
   # Render a SauronAPI::Exception as an OpenAPI-shaped error response.
   # Non-Exception dies (e.g. DBD::Pg) become a generic 500.
   $self->helper(render_exception => sub ($c, $e) {

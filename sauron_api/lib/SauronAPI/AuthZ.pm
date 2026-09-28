@@ -143,6 +143,18 @@ sub check_perms {
     return 0;
   }
 
+  if ($type eq 'grpmask') {
+    my $name = $args{name};
+    # Group-name mask (user_rights rtype=10): a positive allowlist — the name
+    # must match one of the caller's regexes, and an empty mask denies.
+    # TODO: review grpmask deny-by-default semantics (ADR 0008).
+    for my $re (@{$perms->{grpmask} // []}) {
+      return 1 if defined $name && $name =~ /$re/;
+    }
+    $c->render(json => { error => 'Forbidden', message => 'Not authorized to modify this group' }, status => 403);
+    return 0;
+  }
+
   $c->render(json => { error => 'Forbidden', message => 'Access denied' }, status => 403);
   return 0;
 }
