@@ -18,6 +18,10 @@ import type {
   UpdateGroup,
   GroupAssignee,
   GroupType,
+  Vlan,
+  VlanSummary,
+  NewVlan,
+  UpdateVlan,
 } from "@/lib/types";
 
 export interface PageOpts {
@@ -139,6 +143,33 @@ export const groupsApi = {
     api.get<GroupAssignee[]>(
       `/servers/${encodeURIComponent(serverName)}/assignable-groups?role=${role}`
     ),
+};
+
+// ---- VLANs (ADR 0009) ----
+export const vlansApi = {
+  list: (
+    serverName: string,
+    opts?: { page?: number; per_page?: number }
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.page !== undefined) params.set("page", String(opts.page));
+    if (opts?.per_page !== undefined) params.set("per_page", String(opts.per_page));
+    const qs = params.toString();
+    return api.get<PaginatedResponse<VlanSummary>>(
+      `/servers/${encodeURIComponent(serverName)}/vlans${qs ? `?${qs}` : ""}`
+    );
+  },
+  get: (serverName: string, name: string) =>
+    api.get<Vlan>(`/servers/${encodeURIComponent(serverName)}/vlans/${encodeURIComponent(name)}`),
+  create: (serverName: string, data: NewVlan) =>
+    api.post<Vlan>(`/servers/${encodeURIComponent(serverName)}/vlans`, data),
+  update: (serverName: string, name: string, data: UpdateVlan) =>
+    api.put<Vlan>(`/servers/${encodeURIComponent(serverName)}/vlans/${encodeURIComponent(name)}`, data),
+  delete: (serverName: string, name: string) =>
+    api.del(`/servers/${encodeURIComponent(serverName)}/vlans/${encodeURIComponent(name)}`),
+  // Complete list for pickers (net form).
+  all: (serverName: string) =>
+    fetchAllPages<VlanSummary>((page, per_page) => vlansApi.list(serverName, { page, per_page })),
 };
 
 // ---- Hosts ----

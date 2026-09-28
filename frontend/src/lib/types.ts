@@ -291,12 +291,36 @@ export interface GroupAssignee {
   type: GroupType;
 }
 
-export interface Vlan {
+// ---- VLANs (ADR 0009) ----
+
+export interface VlanSummary {
   id: number;
+  server_id: number;
   name: string;
-  comment?: string;
-  [key: string]: unknown;
+  vlanno: number | null;
+  description: string | null;
+  comment: string | null;
 }
+
+export interface Vlan extends VlanSummary {
+  dhcp_l: DhcpEntry[];
+  dhcp_l6: DhcpEntry[];
+  cdate?: number | null;
+  cuser?: string | null;
+  mdate?: number | null;
+  muser?: string | null;
+}
+
+export interface NewVlan {
+  name: string;
+  vlanno?: number | null;
+  description?: string | null;
+  comment?: string | null;
+  dhcp_l?: DhcpEntry[];
+  dhcp_l6?: DhcpEntry[];
+}
+
+export interface UpdateVlan extends Partial<NewVlan> {}
 
 export interface Acl {
   id: number;

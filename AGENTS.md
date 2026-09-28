@@ -161,8 +161,9 @@ All paginated list endpoints return the same envelope so the frontend data layer
 - **Networks CRUD** fully implemented (list with create dialog, detail/edit page mirroring legacy CGI).
 - **Host CRUD** works; the host edit form uses the `assignable-groups` picker for its base group and subgroups.
 - **Host groups CRUD** implemented (list with create/delete + reassign, detail/edit with DHCP/DHCPv6/PRINTER entry editors).
+- **VLANs CRUD** implemented (list + detail/edit with DHCP/DHCPv6 entry editors); the network form's VLAN field is a picker backed by the VLAN list.
 - **Servers and Zones** have list + detail pages.
-- Other pages (Users, ACLs, Keys, VLANs, Templates) are "Coming Soon" placeholders.
+- Other pages (Users, ACLs, Keys, Templates) are "Coming Soon" placeholders.
 - RHF (Required Host Fields) is fully implemented: API enforces on POST/PUT, frontend shows red `*` markers, error messages display inline.
 - The frontend reads RHF from `permissions.rhf` in `/auth/me` response.
 

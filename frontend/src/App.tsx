@@ -17,6 +17,7 @@ import NetDetailPage from "@/pages/nets/NetDetailPage";
 import GroupsPage from "@/pages/groups/GroupsPage";
 import GroupDetailPage from "@/pages/groups/GroupDetailPage";
 import VlansPage from "@/pages/vlans/VlansPage";
+import VlanDetailPage from "@/pages/vlans/VlanDetailPage";
 import AclsPage from "@/pages/acls/AclsPage";
 import KeysPage from "@/pages/keys/KeysPage";
 import MxTemplatesPage from "@/pages/templates/MxTemplatesPage";
@@ -53,6 +54,7 @@ export default function App() {
                 <Route path="groups" element={<GroupsPage />} />
                 <Route path="groups/:name" element={<GroupDetailPage />} />
                 <Route path="vlans" element={<VlansPage />} />
+                <Route path="vlans/:name" element={<VlanDetailPage />} />
                 <Route path="acls" element={<AclsPage />} />
                 <Route path="keys" element={<KeysPage />} />
                 <Route path="mx-templates" element={<MxTemplatesPage />} />

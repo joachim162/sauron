@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { netsApi } from "@/api";
+import { netsApi, vlansApi } from "@/api";
 import type { Net, DhcpEntry } from "@/lib/types";
 import { useServerContext } from "@/hooks/use-server-context";
 import { useAuth } from "@/hooks/use-auth";
@@ -151,6 +151,12 @@ export default function NetDetailPage() {
     queryKey: ["nets", serverName, decodedNetname],
     queryFn: () => netsApi.get(serverName!, decodedNetname),
     enabled: !!serverName && !!decodedNetname,
+  });
+
+  const { data: vlans } = useQuery({
+    queryKey: ["vlans", serverName, "all"],
+    queryFn: () => vlansApi.all(serverName!),
+    enabled: !!serverName,
   });
 
   useEffect(() => {
@@ -379,7 +385,22 @@ export default function NetDetailPage() {
                 {showVlanDhcp && (
                   <div className="grid gap-2">
                     <Label htmlFor="vlan">VLAN</Label>
-                    <Input id="vlan" type="number" value={form.vlan ?? ""} onChange={(e) => updateField("vlan", e.target.value === "" ? undefined : Number(e.target.value))} />
+                    <Select
+                      value={form.vlan != null && form.vlan >= 0 ? String(form.vlan) : "none"}
+                      onValueChange={(v) => updateField("vlan", v === "none" ? -1 : Number(v))}
+                    >
+                      <SelectTrigger id="vlan">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {(vlans ?? []).map((v) => (
+                          <SelectItem key={v.id} value={String(v.id)}>
+                            {v.vlanno != null ? `${v.name} (${v.vlanno})` : v.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
                 {showSubnetFields && (
