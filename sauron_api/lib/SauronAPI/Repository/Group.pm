@@ -392,8 +392,9 @@ sub _validate_alevel {
     unless defined $v && $v =~ /^\d+$/;
 }
 
-# TODO: VMPS picker endpoint needed — 'vmps' is writable here but the API has
-# no VMPS listing yet, so a client cannot discover valid ids (ADR 0008).
+# TODO(#32): 'vmps' is writable here but the API has no VMPS listing, so a
+# client cannot discover valid ids (the UI uses a raw id input). The VMPS
+# protocol is deprecated, so this is not planned (ADR 0008).
 sub _validate_vmps {
   my ($server_id, $v) = @_;
   return unless defined $v;

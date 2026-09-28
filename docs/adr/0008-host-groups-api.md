@@ -126,5 +126,6 @@ legacy behavior; `SauronAPI::AuthZ` gains a `grpmask` check.
     contradicting the CGI rule.
   - joachim162/sauron#40 — prevent redundant host membership at the source.
   - Code TODOs: review `grpmask` deny-by-default semantics at the `AuthZ`
-    check; add a VMPS picker endpoint (`vmps` is writable but no VMPS
-    listing exists yet).
+    check; the VMPS picker endpoint is tracked in joachim162/sauron#32 and is
+    not planned because the VMPS protocol is deprecated (`vmps` stays writable
+    with server-scoped validation; the UI uses a raw id input).
