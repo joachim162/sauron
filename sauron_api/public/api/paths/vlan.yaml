@@ -1,0 +1,115 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get a VLAN
+  tags: [ vlans ]
+  description: >
+    Returns the full VLAN record including its DHCP/DHCPv6 entry arrays.
+    Requires server read access and authorization level ALEVEL_VLANS.
+  operationId: get_vlan
+  x-mojo-name: get_vlan
+  x-mojo-to: "Vlan#get_vlan"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/vlan'
+  responses:
+    '200':
+      description: VLAN record
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Vlan'
+    '404':
+      description: Server or VLAN not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update a VLAN
+  tags: [ vlans ]
+  description: >
+    Partial update: only provided fields are changed; array fields use
+    replace-all semantics. Renaming changes the resource URL. Requires
+    superuser.
+  operationId: update_vlan
+  x-mojo-name: update_vlan
+  x-mojo-to: "Vlan#update_vlan"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/vlan'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateVlan'
+  responses:
+    '200':
+      description: VLAN updated successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Vlan'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or VLAN not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: A VLAN with the new name already exists on the server
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a VLAN
+  tags: [ vlans ]
+  description: >
+    Deletes the VLAN and its DHCP/DHCPv6 entries, and detaches references:
+    networks lose their VLAN (vlan=-1) and VMPS domains lose a fallback
+    pointing at it (fallback=-1). Requires superuser.
+  operationId: delete_vlan
+  x-mojo-name: delete_vlan
+  x-mojo-to: "Vlan#delete_vlan"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/vlan'
+  responses:
+    '204':
+      description: VLAN deleted
+    '404':
+      description: Server or VLAN not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

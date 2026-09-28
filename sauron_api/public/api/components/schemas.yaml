@@ -2280,3 +2280,170 @@ GroupListResponse:
         $ref: '#/GroupSummary'
     metadata:
       $ref: '#/Metadata'
+
+VlanFields:
+  type: object
+  description: Shared writable fields for VLAN records.
+  properties:
+    name:
+      type: string
+      description: VLAN name (letters, digits, underscore, dot, hyphen)
+      example: staff
+    vlanno:
+      type: integer
+      nullable: true
+      minimum: 0
+      description: IEEE 802.1Q VLAN number
+      example: 10
+    description:
+      type: string
+      nullable: true
+      example: Staff network
+    comment:
+      type: string
+      nullable: true
+    dhcp_l:
+      type: array
+      description: VLAN-specific DHCP entries (dhcp_entries type=6)
+      items:
+        type: object
+        required:
+          - dhcp
+        properties:
+          dhcp:
+            type: string
+          comment:
+            type: string
+            nullable: true
+    dhcp_l6:
+      type: array
+      description: VLAN-specific DHCPv6 entries (dhcp_entries type=16)
+      items:
+        type: object
+        required:
+          - dhcp
+        properties:
+          dhcp:
+            type: string
+          comment:
+            type: string
+            nullable: true
+
+VlanSummary:
+  type: object
+  description: Lightweight VLAN record for list views.
+  required:
+    - id
+    - server_id
+    - name
+    - vlanno
+    - description
+    - comment
+  properties:
+    id:
+      type: integer
+      example: 5
+    server_id:
+      type: integer
+      example: 1
+    name:
+      type: string
+      example: staff
+    vlanno:
+      type: integer
+      nullable: true
+      example: 10
+    description:
+      type: string
+      nullable: true
+      example: Staff network
+    comment:
+      type: string
+      nullable: true
+
+Vlan:
+  allOf:
+    - $ref: '#/VlanSummary'
+    - type: object
+      required:
+        - dhcp_l
+        - dhcp_l6
+        - cdate
+        - cuser
+        - mdate
+        - muser
+      properties:
+        dhcp_l:
+          type: array
+          description: VLAN-specific DHCP entries (dhcp_entries type=6)
+          items:
+            type: object
+            required:
+              - dhcp
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        dhcp_l6:
+          type: array
+          description: VLAN-specific DHCPv6 entries (dhcp_entries type=16)
+          items:
+            type: object
+            required:
+              - dhcp
+            properties:
+              dhcp:
+                type: string
+              comment:
+                type: string
+                nullable: true
+        cdate:
+          type: integer
+          nullable: true
+          description: Creation timestamp (Unix epoch)
+        cuser:
+          type: string
+          nullable: true
+        mdate:
+          type: integer
+          nullable: true
+          description: Last modification timestamp (Unix epoch)
+        muser:
+          type: string
+          nullable: true
+
+NewVlan:
+  allOf:
+    - $ref: '#/VlanFields'
+    - type: object
+      required:
+        - name
+      description: >
+        Schema for creating a VLAN. The server is taken from the URL path.
+        The legacy new-VLAN form omits the DHCP arrays, but they are accepted
+        here for consistency with NewGroup/NewNet.
+
+UpdateVlan:
+  allOf:
+    - $ref: '#/VlanFields'
+    - type: object
+      description: >
+        Schema for updating a VLAN. All fields are optional; array fields use
+        replace-all semantics and 'name' is mutable (a rename changes the
+        resource URL).
+
+VlanListResponse:
+  type: object
+  description: Paginated list of VLANs.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/VlanSummary'
+    metadata:
+      $ref: '#/Metadata'

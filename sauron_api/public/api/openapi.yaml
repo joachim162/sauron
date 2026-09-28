@@ -20,6 +20,8 @@ tags:
     description: API Endpoints for Networks
   - name: groups
     description: API Endpoints for Host Groups
+  - name: vlans
+    description: API Endpoints for VLANs
 
 paths:
   /auth/login:
@@ -131,6 +133,12 @@ paths:
   /servers/{server}/assignable-groups:
     $ref: "./paths/assignable-groups.yaml"
 
+  /servers/{server}/vlans:
+    $ref: "./paths/vlans.yaml"
+
+  /servers/{server}/vlans/{vlan}:
+    $ref: "./paths/vlan.yaml"
+
 components:
   schemas:
     ServerFields:
@@ -199,6 +207,18 @@ components:
       $ref: './components/schemas.yaml#/GroupAssignee'
     GroupListResponse:
       $ref: './components/schemas.yaml#/GroupListResponse'
+    VlanFields:
+      $ref: './components/schemas.yaml#/VlanFields'
+    VlanSummary:
+      $ref: './components/schemas.yaml#/VlanSummary'
+    Vlan:
+      $ref: './components/schemas.yaml#/Vlan'
+    NewVlan:
+      $ref: './components/schemas.yaml#/NewVlan'
+    UpdateVlan:
+      $ref: './components/schemas.yaml#/UpdateVlan'
+    VlanListResponse:
+      $ref: './components/schemas.yaml#/VlanListResponse'
     Error:
       $ref: './components/schemas.yaml#/Error'
 

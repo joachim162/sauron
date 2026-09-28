@@ -599,3 +599,66 @@ group_sort:
   schema:
     type: string
     example: "name:desc"
+
+# --- VLAN parameters (ADR 0009) ---
+
+vlan:
+  name: vlan
+  in: path
+  required: true
+  description: Name of the VLAN (letters, digits, underscore, dot, hyphen)
+  x-mojo-placeholder: '#'
+  schema:
+    type: string
+    example: staff
+
+vlan_name:
+  name: name
+  in: query
+  required: false
+  description: >
+    Case-insensitive regular expression (PostgreSQL ARE syntax) matched
+    against the VLAN name.
+  schema:
+    type: string
+    maxLength: 32
+    example: "^staff"
+
+vlan_vlanno:
+  name: vlanno
+  in: query
+  required: false
+  description: Filter by 802.1Q VLAN number (exact match).
+  schema:
+    type: integer
+    minimum: 0
+    example: 10
+
+vlan_description:
+  name: description
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the VLAN description.
+  schema:
+    type: string
+    maxLength: 200
+
+vlan_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the VLAN comment.
+  schema:
+    type: string
+    maxLength: 200
+
+vlan_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction defaults
+    to asc). Fields: name, vlanno, description, comment. Default sort: name.
+  schema:
+    type: string
+    example: "vlanno:asc"
