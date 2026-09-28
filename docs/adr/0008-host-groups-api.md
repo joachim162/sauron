@@ -76,7 +76,9 @@ level ceiling and the slot's allowed types: base → `{normal, dynamic_pool}`,
 subgroup → `{normal, dynamic_pool, dhcp_class}`; `custom_dhcp_class` is
 never assignable. The legacy `get_group_list` is the source of truth. The
 host create/update path enforces the same predicate on `grp` and
-`subgroups` (today it validates nothing).
+`subgroups`. On copy, only explicit overrides are validated (groups inherited
+from the source host are not re-checked); and a non-zero `grp` is rejected on
+host types other than 1 (host) and 5 (printer), matching the CGI form.
 
 **Authorization.** Reads require server `R`. Writes require server `RW`
 **and** a `grpmask` match on the group name (create: submitted name; update:

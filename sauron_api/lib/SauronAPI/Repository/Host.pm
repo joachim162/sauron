@@ -15,6 +15,7 @@ use SauronAPI::Exception    ();
 use SauronAPI::FieldCodec;
 use SauronAPI::ListQuery    qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
 use SauronAPI::Repository   qw(dbq check_rc validate_regex with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
+use SauronAPI::Repository::Group qw(assert_assignable);
 use JSON::PP ();
 
 # ---------------------------------------------------------------------------
@@ -573,6 +574,9 @@ sub host_create {
     SauronAPI::Exception->validation($err);
   }
 
+  _validate_grp_type($input, $type);
+  _enforce_host_groups($server_id, $input, $opts{max_group_alevel});
+
   # BackEnd::add_host reads only the scalar 'alias' for type 7 and would
   # silently drop an alias_a array; reject it instead of losing data.
   if ($type == 7 && exists $input->{alias_a}) {
@@ -636,6 +640,9 @@ sub host_update {
   if (my $err = _validate_type_fields($input, $host_data{type})) {
     SauronAPI::Exception->validation($err);
   }
+
+  _validate_grp_type($input, $input->{type} // $host_data{type});
+  _enforce_host_groups($server_id, $input, $opts{max_group_alevel});
 
   my %rec = (
     id     => $host_id,
@@ -707,6 +714,11 @@ sub host_copy {
   if (my $err = _validate_type_fields($input, $effective_type)) {
     SauronAPI::Exception->validation($err);
   }
+
+  # Copy inherits the source host's groups; only explicit overrides are
+  # validated (ADR 0008).
+  _validate_grp_type($input, $effective_type);
+  _enforce_host_groups($server_id, $input, $opts{max_group_alevel});
 
   # Build new record from source + overrides
   my %rec = (
@@ -1028,6 +1040,51 @@ sub _add_host {
     );
   }
   return $host_id;
+}
+
+# Enforce host-group assignability (ADR 0008) for the groups present in the
+# request body. Only explicit values are checked: on copy, groups inherited
+# from the source host are not re-validated, and on update untouched
+# memberships are left alone.
+sub _enforce_host_groups {
+  my ($server_id, $input, $max_alevel) = @_;
+
+  my @entries;
+
+  if (exists $input->{grp} && defined $input->{grp}) {
+    my $id = $input->{grp};
+    SauronAPI::Exception->validation("'grp' must be an integer")
+      unless $id =~ /^-?\d+$/;
+    push @entries, [$id, 'base'] if $id > 0;
+  }
+
+  if (exists $input->{subgroups}) {
+    my $subs = $input->{subgroups};
+    SauronAPI::Exception->validation("'subgroups' must be an array")
+      unless ref $subs eq 'ARRAY';
+    for my $row (@$subs) {
+      my $id = ref $row eq 'HASH' ? $row->{grp} : undef;
+      SauronAPI::Exception->validation('Invalid subgroup entry')
+        unless defined $id && $id =~ /^\d+$/ && $id > 0;
+      push @entries, [$id, 'subgroup'];
+    }
+  }
+
+  assert_assignable($server_id, \@entries, $max_alevel);
+  return;
+}
+
+# A base group only applies to host types 1 (host) and 5 (printer); reject a
+# meaningful assignment on other types. A no-op value (<= 0) is tolerated
+# because the frontend edit form always posts 'grp'.
+sub _validate_grp_type {
+  my ($input, $type) = @_;
+  return unless exists $input->{grp} && defined $input->{grp};
+  return unless $input->{grp} =~ /^-?\d+$/ && $input->{grp} > 0;
+  return if $type == 1 || $type == 5;
+  SauronAPI::Exception->validation(
+    "Field 'grp' is only valid for host types 'host' and 'printer'"
+  );
 }
 
 sub _copy_host_fields {

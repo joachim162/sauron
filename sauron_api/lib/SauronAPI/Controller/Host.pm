@@ -37,12 +37,20 @@ sub _check_rhf {
 # hash reaches the repository; ListQuery rejects anything outside the
 # filter spec. The group alevel ceiling is derived here (policy): undef
 # means no ceiling (superuser).
+# Group authorization ceiling for the caller (ADR 0008): undef means no
+# ceiling (superuser), otherwise the caller's authorization level.
+sub _max_group_alevel {
+  my ($c) = @_;
+  return $c->stash('api_superuser')
+    ? undef
+    : ($c->stash('api_perms')->{alevel} // 0);
+}
+
 sub _host_list_opts {
   my ($c) = @_;
-  my $superuser = $c->stash('api_superuser') // 0;
   return (
     $c->list_query_params,
-    max_group_alevel => $superuser ? undef : ($c->stash('api_perms')->{alevel} // 0),
+    max_group_alevel => _max_group_alevel($c),
   );
 }
 
@@ -138,7 +146,10 @@ sub add_host ($self) {
     SauronAPI::Exception->forbidden("Permission denied for IP '$ip'");
   };
 
-  my $host = eval { host_create($server_id, $zone_id, $json, on_ip => $ip_allowed) };
+  my $host = eval {
+    host_create($server_id, $zone_id, $json,
+      on_ip => $ip_allowed, max_group_alevel => _max_group_alevel($self));
+  };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => $host, status => 201);
@@ -171,8 +182,11 @@ sub copy_host ($self) {
     }
   };
 
-  my $host = eval { host_copy($server_id, $zone_id, $source_hostname, $json,
-                               on_ip => $ip_allowed, on_merged => $check_rhf) };
+  my $host = eval {
+    host_copy($server_id, $zone_id, $source_hostname, $json,
+      on_ip => $ip_allowed, on_merged => $check_rhf,
+      max_group_alevel => _max_group_alevel($self));
+  };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => $host, status => 201);
@@ -263,7 +277,10 @@ sub update_host ($self) {
     );
   }
 
-  my $host = eval { host_update($server_id, $zone_id, $hostname, $json) };
+  my $host = eval {
+    host_update($server_id, $zone_id, $hostname, $json,
+      max_group_alevel => _max_group_alevel($self));
+  };
   return $self->render_exception($@) if $@;
 
   $self->render(openapi => $host);

@@ -5,7 +5,7 @@ use warnings;
 use Exporter 'import';
 our @EXPORT_OK = qw(
   group_list group_find group_create group_update group_delete
-  assignable_groups group_type_code group_type_slug
+  assignable_groups group_type_code group_type_slug assert_assignable
 );
 
 use Scalar::Util ();
@@ -331,6 +331,46 @@ sub assignable_groups {
     name => $_->[1],
     type => group_type_slug($_->[2]),
   } } @$rows ];
+}
+
+# Validate a set of group assignments for a host write. $entries is an
+# arrayref of [$group_id, $role] pairs ('base' or 'subgroup'); throws a
+# validation exception on the first violation. This is the write-side twin of
+# assignable_groups: same server scope, alevel ceiling and per-slot type sets.
+sub assert_assignable {
+  my ($server_id, $entries, $max_alevel) = @_;
+  return unless $entries && @$entries;
+
+  my %seen;
+  my @ids = grep { $_ > 0 && !$seen{$_}++ } map { $_->[0] } @$entries;
+  return unless @ids;
+
+  my %by_id;
+  if (@ids) {
+    my $rows = dbq(
+      'SELECT id,name,server,type,alevel FROM groups WHERE id IN ('
+      . join(',', ('?') x @ids) . ')', @ids);
+    %by_id = map { $_->[0] => $_ } @$rows;
+  }
+
+  for my $entry (@$entries) {
+    my ($id, $role) = @$entry;
+    SauronAPI::Exception->validation("Unknown group (id=$id)")
+      unless $id > 0 && $by_id{$id};
+
+    my (undef, $name, $gserver, $type, $alevel) = @{$by_id{$id}};
+    SauronAPI::Exception->validation("Group '$name' belongs to a different server")
+      if $gserver != $server_id;
+    SauronAPI::Exception->validation("Group '$name' is above your authorization level")
+      if defined $max_alevel && ($alevel // 0) > $max_alevel;
+
+    my $slot = $role eq 'base' ? 'base group' : 'subgroup';
+    my @allowed = @{$ASSIGNABLE_TYPES{$role} // []};
+    SauronAPI::Exception->validation("Group '$name' is not assignable as a $slot")
+      unless grep { $_ == $type } @allowed;
+  }
+
+  return;
 }
 
 # ---------------------------------------------------------------------------
