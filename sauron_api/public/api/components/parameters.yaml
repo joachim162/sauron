@@ -540,8 +540,11 @@ group:
   name: group
   in: path
   required: true
+  # Group names are free-form text and may contain '/', so this uses the
+  # wildcard placeholder ('*' matches slashes; '#' does not) and must stay the
+  # final path segment.
   description: Name of the host group
-  x-mojo-placeholder: '#'
+  x-mojo-placeholder: '*'
   schema:
     type: string
     example: office-laptops

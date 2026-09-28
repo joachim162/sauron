@@ -27,9 +27,11 @@ them. This ADR records the design of that surface.
 Zones and Networks. `{group}` is the group **name** (unique per server,
 `UNIQUE(name, server)`), consistent with `{server}`/`{zone}` name lookups;
 a `get_group_id_or_404` helper resolves it via `BackEnd::get_group_by_name`.
-The `{group}` placeholder carries `x-mojo-placeholder: '#'` because group
+The `{group}` placeholder carries `x-mojo-placeholder: '*'` because group
 names are free-form text (may contain spaces or `/`) and are not charset-
-restricted, preserving legacy parity.
+restricted, preserving legacy parity; Mojolicious' wildcard placeholder
+matches slashes, whereas the relaxed `'#'` (used for `{server}`/`{zone}`)
+does not. `{group}` therefore must remain the final path segment.
 
 **Two response shapes.** List items are a `GroupSummary` (`id`, `server_id`,
 `name`, `type`, `alevel`, `comment`, `vmps`); the detail object `Group` adds
@@ -91,7 +93,7 @@ legacy behavior; `SauronAPI::AuthZ` gains a `grpmask` check.
   non-human-readable-code anti-pattern ADR 0006 removed for hosts. Rejected.
 - **Numeric-id paths (`/groups/{id}`)** — no encoding concerns and matches
   the legacy `grp_id`, but inconsistent with `{server}`/`{zone}` name
-  addressing. Rejected; `'#'` placeholder handles the charset.
+  addressing. Rejected; the `'*'` placeholder handles free-form names.
 - **409 when a group still has members** — safer against accidental mass
   detach, but diverges from legacy, which always allowed choosing "none".
   Rejected in favour of default-detach + `?reassign_to=`; tracked in issue
