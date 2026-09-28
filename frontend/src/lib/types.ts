@@ -228,11 +228,67 @@ export interface NewNet {
 
 export interface UpdateNet extends Partial<NewNet> {}
 
-export interface Group {
+export interface PrinterEntry {
+  printer: string;
+  comment?: string;
+}
+
+// ---- Host groups (ADR 0008) ----
+
+export type GroupType =
+  | "normal"
+  | "dynamic_pool"
+  | "dhcp_class"
+  | "custom_dhcp_class";
+
+export const GROUP_TYPES: Record<GroupType, string> = {
+  normal: "Normal",
+  dynamic_pool: "Dynamic Address Pool",
+  dhcp_class: "DHCP class",
+  custom_dhcp_class: "Custom DHCP class",
+};
+
+// Lightweight item returned by the list endpoint.
+export interface GroupSummary {
+  id: number;
+  server_id: number;
+  name: string;
+  type: GroupType;
+  alevel: number;
+  comment: string;
+  vmps: number | null;
+}
+
+// Full record returned by the detail endpoint.
+export interface Group extends GroupSummary {
+  vmps_name: string | null;
+  dhcp_l: DhcpEntry[];
+  dhcp_l6: DhcpEntry[];
+  printer_l: PrinterEntry[];
+  cdate?: number | null;
+  cuser?: string | null;
+  mdate?: number | null;
+  muser?: string | null;
+}
+
+export interface NewGroup {
+  name: string;
+  type?: GroupType;
+  alevel?: number;
+  vmps?: number | null;
+  comment?: string;
+  dhcp_l?: DhcpEntry[];
+  dhcp_l6?: DhcpEntry[];
+  printer_l?: PrinterEntry[];
+}
+
+export interface UpdateGroup extends Partial<NewGroup> {}
+
+// Minimal item returned by the assignable-groups picker.
+export interface GroupAssignee {
   id: number;
   name: string;
-  comment?: string;
-  [key: string]: unknown;
+  type: GroupType;
 }
 
 export interface Vlan {

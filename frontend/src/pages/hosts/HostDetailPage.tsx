@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchAllPages, hostsApi, netsApi, zonesApi } from "@/api";
+import { fetchAllPages, groupsApi, hostsApi, netsApi, zonesApi } from "@/api";
 import type { Host, IpEntry } from "@/lib/types";
 import { HOST_TYPES } from "@/lib/types";
 import { ApiRequestError } from "@/lib/api-client";
@@ -345,6 +345,8 @@ export default function HostDetailPage() {
   const [nsEdit, setNsEdit] = useState<ERow[]>([]);
   const [dhcpEdit, setDhcpEdit] = useState<ERow[]>([]);
   const [srvEdit, setSrvEdit] = useState<ERow[]>([]);
+  const [grpEdit, setGrpEdit] = useState<string>("0");
+  const [subgroupEdit, setSubgroupEdit] = useState<number[]>([]);
 
   const { data: host, isLoading } = useQuery({
     queryKey: ["host", serverName, zoneName, hostname],
@@ -356,6 +358,19 @@ export default function HostDetailPage() {
     queryKey: ["assignable-subnets", serverName],
     queryFn: () => netsApi.assignable(serverName!),
     enabled: !!serverName && (copyOpen || moveOpen) && (host?.type === "host" || host?.type === "reservation"),
+  });
+
+  const groupsPickerEnabled =
+    editing && (host?.type === "host" || host?.type === "printer");
+  const { data: assignableBase } = useQuery({
+    queryKey: ["assignable-groups", serverName, "base"],
+    queryFn: () => groupsApi.assignable(serverName!, "base"),
+    enabled: !!serverName && groupsPickerEnabled,
+  });
+  const { data: assignableSubgroup } = useQuery({
+    queryKey: ["assignable-groups", serverName, "subgroup"],
+    queryFn: () => groupsApi.assignable(serverName!, "subgroup"),
+    enabled: !!serverName && groupsPickerEnabled,
   });
 
   // Pre-select the source host's subnet in the copy dialog (matches CGI
@@ -470,6 +485,12 @@ export default function HostDetailPage() {
     setNsEdit(objToERows(d.ns_l, ["ns", "comment"]));
     setDhcpEdit(objToERows(d.dhcp_l, ["dhcp", "comment"]));
     setSrvEdit(objToERows(d.srv_l, ["pri", "weight", "port", "target", "comment"]));
+    setGrpEdit(Number(d.grp) > 0 ? String(d.grp) : "0");
+    setSubgroupEdit(
+      objToERows(d.subgroups, ["grp"])
+        .map((r) => Number(r.values[0]))
+        .filter((n) => n > 0)
+    );
     setEditing(true);
   }, [host]);
 
@@ -536,9 +557,15 @@ export default function HostDetailPage() {
       data.ttl = ttlNum;
     }
     // Other numeric fields (only send if non-empty/non-zero)
-    for (const key of ["router", "grp", "mx", "wks"]) {
+    for (const key of ["router", "mx", "wks"]) {
       const v = fd.get(key) as string;
       if (v && v.trim() !== "" && Number(v) !== 0) data[key] = Number(v);
+    }
+    // Host groups (ADR 0008): only meaningful for host/printer records.
+    if (d.type === "host" || d.type === "printer") {
+      const g = Number(grpEdit);
+      data.grp = g > 0 ? g : 0;
+      data.subgroups = subgroupEdit.map((id) => ({ grp: id }));
     }
     // Validate TXT records: non-delete rows must have non-empty TXT value
     const txtRowsVisible = txtEdit.filter(r => !r._deleted);
@@ -908,12 +935,60 @@ export default function HostDetailPage() {
               <CardContent>
                 {editing ? (
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="grp" className="text-xs">Base group (ID)</Label>
-                      <Input id="grp" name="grp" type="number"
-                        defaultValue={Number(d.grp) > 0 ? String(d.grp) : "0"}
-                        className="h-8 text-sm" />
-                    </div>
+                    {d.type === "host" || d.type === "printer" ? (
+                      <>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Base group</Label>
+                          <Select value={grpEdit} onValueChange={setGrpEdit}>
+                            <SelectTrigger className="h-8 text-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="0">None</SelectItem>
+                              {(assignableBase ?? []).map((g) => (
+                                <SelectItem key={g.id} value={String(g.id)}>
+                                  {g.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <Label className="text-xs">SubGroups</Label>
+                          <div className="flex flex-wrap gap-2">
+                            {(assignableSubgroup ?? []).map((g) => {
+                              const checked = subgroupEdit.includes(g.id);
+                              return (
+                                <label
+                                  key={g.id}
+                                  className="flex cursor-pointer items-center gap-1 rounded border px-2 py-1 text-sm"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) =>
+                                      setSubgroupEdit((prev) =>
+                                        e.target.checked
+                                          ? [...prev, g.id]
+                                          : prev.filter((id) => id !== g.id)
+                                      )
+                                    }
+                                  />
+                                  {g.name}
+                                </label>
+                              );
+                            })}
+                            {!assignableSubgroup?.length && (
+                              <span className="text-xs text-muted-foreground">No assignable groups</span>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="col-span-2 text-xs text-muted-foreground">
+                        Groups apply only to host and printer records.
+                      </p>
+                    )}
                     <div className="space-y-1">
                       <Label htmlFor="mx" className="text-xs">MX template (ID)</Label>
                       <Input id="mx" name="mx" type="number"

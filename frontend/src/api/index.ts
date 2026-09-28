@@ -12,6 +12,12 @@ import type {
   NewNet,
   UpdateNet,
   HostListFilters,
+  Group,
+  GroupSummary,
+  NewGroup,
+  UpdateGroup,
+  GroupAssignee,
+  GroupType,
 } from "@/lib/types";
 
 export interface PageOpts {
@@ -102,6 +108,37 @@ export const netsApi = {
     api.del(`/servers/${encodeURIComponent(serverName)}/networks/${encodeURIComponent(netname)}`),
   assignable: (serverName: string) =>
     api.get<Net[]>(`/servers/${encodeURIComponent(serverName)}/assignable-subnets`),
+};
+
+// ---- Host groups (ADR 0008) ----
+export const groupsApi = {
+  list: (
+    serverName: string,
+    opts?: { page?: number; per_page?: number; type?: GroupType }
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.type) params.set("type", opts.type);
+    if (opts?.page !== undefined) params.set("page", String(opts.page));
+    if (opts?.per_page !== undefined) params.set("per_page", String(opts.per_page));
+    const qs = params.toString();
+    return api.get<PaginatedResponse<GroupSummary>>(
+      `/servers/${encodeURIComponent(serverName)}/groups${qs ? `?${qs}` : ""}`
+    );
+  },
+  get: (serverName: string, name: string) =>
+    api.get<Group>(`/servers/${encodeURIComponent(serverName)}/groups/${encodeURIComponent(name)}`),
+  create: (serverName: string, data: NewGroup) =>
+    api.post<Group>(`/servers/${encodeURIComponent(serverName)}/groups`, data),
+  update: (serverName: string, name: string, data: UpdateGroup) =>
+    api.put<Group>(`/servers/${encodeURIComponent(serverName)}/groups/${encodeURIComponent(name)}`, data),
+  delete: (serverName: string, name: string, reassignTo?: string) => {
+    const qs = reassignTo ? `?reassign_to=${encodeURIComponent(reassignTo)}` : "";
+    return api.del(`/servers/${encodeURIComponent(serverName)}/groups/${encodeURIComponent(name)}${qs}`);
+  },
+  assignable: (serverName: string, role: "base" | "subgroup") =>
+    api.get<GroupAssignee[]>(
+      `/servers/${encodeURIComponent(serverName)}/assignable-groups?role=${role}`
+    ),
 };
 
 // ---- Hosts ----

@@ -15,6 +15,7 @@ import HostDetailPage from "@/pages/hosts/HostDetailPage";
 import NetsPage from "@/pages/nets/NetsPage";
 import NetDetailPage from "@/pages/nets/NetDetailPage";
 import GroupsPage from "@/pages/groups/GroupsPage";
+import GroupDetailPage from "@/pages/groups/GroupDetailPage";
 import VlansPage from "@/pages/vlans/VlansPage";
 import AclsPage from "@/pages/acls/AclsPage";
 import KeysPage from "@/pages/keys/KeysPage";
@@ -50,6 +51,7 @@ export default function App() {
                 <Route path="nets" element={<NetsPage />} />
                 <Route path="nets/:netname" element={<NetDetailPage />} />
                 <Route path="groups" element={<GroupsPage />} />
+                <Route path="groups/:name" element={<GroupDetailPage />} />
                 <Route path="vlans" element={<VlansPage />} />
                 <Route path="acls" element={<AclsPage />} />
                 <Route path="keys" element={<KeysPage />} />
