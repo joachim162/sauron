@@ -29,9 +29,11 @@
 ## Groups
 
 - **Host group** — A server-scoped group that carries DHCP/printer definitions applied to its member hosts. The term "group" on host endpoints and in host searches always means this; never a user group.
-- **Base group** — The primary group a host belongs to (one per host). Functionally indistinguishable from subgroup membership — the base/subgroup split is a legacy artifact.
+- **Group type** — The kind of configuration a group carries: **Normal**, **Dynamic Address Pool**, **DHCP Class**, or **Custom DHCP Class**. Only Normal and Dynamic Address Pool groups may serve as a host's base group; DHCP classes attach as subgroups.
+- **Base group** — The primary group a host belongs to (one per host). Despite the legacy framing, it is not equivalent to a subgroup: it is restricted to Normal and Dynamic Address Pool groups.
 - **Subgroups** — Additional group memberships a host may have beyond its base group.
 - **Group membership** — Being a host's base group or one of its subgroups. Searching by group matches membership, not just the base group.
+- **VMPS domain** — A server-scoped Cisco VLAN Management Policy Server definition that maps host MAC addresses to VLANs. A host group may be linked to at most one VMPS domain; a missing link means none.
 - **User group** — An access-control group governing user permissions. A distinct concept from a host group; they share only the word.
 
 ## Network Management
