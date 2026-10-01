@@ -47,3 +47,14 @@
 - **VLAN** — A server-scoped Layer-2 segment (broadcast domain) that networks belong to. Its purpose is to group subnets that share a broadcast domain and common configuration, so shared settings are expressed once instead of per subnet. Distinct from a Network, which is a single Layer-3 subnet.
 - **VLAN number** — A VLAN's optional IEEE 802.1Q tag. Presentation-only: the VLAN's name, not its number, is what configuration generation uses.
 - **List mode** — One of four ways to view the networks of a server, inherited from the legacy CGI net browser: *top* (top-level nets only), *sub* (nets and subnets, excluding dummy nets), *all* (every net record), *free* (every net record plus unallocated address blocks). Viewing free blocks requires an elevated authorization level; for other users the free mode silently behaves like all.
+
+## Templates
+
+- **Template** — Reusable record data managed under the legacy "Templates" menu. Four kinds exist (MX template, WKS template, printer class, HINFO template); they share a menu and an authorization story but have different scopes, shapes, and consumers.
+- **Template kind** — One of the four template types above.
+- **MX template** — A **zone-scoped** set of MX (mail exchanger) entries. A host may reference one template, or carry its own MX entries instead.
+- **WKS template** — A **server-scoped** set of WKS (well-known services) entries. A host may reference one template, or carry its own WKS entries instead.
+- **Printer class** — A **global** printcap class definition, referenced by name from group and host printcap configuration. Not a reference-linked template: nothing stores a printer class by id.
+- **HINFO template** — A **global** canned HINFO value (hardware or software) offered as a suggestion in host forms, ordered by priority. Not a reference-linked template: hosts store their HINFO as free text.
+- **Template name** — A human-facing label identifying a template in user interfaces. Only MX template, WKS template, and printer class have one. It is a label, not an API identity.
+- **Assignability level** — The authorization level required to assign a template to a host. Present only on MX templates and WKS templates; printer classes and HINFO templates have none, and their management is restricted to superusers instead.
