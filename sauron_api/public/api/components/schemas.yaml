@@ -1630,6 +1630,16 @@ UserResponse:
           description: Required Host Fields - maps field name to 0 (required) or non-zero (optional)
           additionalProperties:
             type: integer
+        tmplmask:
+          type: array
+          description: >-
+            MX template name masks (user_rights rtype=9). A template's name
+            must match one of these regular expressions for the caller to
+            create, update, or delete it. Empty means no MX template may be
+            managed (superuser bypasses).
+          items:
+            type: string
+          example: ["^mail-"]
 
 NetFields:
   type: object

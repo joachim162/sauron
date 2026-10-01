@@ -40,6 +40,7 @@ sub _render_user_response {
       zone   => $perms{zone}   // {},
       alevel => $perms{alevel} // 0,
       rhf    => $perms{rhf}    // {},
+      tmplmask => $perms{tmplmask} // [],
     },
   });
 }
