@@ -22,6 +22,23 @@ import type {
   VlanSummary,
   NewVlan,
   UpdateVlan,
+  MxTemplateSummary,
+  MxTemplate,
+  NewMxTemplate,
+  UpdateMxTemplate,
+  WksTemplateSummary,
+  WksTemplate,
+  NewWksTemplate,
+  UpdateWksTemplate,
+  PrinterClassSummary,
+  PrinterClass,
+  NewPrinterClass,
+  UpdatePrinterClass,
+  HinfoTemplate,
+  NewHinfoTemplate,
+  UpdateHinfoTemplate,
+  AssignableMxTemplate,
+  AssignableWksTemplate,
 } from "@/lib/types";
 
 export interface PageOpts {
@@ -170,6 +187,87 @@ export const vlansApi = {
   // Complete list for pickers (net form).
   all: (serverName: string) =>
     fetchAllPages<VlanSummary>((page, per_page) => vlansApi.list(serverName, { page, per_page })),
+};
+
+// ---- Templates (ADR 0010) ----
+
+export const mxTemplatesApi = {
+  list: (
+    serverName: string,
+    zoneName: string,
+    opts?: { page?: number; per_page?: number }
+  ) =>
+    api.get<PaginatedResponse<MxTemplateSummary>>(
+      `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/mx-templates${pageParams(opts)}`
+    ),
+  get: (serverName: string, zoneName: string, id: number) =>
+    api.get<MxTemplate>(
+      `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/mx-templates/${id}`
+    ),
+  create: (serverName: string, zoneName: string, data: NewMxTemplate) =>
+    api.post<MxTemplate>(
+      `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/mx-templates`,
+      data
+    ),
+  update: (serverName: string, zoneName: string, id: number, data: UpdateMxTemplate) =>
+    api.put<MxTemplate>(
+      `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/mx-templates/${id}`,
+      data
+    ),
+  delete: (serverName: string, zoneName: string, id: number, reassignTo?: number) => {
+    const qs = reassignTo ? `?reassign_to=${reassignTo}` : "";
+    return api.del(
+      `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/mx-templates/${id}${qs}`
+    );
+  },
+  assignable: (serverName: string, zoneName: string) =>
+    api.get<AssignableMxTemplate[]>(
+      `/servers/${encodeURIComponent(serverName)}/zones/${encodeURIComponent(zoneName)}/assignable-mx-templates`
+    ),
+};
+
+export const wksTemplatesApi = {
+  list: (
+    serverName: string,
+    opts?: { page?: number; per_page?: number }
+  ) =>
+    api.get<PaginatedResponse<WksTemplateSummary>>(
+      `/servers/${encodeURIComponent(serverName)}/wks-templates${pageParams(opts)}`
+    ),
+  get: (serverName: string, id: number) =>
+    api.get<WksTemplate>(`/servers/${encodeURIComponent(serverName)}/wks-templates/${id}`),
+  create: (serverName: string, data: NewWksTemplate) =>
+    api.post<WksTemplate>(`/servers/${encodeURIComponent(serverName)}/wks-templates`, data),
+  update: (serverName: string, id: number, data: UpdateWksTemplate) =>
+    api.put<WksTemplate>(`/servers/${encodeURIComponent(serverName)}/wks-templates/${id}`, data),
+  delete: (serverName: string, id: number, reassignTo?: number) => {
+    const qs = reassignTo ? `?reassign_to=${reassignTo}` : "";
+    return api.del(`/servers/${encodeURIComponent(serverName)}/wks-templates/${id}${qs}`);
+  },
+  assignable: (serverName: string) =>
+    api.get<AssignableWksTemplate[]>(
+      `/servers/${encodeURIComponent(serverName)}/assignable-wks-templates`
+    ),
+};
+
+export const printerClassesApi = {
+  list: (opts?: { page?: number; per_page?: number }) =>
+    api.get<PaginatedResponse<PrinterClassSummary>>(`/printer-classes${pageParams(opts)}`),
+  get: (id: number) => api.get<PrinterClass>(`/printer-classes/${id}`),
+  create: (data: NewPrinterClass) => api.post<PrinterClass>("/printer-classes", data),
+  update: (id: number, data: UpdatePrinterClass) =>
+    api.put<PrinterClass>(`/printer-classes/${id}`, data),
+  delete: (id: number) => api.del(`/printer-classes/${id}`),
+};
+
+export const hinfoTemplatesApi = {
+  list: (opts?: { page?: number; per_page?: number }) =>
+    api.get<PaginatedResponse<HinfoTemplate>>(`/hinfo-templates${pageParams(opts)}`),
+  get: (id: number) => api.get<HinfoTemplate>(`/hinfo-templates/${id}`),
+  create: (data: NewHinfoTemplate) => api.post<HinfoTemplate>("/hinfo-templates", data),
+  update: (id: number, data: UpdateHinfoTemplate) =>
+    api.put<HinfoTemplate>(`/hinfo-templates/${id}`, data),
+  delete: (id: number) => api.del(`/hinfo-templates/${id}`),
 };
 
 // ---- Hosts ----

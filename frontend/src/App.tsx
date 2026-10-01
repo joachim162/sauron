@@ -20,7 +20,8 @@ import VlansPage from "@/pages/vlans/VlansPage";
 import VlanDetailPage from "@/pages/vlans/VlanDetailPage";
 import AclsPage from "@/pages/acls/AclsPage";
 import KeysPage from "@/pages/keys/KeysPage";
-import MxTemplatesPage from "@/pages/templates/MxTemplatesPage";
+import TemplatesListPage from "@/pages/templates/TemplatesListPage";
+import TemplatesDetailPage from "@/pages/templates/TemplatesDetailPage";
 import UsersPage from "@/pages/users/UsersPage";
 
 const queryClient = new QueryClient({
@@ -57,7 +58,22 @@ export default function App() {
                 <Route path="vlans/:name" element={<VlanDetailPage />} />
                 <Route path="acls" element={<AclsPage />} />
                 <Route path="keys" element={<KeysPage />} />
-                <Route path="mx-templates" element={<MxTemplatesPage />} />
+                <Route path="templates" element={<Navigate to="/templates/mx" replace />} />
+                <Route path="templates/mx" element={<TemplatesListPage kind="mx" />} />
+                <Route path="templates/mx/:id" element={<TemplatesDetailPage kind="mx" />} />
+                <Route path="templates/wks" element={<TemplatesListPage kind="wks" />} />
+                <Route path="templates/wks/:id" element={<TemplatesDetailPage kind="wks" />} />
+                <Route
+                  path="templates/printer-classes"
+                  element={<TemplatesListPage kind="printer-classes" />}
+                />
+                <Route
+                  path="templates/printer-classes/:id"
+                  element={<TemplatesDetailPage kind="printer-classes" />}
+                />
+                <Route path="templates/hinfo" element={<TemplatesListPage kind="hinfo" />} />
+                <Route path="templates/hinfo/:id" element={<TemplatesDetailPage kind="hinfo" />} />
+                <Route path="mx-templates" element={<Navigate to="/templates/mx" replace />} />
                 <Route path="users" element={<UsersPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/" replace />} />

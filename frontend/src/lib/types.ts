@@ -23,6 +23,7 @@ export interface Permissions {
   zone: Record<string, string>;
   alevel: number;
   rhf?: Record<string, number>;
+  tmplmask?: string[];
 }
 
 export interface Server {
@@ -336,11 +337,118 @@ export interface Key {
   [key: string]: unknown;
 }
 
-export interface MxTemplate {
+// ---- Templates (ADR 0010) ----
+
+export type HinfoType = "hardware" | "software";
+
+export interface TemplateAudit {
+  cdate?: number | null;
+  cuser?: string | null;
+  mdate?: number | null;
+  muser?: string | null;
+  cdate_str?: string | null;
+  mdate_str?: string | null;
+}
+
+export interface MxEntry {
+  pri: number;
+  mx: string;
+  comment?: string | null;
+}
+
+export interface WksEntry {
+  proto: string;
+  services?: string | null;
+  comment?: string | null;
+}
+
+export interface MxTemplateSummary extends TemplateAudit {
+  id: number;
+  zone_id: number;
+  name: string;
+  comment?: string | null;
+  alevel: number;
+}
+
+export interface MxTemplate extends MxTemplateSummary {
+  mx_l: MxEntry[];
+  host_count: number;
+}
+
+export interface NewMxTemplate {
+  name: string;
+  comment?: string | null;
+  alevel?: number;
+  mx_l?: MxEntry[];
+}
+
+export type UpdateMxTemplate = Partial<NewMxTemplate>;
+
+export interface WksTemplateSummary extends TemplateAudit {
+  id: number;
+  server_id: number;
+  name: string;
+  comment?: string | null;
+  alevel: number;
+}
+
+export interface WksTemplate extends WksTemplateSummary {
+  wks_l: WksEntry[];
+  host_count: number;
+}
+
+export interface NewWksTemplate {
+  name: string;
+  comment?: string | null;
+  alevel?: number;
+  wks_l?: WksEntry[];
+}
+
+export type UpdateWksTemplate = Partial<NewWksTemplate>;
+
+export interface PrinterClassSummary extends TemplateAudit {
   id: number;
   name: string;
-  comment?: string;
-  [key: string]: unknown;
+  comment?: string | null;
+}
+
+export interface PrinterClass extends PrinterClassSummary {
+  printer_l: PrinterEntry[];
+}
+
+export interface NewPrinterClass {
+  name: string;
+  comment?: string | null;
+  printer_l?: PrinterEntry[];
+}
+
+export type UpdatePrinterClass = Partial<NewPrinterClass>;
+
+export interface HinfoTemplate extends TemplateAudit {
+  id: number;
+  hinfo: string;
+  type: HinfoType;
+  pri: number;
+}
+
+export interface NewHinfoTemplate {
+  hinfo: string;
+  type?: HinfoType;
+  pri?: number;
+}
+
+export type UpdateHinfoTemplate = Partial<NewHinfoTemplate>;
+
+export interface AssignableMxTemplate {
+  id: number;
+  name: string;
+  alevel: number;
+}
+
+export interface AssignableWksTemplate {
+  id: number;
+  name: string;
+  alevel: number;
 }
 
 export interface PaginatedResponse<T> {

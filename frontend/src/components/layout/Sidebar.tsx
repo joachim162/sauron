@@ -8,9 +8,9 @@ import {
   FolderTree,
   Shield,
   KeyRound,
-  Mail,
   Wifi,
   LayoutDashboard,
+  LayoutTemplate,
   LogOut,
   Moon,
   Sun,
@@ -36,7 +36,16 @@ const serverNav = [
   { to: "/vlans", icon: Wifi, label: "VLANs" },
   { to: "/acls", icon: Shield, label: "ACLs" },
   { to: "/keys", icon: KeyRound, label: "Keys" },
-  { to: "/mx-templates", icon: Mail, label: "MX Templates" },
+  { to: "/templates", icon: LayoutTemplate, label: "Templates" },
+];
+
+// Sub-categories of the Templates menu, mirroring the legacy CGI submenu
+// (Show MX / WKS / Prn Class / HINFO).
+const templateSubNav = [
+  { to: "/templates/mx", label: "MX Templates" },
+  { to: "/templates/wks", label: "WKS Templates" },
+  { to: "/templates/printer-classes", label: "Printer Classes" },
+  { to: "/templates/hinfo", label: "HINFO Templates" },
 ];
 
 // Sub-categories of the Networks list, mirroring the legacy CGI menu
@@ -162,6 +171,30 @@ export function Sidebar() {
                         })}
                       </div>
                     )}
+                    {item.to === "/templates" &&
+                      location.pathname.startsWith("/templates") && (
+                        <div className="ml-6 mt-1 space-y-1 border-l pl-2">
+                          {templateSubNav.map((sub) => {
+                            const active =
+                              location.pathname === sub.to ||
+                              location.pathname.startsWith(sub.to + "/");
+                            return (
+                              <Link
+                                key={sub.to}
+                                to={sub.to}
+                                className={cn(
+                                  "block rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                                  active
+                                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                    : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                                )}
+                              >
+                                {sub.label}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
                   </div>
                 ))}
               </div>
