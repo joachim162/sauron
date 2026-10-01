@@ -1,0 +1,84 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: List the WKS templates of a server (paginated)
+  tags: [ wks-templates ]
+  description: Returns the server's WKS templates in the paginated {data, metadata} envelope. Requires server read access.
+  operationId: list_wks_templates
+  x-mojo-name: list_wks_templates
+  x-mojo-to: "Templates::WksTemplate#list_wks_templates"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/page'
+    - $ref: '../components/parameters.yaml#/per_page'
+    - $ref: '../components/parameters.yaml#/template_name'
+    - $ref: '../components/parameters.yaml#/template_comment'
+    - $ref: '../components/parameters.yaml#/template_alevel'
+    - $ref: '../components/parameters.yaml#/template_sort'
+  responses:
+    '200':
+      description: Paginated list of WKS templates in the {data, metadata} envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/WksTemplateListResponse'
+    '400':
+      description: Invalid filter or sort value
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+post:
+  security:
+    - BearerAuth: []
+  summary: Create a WKS template
+  tags: [ wks-templates ]
+  description: Creates a server-scoped WKS template. Requires superuser.
+  operationId: create_wks_template
+  x-mojo-name: create_wks_template
+  x-mojo-to: "Templates::WksTemplate#create_wks_template"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/NewWksTemplate'
+  responses:
+    '201':
+      description: WKS template created
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/WksTemplate'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

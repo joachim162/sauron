@@ -662,3 +662,118 @@ vlan_sort:
   schema:
     type: string
     example: "vlanno:asc"
+
+# --- Template parameters (ADR 0010) ---
+
+template_id:
+  name: id
+  in: path
+  required: true
+  description: Numeric template id.
+  schema:
+    type: integer
+    example: 3
+
+template_name:
+  name: name
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the template name.
+  schema:
+    type: string
+    maxLength: 40
+    example: "^mail"
+
+template_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the template comment.
+  schema:
+    type: string
+    maxLength: 60
+
+template_alevel:
+  name: alevel
+  in: query
+  required: false
+  description: Filter by assignability level (exact match).
+  schema:
+    type: integer
+    minimum: 0
+    example: 0
+
+hinfo_value:
+  name: hinfo
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the HINFO value.
+  schema:
+    type: string
+    maxLength: 20
+    example: "^PC"
+
+hinfo_type_filter:
+  name: type
+  in: query
+  required: false
+  description: Filter HINFO templates by type.
+  schema:
+    type: string
+    enum: [hardware, software]
+    example: hardware
+
+hinfo_pri:
+  name: pri
+  in: query
+  required: false
+  description: Filter by priority (exact match).
+  schema:
+    type: integer
+    minimum: 0
+    example: 100
+
+template_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction defaults
+    to asc). Fields: name, comment, alevel. Default sort: name.
+  schema:
+    type: string
+    example: "name:desc"
+
+printer_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction defaults
+    to asc). Fields: name, comment. Default sort: name.
+  schema:
+    type: string
+    example: "name:desc"
+
+hinfo_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction defaults
+    to asc). Fields: hinfo, type, pri. Default sort: type,pri,hinfo.
+  schema:
+    type: string
+    example: "pri:asc"
+
+template_reassign_to:
+  name: reassign_to
+  in: query
+  required: false
+  description: >
+    MX/WKS only: id of a template in the same zone/server to move referencing
+    hosts to before deleting. Omit to detach them (mx/wks = -1).
+  schema:
+    type: integer
+    minimum: 1
+    example: 4

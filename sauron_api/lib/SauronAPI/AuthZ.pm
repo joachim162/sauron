@@ -143,6 +143,18 @@ sub check_perms {
     return 0;
   }
 
+  if ($type eq 'tmplmask') {
+    my $name = $args{name};
+    # Template-name mask (user_rights rtype=9): a positive allowlist — the name
+    # must match one of the caller's regexes, and an empty mask denies. Mirrors
+    # chk_perms and the legacy MX-template management gate.
+    for my $re (@{$perms->{tmplmask} // []}) {
+      return 1 if defined $name && $name =~ /$re/;
+    }
+    $c->render(json => { error => 'Forbidden', message => 'Not authorized to modify this template' }, status => 403);
+    return 0;
+  }
+
   if ($type eq 'grpmask') {
     my $name = $args{name};
     # Group-name mask (user_rights rtype=10): a positive allowlist — the name

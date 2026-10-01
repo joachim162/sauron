@@ -1,0 +1,111 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get a WKS template
+  tags: [ wks-templates ]
+  description: Returns the full WKS template including its WKS entry array and host_count.
+  operationId: get_wks_template
+  x-mojo-name: get_wks_template
+  x-mojo-to: "Templates::WksTemplate#get_wks_template"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/template_id'
+  responses:
+    '200':
+      description: WKS template record
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/WksTemplate'
+    '404':
+      description: Server or template not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update a WKS template
+  tags: [ wks-templates ]
+  description: Partial update; wks_l uses replace-all semantics. Requires superuser.
+  operationId: update_wks_template
+  x-mojo-name: update_wks_template
+  x-mojo-to: "Templates::WksTemplate#update_wks_template"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/template_id'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateWksTemplate'
+  responses:
+    '200':
+      description: WKS template updated
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/WksTemplate'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or template not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a WKS template
+  tags: [ wks-templates ]
+  description: >
+    Deletes the template and its WKS entries. Hosts referencing it are detached
+    (wks=-1) unless reassign_to names another template on the same server.
+    Requires superuser.
+  operationId: delete_wks_template
+  x-mojo-name: delete_wks_template
+  x-mojo-to: "Templates::WksTemplate#delete_wks_template"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/template_id'
+    - $ref: '../components/parameters.yaml#/template_reassign_to'
+  responses:
+    '204':
+      description: WKS template deleted
+    '400':
+      description: Invalid reassign_to
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or template not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

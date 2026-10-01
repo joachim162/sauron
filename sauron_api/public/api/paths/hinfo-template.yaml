@@ -1,0 +1,96 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get an HINFO template
+  tags: [ hinfo-templates ]
+  description: Returns an HINFO template (summary and detail are identical).
+  operationId: get_hinfo_template
+  x-mojo-name: get_hinfo_template
+  x-mojo-to: "Templates::HinfoTemplate#get_hinfo_template"
+  parameters:
+    - $ref: '../components/parameters.yaml#/template_id'
+  responses:
+    '200':
+      description: HINFO template record
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/HinfoTemplate'
+    '404':
+      description: HINFO template not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update an HINFO template
+  tags: [ hinfo-templates ]
+  description: Partial update. Requires superuser.
+  operationId: update_hinfo_template
+  x-mojo-name: update_hinfo_template
+  x-mojo-to: "Templates::HinfoTemplate#update_hinfo_template"
+  parameters:
+    - $ref: '../components/parameters.yaml#/template_id'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateHinfoTemplate'
+  responses:
+    '200':
+      description: HINFO template updated
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/HinfoTemplate'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: HINFO template not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete an HINFO template
+  tags: [ hinfo-templates ]
+  description: Deletes the HINFO template. Nothing references it, so there is no reassignment. Requires superuser.
+  operationId: delete_hinfo_template
+  x-mojo-name: delete_hinfo_template
+  x-mojo-to: "Templates::HinfoTemplate#delete_hinfo_template"
+  parameters:
+    - $ref: '../components/parameters.yaml#/template_id'
+  responses:
+    '204':
+      description: HINFO template deleted
+    '404':
+      description: HINFO template not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

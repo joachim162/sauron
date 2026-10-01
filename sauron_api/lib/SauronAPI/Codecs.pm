@@ -3,7 +3,7 @@ use strict;
 use warnings;
 
 use Exporter 'import';
-our @EXPORT_OK = qw(aml mx value forwarder);
+our @EXPORT_OK = qw(aml mx wks printer value forwarder);
 
 use SauronAPI::Base qw(
   build_aml_record build_mx_record build_value_record build_forwarder_record
@@ -26,6 +26,26 @@ sub mx {
     api_columns         => [qw(pri mx comment)],
     build_row           => \&build_mx_record,
     marker_count        => 4,
+  );
+}
+
+# WKS template/entry arrays: id,proto,services,comment + marker.
+sub wks {
+  SauronAPI::FieldCodec->new(
+    backend_header => ['Proto', 'Services', 'Comments'],
+    api_columns    => [qw(proto services comment)],
+    build_row      => sub { [0, $_[0]->{proto}, $_[0]->{services}, $_[0]->{comment} // '', 2] },
+    marker_count   => 4,
+  );
+}
+
+# PRINTER class/entry arrays: id,printer,comment + marker.
+sub printer {
+  SauronAPI::FieldCodec->new(
+    backend_header => ['PRINTER', 'Comments'],
+    api_columns    => [qw(printer comment)],
+    build_row      => sub { [0, $_[0]->{printer}, $_[0]->{comment} // '', 2] },
+    marker_count   => 3,
   );
 }
 

@@ -1,0 +1,96 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get a printer class
+  tags: [ printer-classes ]
+  description: Returns the full printer class including its printer entry array.
+  operationId: get_printer_class
+  x-mojo-name: get_printer_class
+  x-mojo-to: "Templates::PrinterClass#get_printer_class"
+  parameters:
+    - $ref: '../components/parameters.yaml#/template_id'
+  responses:
+    '200':
+      description: Printer class record
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/PrinterClass'
+    '404':
+      description: Printer class not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update a printer class
+  tags: [ printer-classes ]
+  description: Partial update; printer_l uses replace-all semantics. Requires superuser.
+  operationId: update_printer_class
+  x-mojo-name: update_printer_class
+  x-mojo-to: "Templates::PrinterClass#update_printer_class"
+  parameters:
+    - $ref: '../components/parameters.yaml#/template_id'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdatePrinterClass'
+  responses:
+    '200':
+      description: Printer class updated
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/PrinterClass'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Printer class not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete a printer class
+  tags: [ printer-classes ]
+  description: Deletes the printer class and its printer entries. Requires superuser.
+  operationId: delete_printer_class
+  x-mojo-name: delete_printer_class
+  x-mojo-to: "Templates::PrinterClass#delete_printer_class"
+  parameters:
+    - $ref: '../components/parameters.yaml#/template_id'
+  responses:
+    '204':
+      description: Printer class deleted
+    '404':
+      description: Printer class not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

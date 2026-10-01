@@ -2447,3 +2447,441 @@ VlanListResponse:
         $ref: '#/VlanSummary'
     metadata:
       $ref: '#/Metadata'
+
+# --- Templates (ADR 0010) ---
+
+MxEntry:
+  type: object
+  description: An MX (mail exchanger) entry.
+  required:
+    - pri
+    - mx
+  properties:
+    pri:
+      type: integer
+      minimum: 0
+      example: 10
+    mx:
+      type: string
+      example: mail.example.com
+    comment:
+      type: string
+      nullable: true
+
+WksEntry:
+  type: object
+  description: A WKS (well-known services) entry. `services` may be empty.
+  required:
+    - proto
+  properties:
+    proto:
+      type: string
+      example: tcp
+    services:
+      type: string
+      nullable: true
+      example: smtp,http
+    comment:
+      type: string
+      nullable: true
+
+PrinterEntry:
+  type: object
+  description: A printcap entry belonging to a printer class.
+  required:
+    - printer
+  properties:
+    printer:
+      type: string
+      example: ":lp=@lw:sd=/var/spool/lpd"
+    comment:
+      type: string
+      nullable: true
+
+HinfoType:
+  type: string
+  enum: [hardware, software]
+  description: HINFO kind — hardware or software.
+  example: hardware
+
+TemplateAuditFields:
+  type: object
+  description: Audit fields shared by all template kinds (common_fields).
+  properties:
+    cdate:
+      type: integer
+      nullable: true
+      description: Creation timestamp (Unix epoch)
+    cuser:
+      type: string
+      nullable: true
+    mdate:
+      type: integer
+      nullable: true
+      description: Last modification timestamp (Unix epoch)
+    muser:
+      type: string
+      nullable: true
+    cdate_str:
+      type: string
+      nullable: true
+    mdate_str:
+      type: string
+      nullable: true
+
+MxTemplateSummary:
+  allOf:
+    - $ref: '#/TemplateAuditFields'
+    - type: object
+      description: Lightweight MX template record for list views.
+      required:
+        - id
+        - zone_id
+        - name
+        - alevel
+      properties:
+        id:
+          type: integer
+          example: 3
+        zone_id:
+          type: integer
+          example: 7
+        name:
+          type: string
+          example: mail-forwarder
+        comment:
+          type: string
+          nullable: true
+        alevel:
+          type: integer
+          minimum: 0
+          example: 0
+
+MxTemplate:
+  allOf:
+    - $ref: '#/MxTemplateSummary'
+    - type: object
+      required:
+        - mx_l
+        - host_count
+      properties:
+        mx_l:
+          type: array
+          items:
+            $ref: '#/MxEntry'
+        host_count:
+          type: integer
+          description: Number of host records referencing this template.
+          example: 0
+
+NewMxTemplate:
+  type: object
+  required:
+    - name
+  properties:
+    name:
+      type: string
+    comment:
+      type: string
+      nullable: true
+    alevel:
+      type: integer
+      minimum: 0
+      default: 0
+    mx_l:
+      type: array
+      items:
+        $ref: '#/MxEntry'
+
+UpdateMxTemplate:
+  type: object
+  description: >
+    Partial update; array fields use replace-all semantics. `name` is mutable
+    (safe because singletons are id-addressed).
+  properties:
+    name:
+      type: string
+    comment:
+      type: string
+      nullable: true
+    alevel:
+      type: integer
+      minimum: 0
+    mx_l:
+      type: array
+      items:
+        $ref: '#/MxEntry'
+
+MxTemplateListResponse:
+  type: object
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/MxTemplateSummary'
+    metadata:
+      $ref: '#/Metadata'
+
+WksTemplateSummary:
+  allOf:
+    - $ref: '#/TemplateAuditFields'
+    - type: object
+      description: Lightweight WKS template record for list views.
+      required:
+        - id
+        - server_id
+        - name
+        - alevel
+      properties:
+        id:
+          type: integer
+          example: 4
+        server_id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: standard
+        comment:
+          type: string
+          nullable: true
+        alevel:
+          type: integer
+          minimum: 0
+          example: 0
+
+WksTemplate:
+  allOf:
+    - $ref: '#/WksTemplateSummary'
+    - type: object
+      required:
+        - wks_l
+        - host_count
+      properties:
+        wks_l:
+          type: array
+          items:
+            $ref: '#/WksEntry'
+        host_count:
+          type: integer
+          example: 0
+
+NewWksTemplate:
+  type: object
+  required:
+    - name
+  properties:
+    name:
+      type: string
+    comment:
+      type: string
+      nullable: true
+    alevel:
+      type: integer
+      minimum: 0
+      default: 0
+    wks_l:
+      type: array
+      items:
+        $ref: '#/WksEntry'
+
+UpdateWksTemplate:
+  type: object
+  properties:
+    name:
+      type: string
+    comment:
+      type: string
+      nullable: true
+    alevel:
+      type: integer
+      minimum: 0
+    wks_l:
+      type: array
+      items:
+        $ref: '#/WksEntry'
+
+WksTemplateListResponse:
+  type: object
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/WksTemplateSummary'
+    metadata:
+      $ref: '#/Metadata'
+
+PrinterClassSummary:
+  allOf:
+    - $ref: '#/TemplateAuditFields'
+    - type: object
+      description: Lightweight printer class record for list views.
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: integer
+          example: 2
+        name:
+          type: string
+          example: "@lw"
+        comment:
+          type: string
+          nullable: true
+
+PrinterClass:
+  allOf:
+    - $ref: '#/PrinterClassSummary'
+    - type: object
+      required:
+        - printer_l
+      properties:
+        printer_l:
+          type: array
+          items:
+            $ref: '#/PrinterEntry'
+
+NewPrinterClass:
+  type: object
+  required:
+    - name
+  properties:
+    name:
+      type: string
+      description: "Must match ^@[a-zA-Z]+$"
+      example: "@lw"
+    comment:
+      type: string
+      nullable: true
+    printer_l:
+      type: array
+      items:
+        $ref: '#/PrinterEntry'
+
+UpdatePrinterClass:
+  type: object
+  properties:
+    name:
+      type: string
+    comment:
+      type: string
+      nullable: true
+    printer_l:
+      type: array
+      items:
+        $ref: '#/PrinterEntry'
+
+PrinterClassListResponse:
+  type: object
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/PrinterClassSummary'
+    metadata:
+      $ref: '#/Metadata'
+
+HinfoTemplate:
+  allOf:
+    - $ref: '#/TemplateAuditFields'
+    - type: object
+      required:
+        - id
+        - hinfo
+        - type
+        - pri
+      properties:
+        id:
+          type: integer
+          example: 5
+        hinfo:
+          type: string
+          description: "Must match ^[A-Z0-9-+/]+$"
+          example: PC-PORTABLE
+        type:
+          $ref: '#/HinfoType'
+        pri:
+          type: integer
+          minimum: 0
+          example: 100
+
+HinfoTemplateListResponse:
+  type: object
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/HinfoTemplate'
+    metadata:
+      $ref: '#/Metadata'
+
+NewHinfoTemplate:
+  type: object
+  required:
+    - hinfo
+  properties:
+    hinfo:
+      type: string
+      example: PC-PORTABLE
+    type:
+      $ref: '#/HinfoType'
+    pri:
+      type: integer
+      minimum: 0
+      default: 100
+
+UpdateHinfoTemplate:
+  type: object
+  properties:
+    hinfo:
+      type: string
+    type:
+      $ref: '#/HinfoType'
+    pri:
+      type: integer
+      minimum: 0
+
+AssignableMxTemplate:
+  type: object
+  description: Minimal MX template record for host-form pickers.
+  required:
+    - id
+    - name
+    - alevel
+  properties:
+    id:
+      type: integer
+    name:
+      type: string
+    alevel:
+      type: integer
+      minimum: 0
+
+AssignableWksTemplate:
+  type: object
+  description: Minimal WKS template record for host-form pickers.
+  required:
+    - id
+    - name
+    - alevel
+  properties:
+    id:
+      type: integer
+    name:
+      type: string
+    alevel:
+      type: integer
+      minimum: 0

@@ -22,6 +22,14 @@ tags:
     description: API Endpoints for Host Groups
   - name: vlans
     description: API Endpoints for VLANs
+  - name: mx-templates
+    description: MX templates (zone-scoped)
+  - name: wks-templates
+    description: WKS templates (server-scoped)
+  - name: printer-classes
+    description: Printer classes (global)
+  - name: hinfo-templates
+    description: HINFO templates (global)
 
 paths:
   /auth/login:
@@ -139,6 +147,36 @@ paths:
   /servers/{server}/vlans/{vlan}:
     $ref: "./paths/vlan.yaml"
 
+  /servers/{server}/zones/{zone}/mx-templates:
+    $ref: "./paths/mx-templates.yaml"
+
+  /servers/{server}/zones/{zone}/mx-templates/{id}:
+    $ref: "./paths/mx-template.yaml"
+
+  /servers/{server}/zones/{zone}/assignable-mx-templates:
+    $ref: "./paths/assignable-mx-templates.yaml"
+
+  /servers/{server}/wks-templates:
+    $ref: "./paths/wks-templates.yaml"
+
+  /servers/{server}/wks-templates/{id}:
+    $ref: "./paths/wks-template.yaml"
+
+  /servers/{server}/assignable-wks-templates:
+    $ref: "./paths/assignable-wks-templates.yaml"
+
+  /printer-classes:
+    $ref: "./paths/printer-classes.yaml"
+
+  /printer-classes/{id}:
+    $ref: "./paths/printer-class.yaml"
+
+  /hinfo-templates:
+    $ref: "./paths/hinfo-templates.yaml"
+
+  /hinfo-templates/{id}:
+    $ref: "./paths/hinfo-template.yaml"
+
 components:
   schemas:
     ServerFields:
@@ -219,6 +257,56 @@ components:
       $ref: './components/schemas.yaml#/UpdateVlan'
     VlanListResponse:
       $ref: './components/schemas.yaml#/VlanListResponse'
+    MxEntry:
+      $ref: './components/schemas.yaml#/MxEntry'
+    WksEntry:
+      $ref: './components/schemas.yaml#/WksEntry'
+    PrinterEntry:
+      $ref: './components/schemas.yaml#/PrinterEntry'
+    HinfoType:
+      $ref: './components/schemas.yaml#/HinfoType'
+    MxTemplateSummary:
+      $ref: './components/schemas.yaml#/MxTemplateSummary'
+    MxTemplate:
+      $ref: './components/schemas.yaml#/MxTemplate'
+    NewMxTemplate:
+      $ref: './components/schemas.yaml#/NewMxTemplate'
+    UpdateMxTemplate:
+      $ref: './components/schemas.yaml#/UpdateMxTemplate'
+    MxTemplateListResponse:
+      $ref: './components/schemas.yaml#/MxTemplateListResponse'
+    WksTemplateSummary:
+      $ref: './components/schemas.yaml#/WksTemplateSummary'
+    WksTemplate:
+      $ref: './components/schemas.yaml#/WksTemplate'
+    NewWksTemplate:
+      $ref: './components/schemas.yaml#/NewWksTemplate'
+    UpdateWksTemplate:
+      $ref: './components/schemas.yaml#/UpdateWksTemplate'
+    WksTemplateListResponse:
+      $ref: './components/schemas.yaml#/WksTemplateListResponse'
+    PrinterClassSummary:
+      $ref: './components/schemas.yaml#/PrinterClassSummary'
+    PrinterClass:
+      $ref: './components/schemas.yaml#/PrinterClass'
+    NewPrinterClass:
+      $ref: './components/schemas.yaml#/NewPrinterClass'
+    UpdatePrinterClass:
+      $ref: './components/schemas.yaml#/UpdatePrinterClass'
+    PrinterClassListResponse:
+      $ref: './components/schemas.yaml#/PrinterClassListResponse'
+    HinfoTemplate:
+      $ref: './components/schemas.yaml#/HinfoTemplate'
+    NewHinfoTemplate:
+      $ref: './components/schemas.yaml#/NewHinfoTemplate'
+    UpdateHinfoTemplate:
+      $ref: './components/schemas.yaml#/UpdateHinfoTemplate'
+    HinfoTemplateListResponse:
+      $ref: './components/schemas.yaml#/HinfoTemplateListResponse'
+    AssignableMxTemplate:
+      $ref: './components/schemas.yaml#/AssignableMxTemplate'
+    AssignableWksTemplate:
+      $ref: './components/schemas.yaml#/AssignableWksTemplate'
     Error:
       $ref: './components/schemas.yaml#/Error'
 
