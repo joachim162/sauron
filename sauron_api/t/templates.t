@@ -23,7 +23,7 @@ my (@users, @servers, @zones, @printer_classes, @hinfo);
 sub _cleanup_templates {
   for my $name (@printer_classes) {
     Sauron::DB::db_exec(
-      "DELETE FROM printer_entries WHERE ref IN (SELECT id FROM printer_classes WHERE name='$name')");
+      "DELETE FROM printer_entries WHERE type=3 AND ref IN (SELECT id FROM printer_classes WHERE name='$name')");
     Sauron::DB::db_exec("DELETE FROM printer_classes WHERE name='$name'");
   }
   for my $v (@hinfo) {

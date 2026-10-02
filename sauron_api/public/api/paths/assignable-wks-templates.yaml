@@ -5,8 +5,9 @@ get:
   tags: [ wks-templates ]
   description: >
     Bare-array picker helper for the host form: returns the server's WKS
-    templates with alevel at or below the caller's authorization level
-    (superuser sees all), mirroring the legacy get_wks_template_list picker.
+    templates with alevel at or below the caller's authorization level,
+    mirroring the legacy get_wks_template_list picker (superuser sees all —
+    the legacy picker would constrain even a superuser by their alevel).
   operationId: list_assignable_wks_templates
   x-mojo-name: list_assignable_wks_templates
   x-mojo-to: "Templates::WksTemplate#list_assignable_wks_templates"
