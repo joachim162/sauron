@@ -203,12 +203,14 @@ sub _template_create {
   my %rec;
   if ($kind eq 'hinfo') {
     $rec{hinfo} = _require_hinfo($input->{hinfo});
+    _assert_unique_value($kind, 'hinfo', $rec{hinfo});
     $rec{type}  = _hinfo_type_code(exists $input->{type} ? $input->{type} : 'hardware');
     $rec{pri}   = exists $input->{pri} ? $input->{pri} : 100;
     _validate_int_nonneg('pri', $rec{pri});
   } else {
     $rec{name}    = $kind eq 'printer' ? _require_printer_name($input->{name})
                                        : _require_name($input->{name});
+    _assert_unique_value($kind, 'name', $rec{name}) if $kind eq 'printer';
     $rec{comment} = $input->{comment};
     if ($cfg->{has_alevel}) {
       $rec{alevel} = exists $input->{alevel} ? $input->{alevel} : 0;
@@ -232,12 +234,17 @@ sub _template_update {
   my ($kind, $id, $scope_id, $input) = @_;
   my $cfg = $KIND{$kind};
 
+  _assert_exists_in_scope($kind, $id, $scope_id);
+
   my %existing;
   check_rc($cfg->{get}->($id, \%existing), 'Failed to retrieve template');
 
   my %rec = (id => $id);
   if ($kind eq 'hinfo') {
-    $rec{hinfo} = _require_hinfo($input->{hinfo}) if exists $input->{hinfo};
+    if (exists $input->{hinfo}) {
+      $rec{hinfo} = _require_hinfo($input->{hinfo});
+      _assert_unique_value($kind, 'hinfo', $rec{hinfo}, $id);
+    }
     $rec{type}  = _hinfo_type_code($input->{type}) if exists $input->{type};
     if (exists $input->{pri}) {
       _validate_int_nonneg('pri', $input->{pri});
@@ -247,6 +254,7 @@ sub _template_update {
     if (exists $input->{name}) {
       $rec{name} = $kind eq 'printer' ? _require_printer_name($input->{name})
                                       : _require_name($input->{name});
+      _assert_unique_value($kind, 'name', $rec{name}, $id) if $kind eq 'printer';
     }
     $rec{comment} = $input->{comment} if exists $input->{comment};
     if ($cfg->{has_alevel} && exists $input->{alevel}) {
@@ -283,6 +291,8 @@ sub hinfo_template_update { my ($id, $input)             = @_; return _template_
 sub _template_delete {
   my ($kind, $id, $scope_id, $reassign_to) = @_;
   my $cfg = $KIND{$kind};
+
+  _assert_exists_in_scope($kind, $id, $scope_id);
 
   if (defined $reassign_to && $reassign_to ne '' && !$cfg->{host_col}) {
     SauronAPI::Exception->validation(
@@ -436,6 +446,36 @@ sub _with_audit_strings {
   $rec->{mdate} = defined $rec->{mdate} ? $rec->{mdate} + 0 : undef;
   Sauron::BackEnd::add_std_fields($rec);
   return $rec;
+}
+
+# Singleton write paths (update/delete) must resolve the row (404) and, for
+# scoped kinds, verify it belongs to the path's zone/server (ADR 0010). Find
+# helpers check this too, but write mutations must not rely on the controller
+# having found the record first.
+sub _assert_exists_in_scope {
+  my ($kind, $id, $scope_id) = @_;
+  my $cfg = $KIND{$kind};
+  my $rows = $cfg->{scope_col}
+    ? dbq("SELECT $cfg->{scope_col} FROM $cfg->{table} WHERE id=?", $id)
+    : dbq("SELECT id FROM $cfg->{table} WHERE id=?", $id);
+  SauronAPI::Exception->not_found("Template $id not found") unless @$rows;
+  SauronAPI::Exception->not_found("Template $id not found")
+    if $cfg->{scope_col} && $rows->[0][0] != $scope_id;
+}
+
+# printer_classes.name and hinfo_templates.hinfo are UNIQUE at the schema
+# level, so the API maps duplicates to 409 (VLAN/Group _assert_unique_name
+# precedent). MX/WKS template names have no schema uniqueness — deferred to
+# issues #47/#50.
+sub _assert_unique_value {
+  my ($kind, $col, $value, $self_id) = @_;
+  my $cfg  = $KIND{$kind};
+  my $sql  = "SELECT id FROM $cfg->{table} WHERE $col=?";
+  my @bind = ($value);
+  if ($self_id) { $sql .= ' AND id<>?'; push @bind, $self_id; }
+  my $rows = dbq($sql, @bind);
+  SauronAPI::Exception->conflict("A template with $col '$value' already exists")
+    if @$rows;
 }
 
 sub _require_name {

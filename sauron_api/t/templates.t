@@ -43,12 +43,16 @@ END {
 # ---------------------------------------------------------------------------
 
 my $srv  = create_test_server(name => "srv-tmpl-${pid}", comment => 'Templates test');
-push @servers, $srv;
-my $srv_name = "srv-tmpl-${pid}";
+my $srv2 = create_test_server(name => "srv-tmpl2-${pid}", comment => 'Templates test, second server');
+push @servers, $srv, $srv2;
+my $srv_name  = "srv-tmpl-${pid}";
+my $srv2_name = "srv-tmpl2-${pid}";
 
 my $zone = create_test_zone(server_id => $srv, name => "zone-${pid}.example.com");
-push @zones, $zone;
-my $zone_name = "zone-${pid}.example.com";
+my $zone2 = create_test_zone(server_id => $srv, name => "zone2-${pid}.example.com");
+push @zones, $zone, $zone2;
+my $zone_name  = "zone-${pid}.example.com";
+my $zone2_name = "zone2-${pid}.example.com";
 
 my $super  = create_test_user(username => "tmplsuper_${pid}", email => "tmplsuper_${pid}\@example.com", superuser => 1);
 my $reader = create_test_user(username => "tmplread_${pid}",  email => "tmplread_${pid}\@example.com");
@@ -201,6 +205,17 @@ subtest 'MX: delete reassign validation' => sub {
   $t->delete_ok("$MXB/$id" => $SUPER)->status_is(204);
 };
 
+subtest 'MX: singleton is zone-scoped (no cross-zone access or mutation)' => sub {
+  my $MXB2 = "/api/v1/servers/$srv_name/zones/$zone2_name/mx-templates";
+  my $id = $t->post_ok($MXB => $SUPER => json => { name => 'zone-scoped' })
+    ->status_is(201)->tx->res->json->{id};
+  $t->get_ok("$MXB2/$id" => $SUPER)->status_is(404);
+  $t->put_ok("$MXB2/$id" => $SUPER => json => { comment => 'x' })->status_is(404);
+  $t->delete_ok("$MXB2/$id" => $SUPER)->status_is(404);
+  $t->get_ok("$MXB/$id" => $SUPER)->status_is(200);
+  $t->delete_ok("$MXB/$id" => $SUPER)->status_is(204);
+};
+
 subtest 'MX: assignable picker applies alevel ceiling' => sub {
   my $hi = $t->post_ok($MXB => $SUPER => json => { name => 'hi-level', alevel => 5 })
     ->status_is(201)->tx->res->json->{id};
@@ -266,6 +281,25 @@ subtest 'WKS: list/detail/update/delete' => sub {
   $t->get_ok("$WKSB/$wksA" => $READER)->status_is(404);
 };
 
+subtest 'WKS: singleton is server-scoped (no cross-server access or mutation)' => sub {
+  my $WKSB2 = "/api/v1/servers/$srv2_name/wks-templates";
+  my $id = $t->post_ok($WKSB => $SUPER => json => { name => 'server-scoped' })
+    ->status_is(201)->tx->res->json->{id};
+  $t->get_ok("$WKSB2/$id" => $SUPER)->status_is(404);
+  $t->put_ok("$WKSB2/$id" => $SUPER => json => { comment => 'cross-server' })
+    ->status_is(404);
+  $t->get_ok("$WKSB/$id" => $SUPER)->status_is(200)->json_is('/comment' => undef);
+  $t->delete_ok("$WKSB2/$id" => $SUPER)->status_is(404);
+  $t->get_ok("$WKSB/$id" => $SUPER)->status_is(200);
+  $t->delete_ok("$WKSB/$id" => $SUPER)->status_is(204);
+};
+
+subtest 'WKS: write on nonexistent id returns 404' => sub {
+  $t->put_ok("$WKSB/999999999" => $SUPER => json => { name => 'x' })
+    ->status_is(404);
+  $t->delete_ok("$WKSB/999999999" => $SUPER)->status_is(404);
+};
+
 # ========================================================================
 # PRINTER classes (global; read = any authenticated; write = superuser)
 # ========================================================================
@@ -302,6 +336,28 @@ subtest 'PRINTER: update/delete' => sub {
   $t->delete_ok("$PCB/$pcA" => $READER)->status_is(403);
   $t->delete_ok("$PCB/$pcA" => $SUPER)->status_is(204);
   $t->get_ok("$PCB/$pcA" => $SUPER)->status_is(404);
+};
+
+subtest 'PRINTER: write on nonexistent id returns 404' => sub {
+  $t->put_ok("$PCB/999999999" => $SUPER => json => { name => '\@x' })
+    ->status_is(404);
+  $t->delete_ok("$PCB/999999999" => $SUPER)->status_is(404);
+};
+
+subtest 'PRINTER: duplicate name returns 409 (name is UNIQUE)' => sub {
+  my ($first, $second) = ("\@dup${letters}", "\@other${letters}");
+  push @printer_classes, $first, $second;
+  my $id1 = $t->post_ok($PCB => $SUPER => json => { name => $first })
+    ->status_is(201)->tx->res->json->{id};
+  my $id2 = $t->post_ok($PCB => $SUPER => json => { name => $second })
+    ->status_is(201)->tx->res->json->{id};
+  $t->post_ok($PCB => $SUPER => json => { name => $first })->status_is(409);
+  $t->put_ok("$PCB/$id2" => $SUPER => json => { name => $first })
+    ->status_is(409);
+  $t->put_ok("$PCB/$id1" => $SUPER => json => { name => $first })
+    ->status_is(200);
+  $t->delete_ok("$PCB/$id1" => $SUPER)->status_is(204);
+  $t->delete_ok("$PCB/$id2" => $SUPER)->status_is(204);
 };
 
 # ========================================================================
@@ -345,6 +401,27 @@ subtest 'HINFO: update requires superuser; delete' => sub {
   $t->put_ok("$HB/$id" => $PLAIN => json => { pri => 1 })->status_is(403);
   $t->put_ok("$HB/$id" => $SUPER => json => { pri => 1 })->status_is(200)->json_is('/pri' => 1);
   $t->delete_ok("$HB/$id" => $SUPER)->status_is(204);
+};
+
+subtest 'HINFO: write on nonexistent id returns 404' => sub {
+  $t->put_ok("$HB/999999999" => $SUPER => json => { pri => 1 })
+    ->status_is(404);
+  $t->delete_ok("$HB/999999999" => $SUPER)->status_is(404);
+};
+
+subtest 'HINFO: duplicate value returns 409 (hinfo is UNIQUE)' => sub {
+  push @hinfo, "DUP-${pid}", "OTHER-${pid}";
+  my $id1 = $t->post_ok($HB => $SUPER => json => { hinfo => "DUP-${pid}" })
+    ->status_is(201)->tx->res->json->{id};
+  my $id2 = $t->post_ok($HB => $SUPER => json => { hinfo => "OTHER-${pid}" })
+    ->status_is(201)->tx->res->json->{id};
+  $t->post_ok($HB => $SUPER => json => { hinfo => "DUP-${pid}" })->status_is(409);
+  $t->put_ok("$HB/$id2" => $SUPER => json => { hinfo => "DUP-${pid}" })
+    ->status_is(409);
+  $t->put_ok("$HB/$id1" => $SUPER => json => { hinfo => "DUP-${pid}" })
+    ->status_is(200);
+  $t->delete_ok("$HB/$id1" => $SUPER)->status_is(204);
+  $t->delete_ok("$HB/$id2" => $SUPER)->status_is(204);
 };
 
 done_testing;

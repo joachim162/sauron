@@ -64,6 +64,12 @@ post:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: An HINFO template with this value already exists
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
     '401':
       $ref: '../components/responses.yaml#/UnauthorizedError'
     '403':

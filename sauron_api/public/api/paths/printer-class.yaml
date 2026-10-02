@@ -56,6 +56,12 @@ put:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: A printer class with the new name already exists
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
     '404':
       description: Printer class not found
       content:

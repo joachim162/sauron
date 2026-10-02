@@ -56,6 +56,12 @@ put:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: An HINFO template with the new value already exists
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
     '404':
       description: HINFO template not found
       content:

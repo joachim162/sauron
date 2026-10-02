@@ -159,7 +159,9 @@ CRUD/entry-array/envelope logic.
     legacy `server: R` equivalent.
   - joachim162/sauron#49 — validation-parity tests.
   - joachim162/sauron#50 — map MX/WKS duplicate-name unique violation to
-    `409` once #47 lands.
+    `409` once #47 lands. (printer_classes.name and hinfo_templates.hinfo
+    are UNIQUE in the schema today, so their duplicates map to `409`
+    already — VLAN/Group `_assert_unique_name` precedent.)
   - joachim162/sauron#51 — alevel ceiling is picker-only; host-write
     enforcement deferred.
   - `doc/reference-src/ch4-security.typ` describes `tmplmask` (rtype 9) as
