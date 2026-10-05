@@ -39,6 +39,11 @@ import type {
   UpdateHinfoTemplate,
   AssignableMxTemplate,
   AssignableWksTemplate,
+  Acl,
+  AclSummary,
+  NewAcl,
+  UpdateAcl,
+  KeySummary,
 } from "@/lib/types";
 
 export interface PageOpts {
@@ -187,6 +192,54 @@ export const vlansApi = {
   // Complete list for pickers (net form).
   all: (serverName: string) =>
     fetchAllPages<VlanSummary>((page, per_page) => vlansApi.list(serverName, { page, per_page })),
+};
+
+// ---- ACLs (ADR 0011) ----
+export const aclsApi = {
+  list: (
+    serverName: string,
+    opts?: { page?: number; per_page?: number }
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.page !== undefined) params.set("page", String(opts.page));
+    if (opts?.per_page !== undefined) params.set("per_page", String(opts.per_page));
+    const qs = params.toString();
+    return api.get<PaginatedResponse<AclSummary>>(
+      `/servers/${encodeURIComponent(serverName)}/acls${qs ? `?${qs}` : ""}`
+    );
+  },
+  get: (serverName: string, name: string) =>
+    api.get<Acl>(`/servers/${encodeURIComponent(serverName)}/acls/${encodeURIComponent(name)}`),
+  create: (serverName: string, data: NewAcl) =>
+    api.post<Acl>(`/servers/${encodeURIComponent(serverName)}/acls`, data),
+  update: (serverName: string, name: string, data: UpdateAcl) =>
+    api.put<Acl>(`/servers/${encodeURIComponent(serverName)}/acls/${encodeURIComponent(name)}`, data),
+  delete: (serverName: string, name: string, reassignTo?: number) => {
+    const qs = reassignTo ? `?reassign_to=${reassignTo}` : "";
+    return api.del(`/servers/${encodeURIComponent(serverName)}/acls/${encodeURIComponent(name)}${qs}`);
+  },
+  // Complete list for pickers (nested-ACL references, server/zone AML editors).
+  all: (serverName: string) =>
+    fetchAllPages<AclSummary>((page, per_page) => aclsApi.list(serverName, { page, per_page })),
+};
+
+// ---- TSIG keys (ADR 0011, read-only) ----
+export const keysApi = {
+  list: (
+    serverName: string,
+    opts?: { page?: number; per_page?: number }
+  ) => {
+    const params = new URLSearchParams();
+    if (opts?.page !== undefined) params.set("page", String(opts.page));
+    if (opts?.per_page !== undefined) params.set("per_page", String(opts.per_page));
+    const qs = params.toString();
+    return api.get<PaginatedResponse<KeySummary>>(
+      `/servers/${encodeURIComponent(serverName)}/keys${qs ? `?${qs}` : ""}`
+    );
+  },
+  // Complete list for pickers (ACL member rules).
+  all: (serverName: string) =>
+    fetchAllPages<KeySummary>((page, per_page) => keysApi.list(serverName, { page, per_page })),
 };
 
 // ---- Templates (ADR 0010) ----

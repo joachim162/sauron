@@ -35,8 +35,14 @@ const serverNav = [
   { to: "/groups", icon: FolderTree, label: "Groups" },
   { to: "/vlans", icon: Wifi, label: "VLANs" },
   { to: "/acls", icon: Shield, label: "ACLs" },
-  { to: "/keys", icon: KeyRound, label: "Keys" },
   { to: "/templates", icon: LayoutTemplate, label: "Templates" },
+];
+
+// Sub-categories of the ACLs menu, mirroring the legacy CGI submenu
+// (ACLs / Keys).
+const aclSubNav = [
+  { to: "/acls", label: "ACLs" },
+  { to: "/acls/keys", label: "Keys", icon: KeyRound },
 ];
 
 // Sub-categories of the Templates menu, mirroring the legacy CGI submenu
@@ -158,6 +164,31 @@ export function Sidebar() {
                             <Link
                               key={sub.mode}
                               to={sub.mode ? `/nets?list=${sub.mode}` : "/nets"}
+                              className={cn(
+                                "block rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                                active
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                              )}
+                            >
+                              {sub.label}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {item.to === "/acls" && location.pathname.startsWith("/acls") && (
+                      <div className="ml-6 mt-1 space-y-1 border-l pl-2">
+                        {aclSubNav.map((sub) => {
+                          const active =
+                            sub.to === "/acls"
+                              ? location.pathname === "/acls"
+                              : location.pathname === sub.to ||
+                                location.pathname.startsWith(sub.to + "/");
+                          return (
+                            <Link
+                              key={sub.to}
+                              to={sub.to}
                               className={cn(
                                 "block rounded-md px-2 py-1 text-xs font-medium transition-colors",
                                 active

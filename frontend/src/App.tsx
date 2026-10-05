@@ -19,7 +19,8 @@ import GroupDetailPage from "@/pages/groups/GroupDetailPage";
 import VlansPage from "@/pages/vlans/VlansPage";
 import VlanDetailPage from "@/pages/vlans/VlanDetailPage";
 import AclsPage from "@/pages/acls/AclsPage";
-import KeysPage from "@/pages/keys/KeysPage";
+import AclDetailPage from "@/pages/acls/AclDetailPage";
+import KeysPage from "@/pages/acls/KeysPage";
 import TemplatesListPage from "@/pages/templates/TemplatesListPage";
 import TemplatesDetailPage from "@/pages/templates/TemplatesDetailPage";
 import UsersPage from "@/pages/users/UsersPage";
@@ -57,7 +58,9 @@ export default function App() {
                 <Route path="vlans" element={<VlansPage />} />
                 <Route path="vlans/:name" element={<VlanDetailPage />} />
                 <Route path="acls" element={<AclsPage />} />
-                <Route path="keys" element={<KeysPage />} />
+                <Route path="acls/keys" element={<KeysPage />} />
+                <Route path="acls/:name" element={<AclDetailPage />} />
+                <Route path="keys" element={<Navigate to="/acls/keys" replace />} />
                 <Route path="templates" element={<Navigate to="/templates/mx" replace />} />
                 <Route path="templates/mx" element={<TemplatesListPage kind="mx" />} />
                 <Route path="templates/mx/:id" element={<TemplatesDetailPage kind="mx" />} />

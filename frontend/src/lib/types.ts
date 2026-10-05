@@ -323,18 +323,61 @@ export interface NewVlan {
 
 export interface UpdateVlan extends Partial<NewVlan> {}
 
-export interface Acl {
-  id: number;
-  name: string;
-  comment?: string;
-  [key: string]: unknown;
+// ---- ACLs and TSIG keys (ADR 0011) ----
+
+// One Access Match List row (cidr_entries): mode selects the rule type
+// (0 = CIDR in ip, 1 = named ACL in acl, 2 = TSIG key in tkey);
+// op 0 = allow, 1 = NOT (negated).
+export interface AmlElement {
+  mode: number;
+  ip?: string | null;
+  acl?: number | null;
+  tkey?: number | null;
+  op: number;
+  comment?: string | null;
 }
 
-export interface Key {
+export interface AclSummary {
   id: number;
+  server_id: number;
   name: string;
-  comment?: string;
-  [key: string]: unknown;
+  comment: string | null;
+  builtin: boolean;
+  cdate?: number | null;
+  cuser?: string | null;
+  mdate?: number | null;
+  muser?: string | null;
+  cdate_str?: string | null;
+  mdate_str?: string | null;
+}
+
+export interface Acl extends AclSummary {
+  acl: AmlElement[];
+  ref_count: number;
+}
+
+export interface NewAcl {
+  name: string;
+  comment?: string | null;
+  acl?: AmlElement[];
+}
+
+export interface UpdateAcl extends Partial<NewAcl> {}
+
+export interface KeySummary {
+  id: number;
+  server_id: number;
+  name: string;
+  algorithm: number | null;
+  keysize: number | null;
+  mode: number | null;
+  comment: string | null;
+  cdate?: number | null;
+  cuser?: string | null;
+  mdate?: number | null;
+  muser?: string | null;
+  cdate_str?: string | null;
+  mdate_str?: string | null;
 }
 
 // ---- Templates (ADR 0010) ----
