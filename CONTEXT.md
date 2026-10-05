@@ -48,6 +48,15 @@
 - **VLAN number** — A VLAN's optional IEEE 802.1Q tag. Presentation-only: the VLAN's name, not its number, is what configuration generation uses.
 - **List mode** — One of four ways to view the networks of a server, inherited from the legacy CGI net browser: *top* (top-level nets only), *sub* (nets and subnets, excluding dummy nets), *all* (every net record), *free* (every net record plus unallocated address blocks). Viewing free blocks requires an elevated authorization level; for other users the free mode silently behaves like all.
 
+## Access Control Lists
+
+- **ACL (Access Control List)** — A named, server-scoped, reusable list of network/security match elements, referenced by name or id from server and zone options (e.g. allow-transfer, allow-query, allow-recursion). It is DNS configuration data — a definition of *which clients may do what against the DNS server* — and is entirely unrelated to Sauron's own user permission model (rights, levels, groups), despite the shared word "ACL".
+- **Access Match List (AML)** — The generic mechanism for an ordered list of match elements with allow/deny sense. AMLs attach to servers, zones, and ACL objects; never to hosts. An ACL's body is itself an AML, so ACLs can nest.
+- **Match element** — One row of an AML. Exactly one of three shapes: a CIDR/IP network, a reference to another ACL, or a TSIG key reference — plus a polarity (allow, or NOT meaning "matches only when the address does not match") and a free-text comment. Evaluation is ordered; the first matching element wins (BIND semantics).
+- **Built-in ACL** — One of the four global ACLs `any`, `none`, `localhost`, `localnets`, shared by all servers and mirroring BIND's built-ins. Read-only: legacy shows them as non-clickable "(Built-in)" rows and they are never editable or deletable.
+- **Nested ACL** — An ACL referenced as a match element inside another ACL. References are constrained to ACLs created earlier, so nested ACLs always form an acyclic graph.
+- **TSIG key** — A server-scoped shared-secret key object (name, HMAC algorithm, key size) used to authenticate DNS transactions (zone transfers, dynamic updates) and usable as a match element in AMLs. Its lifecycle is managed outside the web UI by the `keygen` tool with a master passphrase; the web layer treats keys as read-only reference data. Keys share the ACLs menu in the UI.
+
 ## Templates
 
 - **Template** — Reusable record data managed under the legacy "Templates" menu. Four kinds exist (MX template, WKS template, printer class, HINFO template); they share a menu and an authorization story but have different scopes, shapes, and consumers.
