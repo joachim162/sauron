@@ -272,6 +272,20 @@ sub startup {
     return undef;
   });
 
+  $self->helper(get_acl_id_or_404 => sub ($c, $server_id, $name) {
+    my $id = Sauron::BackEnd::get_acl_by_name($server_id, $name);
+    return $id if $id > 0;
+
+    $c->render(
+      openapi => {
+        error   => 'Not Found',
+        message => "ACL '$name' not found on this server"
+      },
+      status  => 404
+    );
+    return undef;
+  });
+
   $self->helper(get_vlan_id_or_404 => sub ($c, $server_id, $name) {
     my $id = Sauron::BackEnd::get_vlan_by_name($server_id, $name);
     return $id if $id > 0;

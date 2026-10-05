@@ -1,0 +1,125 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get an ACL
+  tags: [ acls ]
+  description: >
+    Returns the full ACL record including its ordered match elements and the
+    number of rules referencing it. Requires server read access and
+    authorization level ALEVEL_ACLS. Built-in ACLs are not addressable
+    here (404).
+  operationId: get_acl
+  x-mojo-name: get_acl
+  x-mojo-to: "Acl#get_acl"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/acl'
+  responses:
+    '200':
+      description: ACL record
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Acl'
+    '404':
+      description: Server or ACL not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update an ACL
+  tags: [ acls ]
+  description: >
+    Partial update: only provided fields are changed; the `acl` member
+    array uses replace-all semantics. Renaming changes the resource URL.
+    Requires superuser.
+  operationId: update_acl
+  x-mojo-name: update_acl
+  x-mojo-to: "Acl#update_acl"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/acl'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateAcl'
+  responses:
+    '200':
+      description: ACL updated successfully
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Acl'
+    '400':
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or ACL not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: An ACL with the new name already exists on the server
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Delete an ACL
+  tags: [ acls ]
+  description: >
+    Deletes the ACL and its member rows. Rules referencing it (in server or
+    zone options, or inside other ACLs) are detached (acl=-1) unless
+    `reassign_to` names another ACL on this server or a built-in, to which
+    they are moved first. Requires superuser.
+  operationId: delete_acl
+  x-mojo-name: delete_acl
+  x-mojo-to: "Acl#delete_acl"
+  parameters:
+    - $ref: '../components/parameters.yaml#/server'
+    - $ref: '../components/parameters.yaml#/acl'
+    - $ref: '../components/parameters.yaml#/acl_reassign_to'
+  responses:
+    '204':
+      description: ACL deleted
+    '400':
+      description: Invalid reassign_to
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '404':
+      description: Server or ACL not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

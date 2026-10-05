@@ -2458,6 +2458,229 @@ VlanListResponse:
     metadata:
       $ref: '#/Metadata'
 
+# --- ACLs (ADR 0011) ---
+
+AmlElement:
+  type: object
+  description: >
+    One Access Match List row (cidr_entries). `mode` selects the rule type:
+    0 = CIDR/IP in `ip`, 1 = named ACL id in `acl`, 2 = TSIG key id in
+    `tkey`. `op`: 0 = allow, 1 = NOT (negated match).
+  properties:
+    mode:
+      type: integer
+      enum: [0, 1, 2]
+      example: 0
+    ip:
+      type: string
+      nullable: true
+      description: CIDR/IP network — only for mode=0
+      example: 10.0.0.0/8
+    acl:
+      type: integer
+      nullable: true
+      description: Referenced ACL id — only for mode=1
+      example: 17
+    tkey:
+      type: integer
+      nullable: true
+      description: Referenced TSIG key id — only for mode=2
+      example: 42
+    op:
+      type: integer
+      enum: [0, 1]
+      description: 0 = allow, 1 = NOT (negated)
+    comment:
+      type: string
+      nullable: true
+
+AclFields:
+  type: object
+  description: Shared writable fields for ACL records.
+  properties:
+    name:
+      type: string
+      description: ACL name (letters, digits, underscore, dot, hyphen)
+      example: internal-clients
+    comment:
+      type: string
+      nullable: true
+    acl:
+      type: array
+      description: Ordered match elements; replace-all semantics on update
+      items:
+        $ref: '#/AmlElement'
+
+AclSummary:
+  type: object
+  description: Lightweight ACL record for list views.
+  required:
+    - id
+    - server_id
+    - name
+    - builtin
+  properties:
+    id:
+      type: integer
+      example: 17
+    server_id:
+      type: integer
+      description: Owning server id; -1 marks a global built-in ACL
+      example: 1
+    name:
+      type: string
+      example: internal-clients
+    comment:
+      type: string
+      nullable: true
+    builtin:
+      type: boolean
+      description: True for the global built-ins (any, none, localhost, localnets); read-only, not editable or deletable
+    cdate:
+      type: integer
+      nullable: true
+      description: Creation timestamp (Unix epoch)
+    cuser:
+      type: string
+      nullable: true
+    mdate:
+      type: integer
+      nullable: true
+      description: Last modification timestamp (Unix epoch)
+    muser:
+      type: string
+      nullable: true
+    cdate_str:
+      type: string
+      nullable: true
+    mdate_str:
+      type: string
+      nullable: true
+
+Acl:
+  allOf:
+    - $ref: '#/AclSummary'
+    - type: object
+      required:
+        - acl
+        - ref_count
+      properties:
+        acl:
+          type: array
+          description: Ordered match elements contained in this ACL
+          items:
+            $ref: '#/AmlElement'
+        ref_count:
+          type: integer
+          description: Number of AML rules (server/zone options and other ACLs) referencing this ACL
+          example: 0
+
+NewAcl:
+  allOf:
+    - $ref: '#/AclFields'
+    - type: object
+      required:
+        - name
+      description: >
+        Schema for creating an ACL. The server is taken from the URL path.
+        Members default to an empty list.
+
+UpdateAcl:
+  allOf:
+    - $ref: '#/AclFields'
+    - type: object
+      description: >
+        Schema for updating an ACL. All fields are optional; the `acl`
+        member array uses replace-all semantics and `name` is mutable (a
+        rename changes the resource URL).
+
+AclListResponse:
+  type: object
+  description: Paginated list of ACLs (server-owned plus built-ins).
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/AclSummary'
+    metadata:
+      $ref: '#/Metadata'
+
+# --- Keys (ADR 0011) ---
+
+KeySummary:
+  type: object
+  description: >
+    TSIG key reference data (read-only; the key lifecycle is managed by the
+    keygen CLI outside the API). Secrets are never exposed.
+  required:
+    - id
+    - server_id
+    - name
+  properties:
+    id:
+      type: integer
+      example: 7
+    server_id:
+      type: integer
+      example: 1
+    name:
+      type: string
+      example: transfer-key
+    algorithm:
+      type: integer
+      nullable: true
+      description: Algorithm id (157=HMAC-MD5, 158=HMAC-SHA1, 159=HMAC-SHA256, 160=HMAC-SHA384, 161=HMAC-SHA512)
+      example: 159
+    keysize:
+      type: integer
+      nullable: true
+      description: Key length in bits
+      example: 256
+    mode:
+      type: integer
+      nullable: true
+      description: 0 = auto-generated, 1 = static/manually set
+    comment:
+      type: string
+      nullable: true
+    cdate:
+      type: integer
+      nullable: true
+      description: Creation timestamp (Unix epoch)
+    cuser:
+      type: string
+      nullable: true
+    mdate:
+      type: integer
+      nullable: true
+      description: Last modification timestamp (Unix epoch)
+    muser:
+      type: string
+      nullable: true
+    cdate_str:
+      type: string
+      nullable: true
+    mdate_str:
+      type: string
+      nullable: true
+
+KeyListResponse:
+  type: object
+  description: Paginated list of TSIG keys.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/KeySummary'
+    metadata:
+      $ref: '#/Metadata'
+
 # --- Templates (ADR 0010) ---
 
 MxEntry:

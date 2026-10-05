@@ -663,6 +663,89 @@ vlan_sort:
     type: string
     example: "vlanno:asc"
 
+# --- ACL parameters (ADR 0011) ---
+
+acl:
+  name: acl
+  in: path
+  required: true
+  description: >
+    Name of the ACL (letters, digits, underscore, dot, hyphen). Singletons
+    resolve server-owned ACLs only; built-in ACLs (any, none, localhost,
+    localnets) are available in the collection only.
+  x-mojo-placeholder: '#'
+  schema:
+    type: string
+    example: internal-clients
+
+acl_name:
+  name: name
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the ACL name.
+  schema:
+    type: string
+
+acl_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the ACL comment.
+  schema:
+    type: string
+
+acl_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction defaults
+    to asc). Fields: name, comment. Default sort: name.
+  schema:
+    type: string
+    example: "name:desc"
+
+acl_reassign_to:
+  name: reassign_to
+  in: query
+  required: false
+  description: >
+    Id of an ACL on the same server (or a built-in ACL) to move referencing
+    rules to before deleting. Omit to detach them (acl=-1).
+  schema:
+    type: integer
+    minimum: 1
+    example: 4
+
+# --- Key parameters (ADR 0011) ---
+
+key_name:
+  name: name
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the key name.
+  schema:
+    type: string
+
+key_comment:
+  name: comment
+  in: query
+  required: false
+  description: Case-insensitive regular expression (PostgreSQL ARE syntax) matched against the key comment.
+  schema:
+    type: string
+
+key_sort:
+  name: sort
+  in: query
+  required: false
+  description: >
+    Comma-separated sort keys, each `field[:asc|desc]` (direction defaults
+    to asc). Fields: name, comment. Default sort: name.
+  schema:
+    type: string
+    example: "name:asc"
+
 # --- Template parameters (ADR 0010) ---
 
 template_id:

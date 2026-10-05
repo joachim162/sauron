@@ -22,6 +22,10 @@ tags:
     description: API Endpoints for Host Groups
   - name: vlans
     description: API Endpoints for VLANs
+  - name: acls
+    description: API Endpoints for ACLs
+  - name: keys
+    description: API Endpoints for TSIG Keys
   - name: mx-templates
     description: MX templates (zone-scoped)
   - name: wks-templates
@@ -146,6 +150,15 @@ paths:
 
   /servers/{server}/vlans/{vlan}:
     $ref: "./paths/vlan.yaml"
+
+  /servers/{server}/acls:
+    $ref: "./paths/acls.yaml"
+
+  /servers/{server}/acls/{acl}:
+    $ref: "./paths/acl.yaml"
+
+  /servers/{server}/keys:
+    $ref: "./paths/keys.yaml"
 
   /servers/{server}/zones/{zone}/mx-templates:
     $ref: "./paths/mx-templates.yaml"
