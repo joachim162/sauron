@@ -402,6 +402,32 @@ subtest 'DELETE - server-level (type>0) references are reassigned too' => sub {
   is($q[0][0],     1, 'server-level reference moved to the built-in ACL');
 };
 
+subtest 'DELETE - reassign must not create a cyclic/self reference (issue #54)' => sub {
+  $t->post_ok($BASE => $SUPER => json => {
+    name => "cyc-victim-${pid}", acl => [{ mode => 0, ip => '198.51.100.0/24' }],
+  })->status_is(201);
+  my $victim_id = $t->tx->res->json->{id};
+
+  $t->post_ok($BASE => $SUPER => json => {
+    name => "cyc-ref-${pid}", acl => [{ mode => 1, acl => $victim_id }],
+  })->status_is(201);
+  my $referent_id = $t->tx->res->json->{id};
+
+  # reassign to the ACL that references the victim -> would become a self-reference
+  $t->delete_ok("$BASE/cyc-victim-${pid}?reassign_to=$referent_id" => $SUPER)
+    ->status_is(400)->json_like('/message' => qr/created before|built-in/);
+
+  # a newer ACL that doesn't reference the victim is still rejected (id rule)
+  $t->post_ok($BASE => $SUPER => json => { name => "cyc-newer-${pid}" })->status_is(201);
+  my $newer_id = $t->tx->res->json->{id};
+  $t->delete_ok("$BASE/cyc-victim-${pid}?reassign_to=$newer_id" => $SUPER)->status_is(400);
+
+  # built-in target is allowed; the reference moves, no cycle
+  $t->delete_ok("$BASE/cyc-victim-${pid}?reassign_to=1" => $SUPER)->status_is(204);
+  $t->get_ok("$BASE/cyc-ref-${pid}" => $SUPER)->status_is(200);
+  is($t->tx->res->json->{acl}[0]{acl}, 1, 'reference moved to built-in, no cycle');
+};
+
 subtest 'DELETE - 404 for unknown' => sub {
   $t->delete_ok("$BASE/nope-${pid}" => $SUPER)->status_is(404);
 };

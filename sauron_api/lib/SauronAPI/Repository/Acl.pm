@@ -183,6 +183,17 @@ sub acl_delete {
     SauronAPI::Exception->validation(
       "'reassign_to' is not an ACL on this server"
     ) if $rc != 0 || (%ref_acl && $ref_acl{server} != $server_id && $ref_acl{server} != -1);
+
+    # Acyclicity (ADR 0011, issue #54): a nested ACL reference must point to a
+    # built-in or an ACL created earlier (id <) — the rule _validate_members
+    # enforces on create/update. Moving references of the deleted ACL to a
+    # server-owned target with a higher id would leave an upward (or, when the
+    # target references the deleted ACL, a self) reference, breaking the DAG
+    # and producing an invalid BIND acl block. Built-ins are leaves (safe).
+    SauronAPI::Exception->validation(
+      "'reassign_to' must be a built-in ACL or an ACL created before this one"
+    ) if $ref_acl{server} != -1 && $reassign_to >= $acl_id;
+
     $newref = $reassign_to;
   }
 
