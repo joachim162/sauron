@@ -14,6 +14,10 @@ import { Plus, X } from "lucide-react";
 // "ACL Rules" ftype-12 editor: CIDR / ACL / Key rows with a NOT toggle,
 // plus three typed add-buttons.
 
+// TSIG/HMAC algorithm family the legacy AML key picker offers and the BIND
+// generator supports (issue #55): 157-161, HMAC-MD5..SHA512.
+const TSIG_ALGOS = new Set([157, 158, 159, 160, 161]);
+
 function blankRow(mode: number): AmlElement {
   return mode === 0
     ? { mode, ip: "", acl: null, tkey: null, op: 0, comment: "" }
@@ -118,11 +122,13 @@ export function AclMembersEditor({
                   <SelectValue placeholder="— Select key —" />
                 </SelectTrigger>
                 <SelectContent>
-                  {keys.map((k) => (
-                    <SelectItem key={k.id} value={String(k.id)}>
-                      {k.name}
-                    </SelectItem>
-                  ))}
+                  {keys
+                    .filter((k) => k.algorithm != null && TSIG_ALGOS.has(k.algorithm))
+                    .map((k) => (
+                      <SelectItem key={k.id} value={String(k.id)}>
+                        {k.name}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             )}
