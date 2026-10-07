@@ -11,7 +11,7 @@ use SauronAPITest qw(
   create_test_user delete_test_user
   create_test_server delete_test_server
   create_test_zone delete_test_zone
-  grant_server_access grant_zone_access
+  grant_server_access grant_zone_access grant_level
 );
 
 my $t = setup_test_app();
@@ -29,6 +29,16 @@ END {
   }
   for my $zid (@zones) {
     eval { delete_test_zone($zid); };
+  }
+  # delete_test_server does not remove acls/keys (legacy gap); drop the
+  # fixtures explicitly before the servers go away.
+  for my $sid (@servers) {
+    eval {
+      Sauron::DB::db_exec(
+        "DELETE FROM cidr_entries WHERE type=0 AND ref IN (SELECT id FROM acls WHERE server=$sid)");
+      Sauron::DB::db_exec("DELETE FROM keys WHERE type=1 AND ref=$sid");
+      Sauron::DB::db_exec("DELETE FROM acls WHERE server=$sid");
+    };
   }
   for my $sid (@servers) {
     eval { delete_test_server($sid); };
@@ -55,7 +65,8 @@ my $u_srv_rw  = create_test_user(username => "srvrw_${pid}",   email => "srvrw_$
 my $u_srv_rws = create_test_user(username => "srvrws_${pid}",  email => "srvrws_${pid}\@example.com");
 my $u_zone_r  = create_test_user(username => "zoner_${pid}",   email => "zoner_${pid}\@example.com");
 my $u_zone_rw = create_test_user(username => "zonerw_${pid}",  email => "zonerw_${pid}\@example.com");
-push @users, $u_super, $u_none, $u_srv_r, $u_srv_rw, $u_srv_rws, $u_zone_r, $u_zone_rw;
+my $u_lvl5    = create_test_user(username => "lvl5_${pid}",    email => "lvl5_${pid}\@example.com");
+push @users, $u_super, $u_none, $u_srv_r, $u_srv_rw, $u_srv_rws, $u_zone_r, $u_zone_rw, $u_lvl5;
 
 # Grant permissions
 grant_server_access($u_srv_r,   $srv1, 'R');
@@ -63,6 +74,21 @@ grant_server_access($u_srv_rw,  $srv1, 'RW');
 grant_server_access($u_srv_rws, $srv1, 'RWS');
 grant_zone_access($u_zone_r,    $z1,   'R');
 grant_zone_access($u_zone_rw,   $z1,   'RW');
+# Server R plus the global authorization level (reads of ACLs/keys need
+# ALEVEL_ACLS=5 in addition to server R).
+grant_server_access($u_lvl5, $srv1, 'R');
+grant_level($u_lvl5, 5);
+
+# ACL and key fixtures on srv1 (read targets for the authz cases below).
+Sauron::BackEnd::set_muser('test');
+my $acl_id = Sauron::BackEnd::add_acl({ server => $srv1, name => "authz-acl-${pid}" });
+die "Failed to create ACL fixture: $acl_id" unless $acl_id > 0;
+my $key_id = Sauron::BackEnd::add_record('keys', {
+  type => 1, ref => $srv1, name => "authz-key-${pid}",
+  keytype => 0, nametype => 0, protocol => 2, algorithm => 159,
+  mode => 0, keysize => 128, comment => 'authz fixture key',
+});
+die "Failed to create key fixture: $key_id" unless $key_id > 0;
 
 # ========================================================================
 # Helpers
@@ -389,6 +415,96 @@ subtest 'Host endpoints — zone read/write gates' => sub {
   $t->delete_ok("/api/v1/servers/srv-authz-${pid}-1/zones/zone1-${pid}.example.com/hosts/testhost-${pid}"
       => as_user("zonerw_${pid}\@example.com"))
     ->status_is(204);
+};
+
+# ========================================================================
+# ACL / keys endpoint authorization (ADR 0011)
+# ========================================================================
+
+subtest 'GET /servers/{server}/acls — read requires server R + ALEVEL_ACLS' => sub {
+  my $acls_url = "/api/v1/servers/srv-authz-${pid}-1/acls";
+
+  # Superuser bypasses both gates
+  $t->get_ok($acls_url => as_user("super_${pid}\@example.com"))->status_is(200);
+  my $data = $t->tx->res->json->{data};
+  ok((grep { $_->{name} eq "authz-acl-${pid}" } @$data), 'superuser sees the server ACL');
+  ok((grep { $_->{builtin} } @$data),                 'superuser sees the built-ins');
+
+  # No server access -> 403
+  $t->get_ok($acls_url => as_user("none_${pid}\@example.com"))
+    ->status_is(403)->json_is('/error' => 'Forbidden');
+
+  # Server R (even RW/RWS) WITHOUT ALEVEL_ACLS -> 403 (the level gate)
+  $t->get_ok($acls_url => as_user("srvr_${pid}\@example.com"))->status_is(403);
+  $t->get_ok($acls_url => as_user("srvrw_${pid}\@example.com"))->status_is(403);
+  $t->get_ok($acls_url => as_user("srvrws_${pid}\@example.com"))->status_is(403);
+
+  # Server R + level >= ALEVEL_ACLS -> 200
+  $t->get_ok($acls_url => as_user("lvl5_${pid}\@example.com"))
+    ->status_is(200);
+  ok((grep { $_->{name} eq "authz-acl-${pid}" } @{$t->tx->res->json->{data}}),
+     'level-5 reader sees the ACL');
+
+  # Server R on srv1 gives no access to srv2's ACLs
+  $t->get_ok("/api/v1/servers/srv-authz-${pid}-2/acls" => as_user("srvr_${pid}\@example.com"))
+    ->status_is(403);
+};
+
+subtest 'GET /servers/{server}/acls/{acl} — detail authz + built-in 404' => sub {
+  my $url = "/api/v1/servers/srv-authz-${pid}-1/acls/authz-acl-${pid}";
+
+  $t->get_ok($url => as_user("super_${pid}\@example.com"))
+    ->status_is(200)->json_is('/name' => "authz-acl-${pid}");
+  $t->get_ok($url => as_user("lvl5_${pid}\@example.com"))->status_is(200);
+  $t->get_ok($url => as_user("srvr_${pid}\@example.com"))->status_is(403);
+  $t->get_ok($url => as_user("none_${pid}\@example.com"))->status_is(403);
+
+  # Built-in ACLs are collection-only; the singleton path is a 404.
+  $t->get_ok("/api/v1/servers/srv-authz-${pid}-1/acls/any" => as_user("super_${pid}\@example.com"))
+    ->status_is(404);
+  $t->get_ok("/api/v1/servers/srv-authz-${pid}-1/acls/none" => as_user("lvl5_${pid}\@example.com"))
+    ->status_is(404);
+};
+
+subtest 'POST/PUT/DELETE /servers/{server}/acls — writes require superuser' => sub {
+  my $acls_url = "/api/v1/servers/srv-authz-${pid}-1/acls";
+  my $payload  = { name => "authz-new-${pid}" };
+
+  # A level-5 reader still cannot write; nor can a server RWS user.
+  $t->post_ok($acls_url => as_user("lvl5_${pid}\@example.com") => json => $payload)
+    ->status_is(403)->json_is('/message' => 'Administrator privileges required');
+  $t->post_ok($acls_url => as_user("srvrws_${pid}\@example.com") => json => $payload)
+    ->status_is(403);
+
+  # Superuser can create, update, delete.
+  $t->post_ok($acls_url => as_user("super_${pid}\@example.com") => json => $payload)
+    ->status_is(201);
+  $t->put_ok("$acls_url/authz-new-${pid}" => as_user("lvl5_${pid}\@example.com") => json => { comment => 'x' })
+    ->status_is(403);
+  $t->put_ok("$acls_url/authz-new-${pid}" => as_user("super_${pid}\@example.com") => json => { comment => 'x' })
+    ->status_is(200);
+  $t->delete_ok("$acls_url/authz-new-${pid}" => as_user("srvrws_${pid}\@example.com"))
+    ->status_is(403);
+  $t->delete_ok("$acls_url/authz-new-${pid}" => as_user("super_${pid}\@example.com"))
+    ->status_is(204);
+};
+
+subtest 'GET /servers/{server}/keys — read requires server R + ALEVEL_ACLS' => sub {
+  my $keys_url = "/api/v1/servers/srv-authz-${pid}-1/keys";
+
+  $t->get_ok($keys_url => as_user("super_${pid}\@example.com"))->status_is(200);
+  ok((grep { $_->{name} eq "authz-key-${pid}" } @{$t->tx->res->json->{data}}),
+     'superuser sees the key');
+
+  $t->get_ok($keys_url => as_user("lvl5_${pid}\@example.com"))->status_is(200);
+  $t->get_ok($keys_url => as_user("srvr_${pid}\@example.com"))->status_is(403);
+  $t->get_ok($keys_url => as_user("srvrw_${pid}\@example.com"))->status_is(403);
+  $t->get_ok($keys_url => as_user("none_${pid}\@example.com"))
+    ->status_is(403)->json_is('/error' => 'Forbidden');
+
+  # level-5 + server R on srv1 only; srv2 keys are out of scope
+  $t->get_ok("/api/v1/servers/srv-authz-${pid}-2/keys" => as_user("lvl5_${pid}\@example.com"))
+    ->status_is(403);
 };
 
 done_testing();

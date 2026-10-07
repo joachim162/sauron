@@ -29,6 +29,7 @@ our @EXPORT_OK = qw(
   grant_zone_access
   grant_net_access
   grant_rhf
+  grant_level
   make_pat
   db_exec
 );
@@ -166,6 +167,19 @@ sub grant_net_access {
     rule  => $rule,
   });
   die "Failed to grant net access: $res" unless $res > 0;
+}
+
+# Global authorization level (user_rights rtype=6), e.g. ALEVEL_ACLS=5.
+sub grant_level {
+  my ($user_id, $level) = @_;
+  my $res = Sauron::BackEnd::add_record('user_rights', {
+    type => 2,
+    ref  => $user_id,
+    rtype => 6,
+    rref  => 0,
+    rule  => $level,
+  });
+  die "Failed to grant level: $res" unless $res > 0;
 }
 
 sub grant_rhf {
