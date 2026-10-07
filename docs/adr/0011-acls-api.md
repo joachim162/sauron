@@ -94,6 +94,12 @@ behaviour), via `SauronAPI::Exception::validation` (400):
 **Delete.** `DELETE …/{acl}?reassign_to=<id>` → 204. Omitting
 `reassign_to` detaches (`acl=-1`); supplying one validates existence
 (server-owned or built-in) and difference from the deleted ACL.
+**Acyclicity on reassign:** a server-owned target must have been created
+*before* the deleted ACL (`id <`, built-ins excepted) — otherwise
+reassigning an ACL's own referencer to it creates a self-reference or a
+cycle (joachim162/sauron#54). This is the same id-ordering rule the
+member editor enforces; the legacy delete popup offered every ACL and
+left this hole open.
 **Corrected transaction:** the repo reassigns/detaches **all** rows with
 `acl=id` — including `type=0` nested references left dangling by
 `BackEnd::delete_acl` (joachim162/sauron#53) — wrapping the BackEnd call
@@ -177,5 +183,7 @@ controller-parity suite `t/acl.t` (with keys coverage).
     the ACL read level gate inherits that limitation deliberately.
   - joachim162/sauron#43 — texthandle lowercasing; API stores `name`
     verbatim like VLANs.
+  - joachim162/sauron#54 — cyclic reassign on delete
+    (this API rejects it; legacy CGI remains unfixed).
   - Key management (keygen-backed CRUD) stays out of the API pending a
     security design.
