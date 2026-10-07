@@ -149,7 +149,12 @@ export default function AclDetailPage() {
     });
   }
 
-  const reassignTargets = allAcls.filter((a) => a.id !== acl.id);
+  // Built-ins are always valid; server-owned targets must predate this ACL
+  // so reassigning references keeps nested-ACL references acyclic — the same
+  // id-ordering rule the members editor and the API enforce (issue #54).
+  const reassignTargets = allAcls.filter(
+    (a) => a.id !== acl.id && (a.builtin || a.id < acl.id)
+  );
 
   return (
     <div className="space-y-4">
