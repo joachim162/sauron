@@ -17,6 +17,7 @@ get:
     - $ref: '../components/parameters.yaml#/per_page'
     - $ref: '../components/parameters.yaml#/key_name'
     - $ref: '../components/parameters.yaml#/key_comment'
+    - $ref: '../components/parameters.yaml#/key_algo'
     - $ref: '../components/parameters.yaml#/key_sort'
   responses:
     '200':

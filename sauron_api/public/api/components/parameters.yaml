@@ -735,6 +735,19 @@ key_comment:
   schema:
     type: string
 
+key_algo:
+  name: algo
+  in: query
+  required: false
+  description: >
+    Algorithm filter: `-1` selects the whole TSIG/HMAC family
+    (algorithm 157 - 161 inclusive), mirroring the legacy
+    `get_key_list(..., -1)` picker; any other integer is an exact
+    algorithm match.
+  schema:
+    type: integer
+    example: -1
+
 key_sort:
   name: sort
   in: query

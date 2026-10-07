@@ -15,6 +15,9 @@ use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_
 use SauronAPI::Repository qw(dbq check_rc with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
 use JSON::PP ();
 
+use constant TSIG_ALGO_MIN => 157;
+use constant TSIG_ALGO_MAX => 161;
+
 my $AML = aml();
 
 my %FILTER_SPEC = (
@@ -303,12 +306,24 @@ sub _validate_members {
       my $rc = eval { Sauron::BackEnd::get_key($target, \%key) };
       SauronAPI::Exception->validation("acl[$i]: 'tkey' $target is not a key on this server")
         if $@ || $rc != 0 || !%key || $key{type} != 1 || $key{ref} != $server_id;
+      # Legacy parity (issue #55): the AML key picker only offers the
+      # TSIG/HMAC family and the BIND generator silently drops rules pointing
+      # at any other algorithm at config time. Require the same family here.
+      SauronAPI::Exception->validation("acl[$i]: 'tkey' $target is not a TSIG/HMAC-family key")
+        unless _is_tsig_algorithm($key{algorithm});
       $el->{ip} = undef;
       $el->{acl} = undef;
     }
   }
 
   return $rows;
+}
+
+# HMAC/TSIG family — the set the legacy AML key picker offers
+# (get_key_list(..., -1)) and the BIND generator supports (%algorithm_enum).
+sub _is_tsig_algorithm {
+  my ($algo) = @_;
+  return defined $algo && $algo >= TSIG_ALGO_MIN && $algo <= TSIG_ALGO_MAX;
 }
 
 sub _ref_count {

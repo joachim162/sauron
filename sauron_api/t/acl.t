@@ -77,6 +77,19 @@ my $other_key_id = Sauron::BackEnd::add_record('keys', {
   mode => 0, keysize => 128, comment => 'foreign fixture key',
 });
 die "Failed to create foreign key fixture: $other_key_id" unless $other_key_id > 0;
+# Extra TSIG fixture (158) and a non-HMAC key (algorithm 1, #55) on $srv.
+my $sha1_key_id = Sauron::BackEnd::add_record('keys', {
+  type => 1, ref => $srv, name => "sha1-key-${pid}",
+  keytype => 0, nametype => 0, protocol => 2, algorithm => 158,
+  mode => 0, keysize => 128, comment => 'fixture HMAC-SHA1 key',
+});
+die "Failed to create sha1 key fixture: $sha1_key_id" unless $sha1_key_id > 0;
+my $rsa_key_id = Sauron::BackEnd::add_record('keys', {
+  type => 1, ref => $srv, name => "rsa-key-${pid}",
+  keytype => 0, nametype => 0, protocol => 2, algorithm => 1,
+  mode => 0, keysize => 128, comment => 'fixture non-HMAC key',
+});
+die "Failed to create rsa key fixture: $rsa_key_id" unless $rsa_key_id > 0;
 
 # ACL fixture on another server, for cross-server member rejection.
 my $other_acl_id = Sauron::BackEnd::add_acl({
@@ -170,6 +183,9 @@ subtest 'POST create ACL - member validation' => sub {
     ->status_is(400)->json_like('/message' => qr/not a key/);
   $t->post_ok($BASE => $SUPER => json => { name => "v1-${pid}", acl => [{ mode => 2, tkey => $other_key_id }] })
     ->status_is(400)->json_like('/message' => qr/not a key/);
+  # mode=2 must reject non-HMAC keys on this server (issue #55).
+  $t->post_ok($BASE => $SUPER => json => { name => "v1-${pid}", acl => [{ mode => 2, tkey => $rsa_key_id }] })
+    ->status_is(400)->json_like('/message' => qr/TSIG\/HMAC-family/);
   $t->post_ok($BASE => $SUPER => json => { name => "v1-${pid}", acl => [{ mode => 0, ip => '10.0.0.0/8', op => 2 }] })
     ->status_is(400);
 };
@@ -474,6 +490,20 @@ subtest 'GET keys - envelope with fixture key' => sub {
 
   my ($foreign) = grep { $_->{name} eq "other-key-${pid}" } @{$j->{data}};
   ok(!$foreign, 'foreign server keys not listed');
+};
+
+subtest 'GET keys - algo filter (TSIG family / exact, issue #55)' => sub {
+  $t->get_ok("$KEYS?algo=-1" => $SUPER)->status_is(200);
+  my %t = map { $_->{id} => 1 } @{$t->tx->res->json->{data}};
+  ok($t{$key_id} && $t{$sha1_key_id}, 'algo=-1 lists both HMAC keys');
+  ok(!$t{$rsa_key_id},              'algo=-1 excludes the non-HMAC key');
+
+  $t->get_ok("$KEYS?algo=158" => $SUPER)->status_is(200);
+  my @exact = @{$t->tx->res->json->{data}};
+  is(scalar @exact,    1,            'algo=158 returns exactly one');
+  is($exact[0]{id},    $sha1_key_id, 'exact algorithm match');
+
+  $t->get_ok("$KEYS?algo=abc" => $SUPER)->status_is(400);
 };
 
 subtest 'GET keys - filters and authz' => sub {

@@ -13,6 +13,16 @@ use Sauron::BackEnd       ();
 my %FILTER_SPEC = (
   name    => { kind => 'regex', col => 'name' },
   comment => { kind => 'regex', col => 'comment' },
+  algo    => { kind => 'custom', code => sub {
+    # Mirrors legacy get_key_list(): algo=-1 means the whole TSIG/HMAC
+    # family (algorithm 157-161), any other integer is an exact match.
+    my ($v) = @_;
+    SauronAPI::Exception->validation("'algo' must be an integer")
+      unless $v =~ /^-?\d+$/;
+    return { clauses => ['algorithm >= ? AND algorithm <= ?'], bind => [157, 161] }
+      if $v == -1;
+    return { clauses => ['algorithm = ?'], bind => [$v] };
+  } },
 );
 
 my %SORT_COLUMN = (

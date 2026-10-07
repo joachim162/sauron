@@ -86,7 +86,11 @@ behaviour), via `SauronAPI::Exception::validation` (400):
   legacy picker mask). On POST any in-scope id is valid (new ids are
   always highest).
 - `mode=2`: `tkey` required > 0, existing server key (`type=1,
-  ref=server`) via `BackEnd::get_key`.
+  ref=server`) via `BackEnd::get_key`, and its **algorithm must be in the
+  TSIG/HMAC family (157–161)** — the set the legacy AML key picker offers
+  (`get_key_list(…, -1)`) and the generator supports (`%algorithm_enum`);
+  any other key is silently dropped at config time
+  (joachim162/sauron#55).
 - `op` ∈ {0,1}; fields inapplicable to the mode are normalized to NULL,
   not rejected (the legacy form hid those inputs rather than erroring).
 - No de-duplication (legacy has none).
@@ -116,10 +120,11 @@ to `server R`; the gap is the already-tracked picker-authz class
 **Keys (read-only companion).** `GET /servers/{server}/keys` → envelope;
 items `id`, `name`, `algorithm` (int), `keysize`, `mode` (int), `comment`
 (nullable), `cdate_str`/`mdate_str` (nullable); filters `name`/`comment`
-(regex), sort `name` (default); authz `server R` + `level >= ALEVEL_ACLS`
-(= legacy `browse_keys`). No singleton, no writes, never `secretkey`/
-`publickey` — lifecycle stays in `keygen` pending a separate security
-design.
+(regex) and `algo` (`-1` = whole TSIG/HMAC family, any other int = exact,
+mirroring `get_key_list`; joachim162/sauron#55), sort `name` (default);
+authz `server R` + `level >= ALEVEL_ACLS` (= legacy `browse_keys`). No
+singleton, no writes, never `secretkey`/`publickey` — lifecycle stays in
+`keygen` pending a separate security design.
 
 **Frontend.** One sidebar ACLs menu with sub-items **ACLs** and **Keys**
 (mirroring the CGI; Templates-menu mechanics). Routes `/acls`,
@@ -185,5 +190,8 @@ controller-parity suite `t/acl.t` (with keys coverage).
     verbatim like VLANs.
   - joachim162/sauron#54 — cyclic reassign on delete
     (this API rejects it; legacy CGI remains unfixed).
+  - joachim162/sauron#55 — mode=2 `tkey` restricted to the TSIG/HMAC
+    family (this API enforces it); the server/zone AML `aml()` fields
+    still accept `tkey` with no validation (pre-existing gap).
   - Key management (keygen-backed CRUD) stays out of the API pending a
     security design.
