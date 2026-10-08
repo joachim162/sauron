@@ -25,10 +25,11 @@ sub throw {
   die $class->new(%args);
 }
 
-sub not_found   { shift->throw(status => 404, kind => 'Not Found',             message => shift) }
-sub validation  { shift->throw(status => 400, kind => 'Bad Request',           message => shift) }
-sub forbidden   { shift->throw(status => 403, kind => 'Forbidden',             message => shift) }
-sub conflict    { shift->throw(status => 409, kind => 'Conflict',              message => shift) }
-sub persistence { shift->throw(status => 500, kind => 'Internal Server Error', message => shift) }
+sub not_found    { shift->throw(status => 404, kind => 'Not Found',              message => shift) }
+sub unauthorized { shift->throw(status => 401, kind => 'Unauthorized',           message => shift) }
+sub validation   { shift->throw(status => 400, kind => 'Bad Request',            message => shift) }
+sub forbidden    { shift->throw(status => 403, kind => 'Forbidden',              message => shift) }
+sub conflict     { shift->throw(status => 409, kind => 'Conflict',               message => shift) }
+sub persistence  { shift->throw(status => 500, kind => 'Internal Server Error', message => shift) }
 
 1;

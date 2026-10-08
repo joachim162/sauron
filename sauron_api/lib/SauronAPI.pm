@@ -10,6 +10,7 @@ use Sauron::Sauron;
 use Sauron::DB;
 use Sauron::BackEnd;
 use SauronAPI::Repository::Net ();
+use SauronAPI::Exception ();
 use Net::Netmask;
 
 # This method will run once at server start
@@ -48,11 +49,7 @@ sub startup {
     my $remote_user = $c->req->headers->header($header);
     if (defined $remote_user && length $remote_user) {
       my $result = $c->resolve_proxy_user;
-      if ($result->{user_id}) {
-        $c->load_user_context($result->{user_id}, 'proxy');
-      } else {
-        $c->render(json => { error => $result->{error}, message => $result->{message} }, status => $result->{status});
-      }
+      $c->load_user_context($result->{user_id}, 'proxy');
       return; # proxy header present — don't check session cookie
     }
 
@@ -62,6 +59,14 @@ sub startup {
     if ($result->{user_id}) {
       $c->load_user_context($result->{user_id}, 'password');
     }
+  });
+
+  # Global exception boundary: any SauronAPI::Exception that unwinds out of an
+  # action or helper is rendered through the shared render_exception helper.
+  $self->hook(around_dispatch => sub ($next, $c) {
+    my $err;
+    eval { $next->(); 1 } or $err = $@;
+    return $c->render_exception($err) if $err;
   });
 
   if ($ENV{PROXY_AUTH_TRUSTED_IPS}) {
@@ -92,10 +97,7 @@ sub startup {
   });
 
   $self->helper(require_auth => sub ($c) {
-    unless ($c->stash('api_user_id')) {
-      $c->render(json => { error => 'Unauthorized', message => 'Not authenticated' }, status => 401);
-      return 0;
-    }
+    SauronAPI::Exception->unauthorized('Not authenticated') unless $c->stash('api_user_id');
     return 1;
   });
 
@@ -111,7 +113,7 @@ sub startup {
 
     warn "DEBUG resolve_proxy_user: remote_ip=$remote_ip header=" . ($remote_user // 'undef') . "\n";
 
-    return { error => 'Unauthorized', message => 'No proxy auth header', status => 401 } unless defined $remote_user && length $remote_user;
+    SauronAPI::Exception->unauthorized('No proxy auth header') unless defined $remote_user && length $remote_user;
 
     my $trusted = 0;
     for my $entry (@trusted) {
@@ -130,7 +132,7 @@ sub startup {
       }
     }
     warn "DEBUG resolve_proxy_user: trusted=$trusted trusted_ips=" . join(',', @trusted) . "\n";
-    return { error => 'Unauthorized', message => 'Untrusted proxy', status => 401 } unless $trusted;
+    SauronAPI::Exception->unauthorized('Untrusted proxy') unless $trusted;
 
     my %user;
     my $found;
@@ -140,11 +142,11 @@ sub startup {
       $found = (Sauron::BackEnd::get_user($remote_user, \%user) == 0);
     }
     warn "DEBUG resolve_proxy_user: match=$match found=$found user=" . ($user{id} // 'none') . "\n";
-    return { error => 'Unauthorized', message => "User '$remote_user' not found", status => 401 } unless $found;
+    SauronAPI::Exception->unauthorized("User '$remote_user' not found") unless $found;
 
     my $ustatus = Sauron::BackEnd::get_user_status($user{id});
     warn "DEBUG resolve_proxy_user: ustatus=" . ($ustatus // 'undef') . "\n";
-    return { error => 'Forbidden', message => 'Account is no longer active', status => 403 } if (!defined $ustatus || $ustatus =~ /[EL]/);
+    SauronAPI::Exception->forbidden('Account is no longer active') if (!defined $ustatus || $ustatus =~ /[EL]/);
 
     return { user_id => $user{id}, username => $user{username} };
   });
@@ -220,101 +222,58 @@ sub startup {
     my $id = Sauron::BackEnd::get_server_id($name);
     return $id if $id > 0;
 
-    $c->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "Server '$name' not found"
-      },
-      status  => 404
-    );
-    return undef;
+    SauronAPI::Exception->not_found("Server '$name' not found");
   });
 
   $self->helper(get_zone_id_or_404 => sub ($c, $server_id, $name) {
     my $id = Sauron::BackEnd::get_zone_id($name, $server_id);
     return $id if $id > 0;
 
-    $c->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "Zone '$name' not found"
-      },
-      status  => 404
-    );
-    return undef;
+    SauronAPI::Exception->not_found("Zone '$name' not found");
   });
 
   $self->helper(get_net_id_or_404 => sub ($c, $server_id, $param) {
     my $id = SauronAPI::Repository::Net::net_id_for($server_id, $param);
     return $id if $id > 0;
 
-    $c->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "Network '$param' not found on this server"
-      },
-      status  => 404
-    );
-    return undef;
+    SauronAPI::Exception->not_found("Network '$param' not found on this server");
   });
 
   $self->helper(get_group_id_or_404 => sub ($c, $server_id, $name) {
     my $id = Sauron::BackEnd::get_group_by_name($server_id, $name);
     return $id if $id > 0;
 
-    $c->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "Group '$name' not found on this server"
-      },
-      status  => 404
-    );
-    return undef;
+    SauronAPI::Exception->not_found("Group '$name' not found on this server");
   });
 
   $self->helper(get_acl_id_or_404 => sub ($c, $server_id, $name) {
     my $id = Sauron::BackEnd::get_acl_by_name($server_id, $name);
     return $id if $id > 0;
 
-    $c->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "ACL '$name' not found on this server"
-      },
-      status  => 404
-    );
-    return undef;
+    SauronAPI::Exception->not_found("ACL '$name' not found on this server");
   });
 
   $self->helper(get_vlan_id_or_404 => sub ($c, $server_id, $name) {
     my $id = Sauron::BackEnd::get_vlan_by_name($server_id, $name);
     return $id if $id > 0;
 
-    $c->render(
-      openapi => {
-        error   => 'Not Found',
-        message => "VLAN '$name' not found on this server"
-      },
-      status  => 404
-    );
-    return undef;
+    SauronAPI::Exception->not_found("VLAN '$name' not found on this server");
   });
 
   # Render a SauronAPI::Exception as an OpenAPI-shaped error response.
   # Non-Exception dies (e.g. DBD::Pg) become a generic 500.
   $self->helper(render_exception => sub ($c, $e) {
-    if (Scalar::Util::blessed($e) && $e->isa('SauronAPI::Exception')) {
-      return $c->render(
-        openapi => { error => $e->kind, message => $e->message },
-        status  => $e->status,
-      );
-    }
+    my ($status, $kind, $message) =
+      Scalar::Util::blessed($e) && $e->isa('SauronAPI::Exception')
+      ? ($e->status, $e->kind, $e->message)
+      : (500, 'Internal Server Error', 'An unexpected error occurred');
+    # TODO: log non-Exception $e via a proper logging framework once one is in place
 
-    # TODO: log $e via a proper logging framework once one is in place
-    $c->render(
-      openapi => { error => 'Internal Server Error', message => 'An unexpected error occurred' },
-      status  => 500,
-    );
+    # Exceptions raised before routing (e.g. in before_dispatch) have no
+    # OpenAPI operation to render against, so fall back to plain JSON.
+    return if $c->render_maybe(openapi => { error => $kind, message => $message }, status => $status);
+
+    $c->render(json => { error => $kind, message => $message }, status => $status);
   });
 }
 
