@@ -449,6 +449,52 @@ subtest 'DELETE - 404 for unknown' => sub {
 };
 
 # ========================================================================
+# STALE ID (TOCTOU): row deleted between name resolution and record fetch
+# ========================================================================
+
+# Simulate a concurrent DELETE landing between the controller's
+# get_acl_id_or_404 resolution and the repository's record fetch: resolve the
+# name, then drop the row before the repository sees it.
+sub _with_vanished_row {
+  my ($code) = @_;
+  my $orig = \&Sauron::BackEnd::get_acl_by_name;
+  no warnings 'redefine';
+  local *Sauron::BackEnd::get_acl_by_name = sub {
+    my $id = $orig->(@_);
+    if ($id > 0) {
+      Sauron::DB::db_exec("DELETE FROM cidr_entries WHERE type=0 AND ref=$id");
+      Sauron::DB::db_exec("DELETE FROM acls WHERE id=$id");
+    }
+    return $id;
+  };
+  $code->();
+}
+
+subtest 'GET stale id -> 404 (not 500)' => sub {
+  $t->post_ok($BASE => $SUPER => json => { name => "race-get-${pid}" })->status_is(201);
+  _with_vanished_row(sub {
+    $t->get_ok("$BASE/race-get-${pid}" => $SUPER)
+      ->status_is(404)->json_is('/error' => 'Not Found');
+  });
+};
+
+subtest 'PUT stale id -> 404 (not 500)' => sub {
+  $t->post_ok($BASE => $SUPER => json => { name => "race-put-${pid}" })->status_is(201);
+  _with_vanished_row(sub {
+    $t->put_ok("$BASE/race-put-${pid}" => $SUPER => json => { comment => 'x' })
+      ->status_is(404)->json_is('/error' => 'Not Found');
+  });
+};
+
+subtest 'DELETE stale id -> 404 (not 500)' => sub {
+  $t->post_ok($BASE => $SUPER => json => { name => "race-del-${pid}" })->status_is(201);
+  _with_vanished_row(sub {
+    $t->delete_ok("$BASE/race-del-${pid}" => $SUPER)
+      ->status_is(404)->json_is('/error' => 'Not Found');
+  });
+};
+
+# ========================================================================
 # AUTHORIZATION
 # ========================================================================
 

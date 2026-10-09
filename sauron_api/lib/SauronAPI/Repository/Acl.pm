@@ -75,14 +75,7 @@ sub acl_list {
 
 sub acl_find {
   my ($server_id, $acl_id) = @_;
-
-  my %data;
-  check_rc(Sauron::BackEnd::get_acl($acl_id, \%data),
-         'Failed to retrieve ACL data');
-  SauronAPI::Exception->not_found('ACL not found on this server')
-    unless $data{server} == $server_id;
-
-  return _build_detail($acl_id, \%data);
+  return _build_detail($acl_id, _get_server_acl($server_id, $acl_id));
 }
 
 sub acl_create {
@@ -134,9 +127,7 @@ sub acl_create {
 sub acl_update {
   my ($server_id, $acl_id, $input) = @_;
 
-  my %existing;
-  check_rc(Sauron::BackEnd::get_acl($acl_id, \%existing),
-         'Failed to retrieve existing ACL data');
+  my $existing = _get_server_acl($server_id, $acl_id);
 
   my %rec = (id => $acl_id);
 
@@ -151,7 +142,7 @@ sub acl_update {
 
   my $members = _validate_members($server_id, $input, $acl_id);
   if ($members) {
-    my $data = $AML->encode_update($members, $existing{acl});
+    my $data = $AML->encode_update($members, $existing->{acl});
     $rec{acl} = $data if ref $data eq 'ARRAY';
   }
 
@@ -173,6 +164,8 @@ sub acl_update {
 # leaves nested references dangling (issue #53).
 sub acl_delete {
   my ($server_id, $acl_id, $reassign_to) = @_;
+
+  _get_server_acl($server_id, $acl_id);
 
   my $newref = -1;
   if (defined $reassign_to) {
@@ -210,7 +203,9 @@ sub acl_delete {
     my $err = $@;
     Sauron::DB::db_ignore_begin_and_commit(0);
     die $err if $err;
-    die "delete_acl failed (code: $res)" if $res < 0;
+    # db_commit() returns undef while db_ignore_begin_and_commit suppresses
+    # it, so a successful BackEnd::delete_acl yields an undef $res here.
+    die "delete_acl failed (code: $res)" if defined $res && $res < 0;
     1;
   };
   my $err = $@;
@@ -247,6 +242,26 @@ sub _assert_unique_name {
   return if defined $self_id && $existing == $self_id;
   SauronAPI::Exception->conflict("ACL '$name' already exists on this server");
 }
+
+# Shared lookup for find/update/delete: probe existence and ownership first,
+# so an id racing a concurrent DELETE (resolved by the controller before the
+# row vanished) is a 404, like a foreign-server id. get_acl's failure rc
+# conflates missing rows with DB errors, so without the probe the race
+# surfaces as a 500.
+sub _get_server_acl {
+  my ($server_id, $acl_id) = @_;
+
+  my $rows = dbq('SELECT 1 FROM acls WHERE id=? AND server=?',
+                 $acl_id, $server_id);
+  SauronAPI::Exception->not_found('ACL not found on this server')
+    unless @$rows;
+
+  my %data;
+  check_rc(Sauron::BackEnd::get_acl($acl_id, \%data),
+         'Failed to retrieve ACL data');
+  return \%data;
+}
+
 
 # Per-mode member rules (ADR 0011; legacy parity with the ftype-12 checks in
 # Sauron/CGIutil.pm, tightened: existence of acl/tkey targets, mode range, op
