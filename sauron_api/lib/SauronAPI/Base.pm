@@ -46,8 +46,8 @@ sub mark_existing_for_deletion {
 
 sub build_aml_record {
   my ($obj) = @_;
-  return [0, $obj->{mode} // 0, $obj->{ip} // '', $obj->{acl} // 0,
-            $obj->{tkey} // 0, $obj->{op} // 0, $obj->{comment} // '', 2];
+  return [0, $obj->{mode} // 0, $obj->{ip} // '', $obj->{acl} // -1,
+            $obj->{tkey} // -1, $obj->{op} // 0, $obj->{comment} // '', 2];
 }
 
 sub build_mx_record {

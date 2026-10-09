@@ -289,7 +289,7 @@ subtest 'PUT update - members use replace-all semantics' => sub {
   })->status_is(200);
   is_deeply(
     $t->tx->res->json->{acl},
-    [{ mode => 1, acl => 1, ip => undef, tkey => 0, op => 0, comment => 'r1' }],
+    [{ mode => 1, acl => 1, ip => undef, tkey => -1, op => 0, comment => 'r1' }],
     'members replaced'
   );
 };
@@ -376,7 +376,7 @@ subtest 'DELETE - reassign moves nested references (type=0, issue #53 fix)' => s
   $t->get_ok("$BASE/nested2-${pid}" => $SUPER)->status_is(200);
   is_deeply(
     $t->tx->res->json->{acl},
-    [{ mode => 1, acl => $ACL_ID, ip => undef, tkey => 0, op => 0, comment => 'points at victim' }],
+    [{ mode => 1, acl => $ACL_ID, ip => undef, tkey => -1, op => 0, comment => 'points at victim' }],
     'nested reference reassigned to the replacement ACL'
   );
 };
@@ -395,7 +395,7 @@ subtest 'DELETE - omitting reassign_to detaches references (acl=-1)' => sub {
   $t->get_ok("$BASE/nested3-${pid}" => $SUPER)->status_is(200);
   is_deeply(
     $t->tx->res->json->{acl},
-    [{ mode => 1, acl => -1, ip => undef, tkey => 0, op => 0, comment => 'points at victim2' }],
+    [{ mode => 1, acl => -1, ip => undef, tkey => -1, op => 0, comment => 'points at victim2' }],
     'nested reference detached (acl=-1)'
   );
 };
