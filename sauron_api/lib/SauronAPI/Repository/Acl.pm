@@ -25,6 +25,8 @@ my %FILTER_SPEC = (
   comment => { kind => 'regex', col => 'comment' },
 );
 
+my %BUILTIN_NAME = map { $_ => 1 } qw(any none localhost localnets);
+
 my %SORT_COLUMN = (
   name    => 'name',
   comment => 'comment',
@@ -237,6 +239,10 @@ sub _require_name {
 
 sub _assert_unique_name {
   my ($server_id, $name, $self_id) = @_;
+
+  SauronAPI::Exception->conflict("ACL '$name' is a reserved built-in name")
+    if $BUILTIN_NAME{lc $name};
+
   my $existing = Sauron::BackEnd::get_acl_by_name($server_id, $name);
   return unless $existing > 0;
   return if defined $self_id && $existing == $self_id;

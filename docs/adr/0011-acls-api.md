@@ -72,7 +72,11 @@ params → 400; sorts `name` (default), `comment`.
 lowercasing, VLAN/#43 precedent), `comment` optional nullable, `acl`
 optional default `[]`. PUT: partial; `name` mutable (rename changes the
 URL; handle-invalid → 400, `(name, server)` conflict → 409); `acl` is
-replace-all with order preserved (VLAN precedent). Member validation in
+replace-all with order preserved (VLAN precedent). The four built-in
+names (`any`, `none`, `localhost`, `localnets`, ASCII-case-insensitively)
+are rejected on POST and rename → 409; this closes a legacy hole where a
+server-owned ACL could shadow a reserved BIND name and make the generator
+emit an unloadable `acl "any" { … };` block. Member validation in
 the repository (strict improvement over the silent-drop/D-B-error legacy
 behaviour), via `SauronAPI::Exception::validation` (400):
 

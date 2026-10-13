@@ -197,6 +197,19 @@ subtest 'POST create ACL - duplicate name returns 409' => sub {
     ->status_is(409)->json_is('/error' => 'Conflict');
 };
 
+subtest 'reserved built-in names are rejected on create and rename' => sub {
+  for my $reserved (qw(any none localhost localnets)) {
+    $t->post_ok($BASE => $SUPER => json => { name => $reserved })
+      ->status_is(409)->json_like('/message' => qr/reserved/);
+  }
+  $t->post_ok($BASE => $SUPER => json => { name => 'LocalHost' })
+    ->status_is(409)->json_like('/message' => qr/reserved/);
+
+  $t->put_ok("$BASE/$ACL" => $SUPER => json => { name => 'localhost' })
+    ->status_is(409)->json_like('/message' => qr/reserved/);
+  $t->get_ok("$BASE/$ACL" => $SUPER)->status_is(200)->json_is('/name' => $ACL);
+};
+
 # ========================================================================
 # LIST
 # ========================================================================
