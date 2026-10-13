@@ -4,10 +4,15 @@ use warnings;
 
 use Exporter 'import';
 our @EXPORT_OK =
-  qw(dbq check_rc with_statement_timeout validate_regex LIST_STATEMENT_TIMEOUT_MS);
+  qw(dbq check_rc with_statement_timeout validate_regex
+     with_audit_fields is_tsig_algorithm
+     TSIG_ALGO_MIN TSIG_ALGO_MAX LIST_STATEMENT_TIMEOUT_MS);
 
 use constant LIST_STATEMENT_TIMEOUT_MS => 10_000;
+use constant TSIG_ALGO_MIN => 157;
+use constant TSIG_ALGO_MAX => 161;
 
+use Sauron::BackEnd      ();
 use Sauron::DB           ();
 use SauronAPI::Exception ();
 
@@ -31,6 +36,24 @@ sub check_rc {
   my ($rc, $err) = @_;
   return if $rc == 0;
   SauronAPI::Exception->persistence($err);
+}
+
+# Coerce the DBD::Pg epoch columns (some fetch paths return them as strings)
+# and append the legacy cdate_str/mdate_str fields; response schemas declare
+# both representations.
+sub with_audit_fields {
+  my ($rec) = @_;
+  $rec->{cdate} = defined $rec->{cdate} ? $rec->{cdate} + 0 : undef;
+  $rec->{mdate} = defined $rec->{mdate} ? $rec->{mdate} + 0 : undef;
+  Sauron::BackEnd::add_std_fields($rec);
+  return $rec;
+}
+
+# TSIG/HMAC algorithm family: the set the legacy AML key picker offers
+# (BackEnd::get_key_list(..., -1)) and the BIND generator supports.
+sub is_tsig_algorithm {
+  my ($algo) = @_;
+  return defined $algo && $algo >= TSIG_ALGO_MIN && $algo <= TSIG_ALGO_MAX;
 }
 
 # Regex filters are evaluated by PostgreSQL (~*), not by Perl — the dialects

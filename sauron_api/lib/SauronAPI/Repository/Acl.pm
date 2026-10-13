@@ -12,11 +12,13 @@ use Sauron::DB      ();
 use SauronAPI::Codecs     qw(aml);
 use SauronAPI::Exception  ();
 use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
-use SauronAPI::Repository qw(dbq check_rc with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
+use SauronAPI::Repository qw(
+  dbq check_rc is_tsig_algorithm with_audit_fields
+  with_statement_timeout LIST_STATEMENT_TIMEOUT_MS
+);
 use JSON::PP ();
 
-use constant TSIG_ALGO_MIN => 157;
-use constant TSIG_ALGO_MAX => 161;
+use constant BUILTIN_SERVER_ID => -1;
 
 my $AML = aml();
 
@@ -49,8 +51,8 @@ sub acl_list {
 
   return ([], $meta) if $filters->{empty};
 
-  my @bind = ($server_id);
-  my $where = ' WHERE (server=? OR server=-1) ';
+  my @bind = ($server_id, BUILTIN_SERVER_ID);
+  my $where = ' WHERE (server=? OR server=?) ';
   if ($filters->{where}) {
     $where .= " AND $filters->{where} ";
     push @bind, @{$filters->{bind}};
@@ -180,7 +182,8 @@ sub acl_delete {
     my $rc = Sauron::BackEnd::get_acl($reassign_to, \%ref_acl);
     SauronAPI::Exception->validation(
       "'reassign_to' is not an ACL on this server"
-    ) if $rc != 0 || (%ref_acl && $ref_acl{server} != $server_id && $ref_acl{server} != -1);
+    ) if $rc != 0
+       || ($ref_acl{server} != $server_id && $ref_acl{server} != BUILTIN_SERVER_ID);
 
     # Acyclicity (ADR 0011, issue #54): a nested ACL reference must point to a
     # built-in or an ACL created earlier (id <) — the rule _validate_members
@@ -190,7 +193,7 @@ sub acl_delete {
     # and producing an invalid BIND acl block. Built-ins are leaves (safe).
     SauronAPI::Exception->validation(
       "'reassign_to' must be a built-in ACL or an ACL created before this one"
-    ) if $ref_acl{server} != -1 && $reassign_to >= $acl_id;
+    ) if $ref_acl{server} != BUILTIN_SERVER_ID && $reassign_to >= $acl_id;
 
     $newref = $reassign_to;
   }
@@ -282,9 +285,8 @@ sub _validate_members {
   SauronAPI::Exception->validation("'acl' must be an array")
     unless ref $rows eq 'ARRAY';
 
-  my $i = 0;
-  for my $el (@$rows) {
-    $i++;
+  for my $i (0 .. $#$rows) {
+    my $el = $rows->[$i];
     SauronAPI::Exception->validation("acl[$i]: entry must be an object")
       unless ref $el eq 'HASH';
 
@@ -308,14 +310,14 @@ sub _validate_members {
       my $target = $el->{acl};
       SauronAPI::Exception->validation("acl[$i]: 'acl' is required")
         unless defined $target && "$target" =~ /^\d+$/ && $target > 0;
-      my %ref;
-      my $rc = eval { Sauron::BackEnd::get_acl($target, \%ref) };
+      my $target_rows = dbq('SELECT server FROM acls WHERE id=?', $target);
+      my $ref_server = @$target_rows ? $target_rows->[0][0] : undef;
       SauronAPI::Exception->validation("acl[$i]: 'acl' $target not found on this server")
-        if $@ || $rc != 0 || !%ref
-           || ($ref{server} != $server_id && $ref{server} != -1);
+        unless defined $ref_server
+           && ($ref_server == $server_id || $ref_server == BUILTIN_SERVER_ID);
       SauronAPI::Exception->validation(
         "acl[$i]: cannot reference ACL $target; nested references must point to ACLs created before this one"
-      ) if defined $self_id && $ref{server} != -1 && $target >= $self_id;
+      ) if defined $self_id && $ref_server != BUILTIN_SERVER_ID && $target >= $self_id;
       $el->{ip} = undef;
       $el->{tkey} = undef;
     }
@@ -323,15 +325,16 @@ sub _validate_members {
       my $target = $el->{tkey};
       SauronAPI::Exception->validation("acl[$i]: 'tkey' is required")
         unless defined $target && "$target" =~ /^\d+$/ && $target > 0;
-      my %key;
-      my $rc = eval { Sauron::BackEnd::get_key($target, \%key) };
+      my $key_rows = dbq('SELECT type, ref, algorithm FROM keys WHERE id=?', $target);
       SauronAPI::Exception->validation("acl[$i]: 'tkey' $target is not a key on this server")
-        if $@ || $rc != 0 || !%key || $key{type} != 1 || $key{ref} != $server_id;
+        unless @$key_rows
+           && $key_rows->[0][0] == 1
+           && $key_rows->[0][1] == $server_id;
       # Legacy parity (issue #55): the AML key picker only offers the
       # TSIG/HMAC family and the BIND generator silently drops rules pointing
       # at any other algorithm at config time. Require the same family here.
       SauronAPI::Exception->validation("acl[$i]: 'tkey' $target is not a TSIG/HMAC-family key")
-        unless _is_tsig_algorithm($key{algorithm});
+        unless is_tsig_algorithm($key_rows->[0][2]);
       $el->{ip} = undef;
       $el->{acl} = undef;
     }
@@ -340,39 +343,22 @@ sub _validate_members {
   return $rows;
 }
 
-# HMAC/TSIG family — the set the legacy AML key picker offers
-# (get_key_list(..., -1)) and the BIND generator supports (%algorithm_enum).
-sub _is_tsig_algorithm {
-  my ($algo) = @_;
-  return defined $algo && $algo >= TSIG_ALGO_MIN && $algo <= TSIG_ALGO_MAX;
-}
-
 sub _ref_count {
   my ($acl_id) = @_;
   my $rows = dbq('SELECT COUNT(*) FROM cidr_entries WHERE acl=?', $acl_id);
   return $rows->[0][0] + 0;
 }
 
-# DBD::Pg returns int columns as strings via some fetch paths; the schema
-# declares them integers, so coerce before response validation.
-sub _with_audit_strings {
-  my ($rec) = @_;
-  $rec->{cdate} = defined $rec->{cdate} ? $rec->{cdate} + 0 : undef;
-  $rec->{mdate} = defined $rec->{mdate} ? $rec->{mdate} + 0 : undef;
-  Sauron::BackEnd::add_std_fields($rec);
-  return $rec;
-}
-
 sub _build_summary {
   my ($row) = @_;
   my ($id, $server, $name, $comment, $cdate, $cuser, $mdate, $muser) = @$row;
 
-  return _with_audit_strings({
+  return with_audit_fields({
     id        => $id + 0,
     server_id => $server + 0,
     name      => $name,
     comment   => $comment,
-    builtin   => ($server == -1 ? JSON::PP::true : JSON::PP::false),
+    builtin   => ($server == BUILTIN_SERVER_ID ? JSON::PP::true : JSON::PP::false),
     cdate     => $cdate,
     cuser     => $cuser,
     mdate     => $mdate,
@@ -383,19 +369,13 @@ sub _build_summary {
 sub _build_detail {
   my ($acl_id, $data) = @_;
 
-  return _with_audit_strings({
-    id        => $acl_id + 0,
-    server_id => $data->{server} + 0,
-    name      => $data->{name},
-    comment   => $data->{comment},
-    builtin   => ($data->{server} == -1 ? JSON::PP::true : JSON::PP::false),
-    acl       => $AML->decode($data->{acl}),
-    ref_count => _ref_count($acl_id),
-    cdate     => $data->{cdate},
-    cuser     => $data->{cuser},
-    mdate     => $data->{mdate},
-    muser     => $data->{muser},
-  });
+  my $rec = _build_summary([
+    $acl_id, $data->{server}, $data->{name}, $data->{comment},
+    $data->{cdate}, $data->{cuser}, $data->{mdate}, $data->{muser},
+  ]);
+  $rec->{acl}       = $AML->decode($data->{acl});
+  $rec->{ref_count} = _ref_count($acl_id);
+  return $rec;
 }
 
 1;

@@ -17,7 +17,7 @@ use Sauron::DB      ();
 use SauronAPI::Codecs     qw(mx wks printer);
 use SauronAPI::Exception  ();
 use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
-use SauronAPI::Repository qw(dbq check_rc with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
+use SauronAPI::Repository qw(dbq check_rc with_audit_fields with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
 
 # ---------------------------------------------------------------------------
 # Per-kind configuration (ADR 0010)
@@ -402,7 +402,7 @@ sub _summary_from_row {
     $s{alevel} = $alevel + 0 if $cfg->{has_alevel};
     $s{ $cfg->{scope_field} } = $scope_id if $cfg->{scope_field};
   }
-  return _with_audit_strings(\%s);
+  return with_audit_fields(\%s);
 }
 
 sub _template_detail {
@@ -429,23 +429,13 @@ sub _template_detail {
   }
   %r = (%r, cdate => $data->{cdate}, cuser => $data->{cuser},
              mdate => $data->{mdate}, muser => $data->{muser});
-  return _with_audit_strings(\%r);
+  return with_audit_fields(\%r);
 }
 
 sub _host_count {
   my ($col, $id) = @_;
   my $rows = dbq("SELECT COUNT(*) FROM hosts WHERE $col=?", $id);
   return $rows->[0][0] + 0;
-}
-
-sub _with_audit_strings {
-  my ($rec) = @_;
-  # DBD::Pg returns int columns as strings via some fetch paths; the schema
-  # declares cdate/mdate as integers, so coerce before response validation.
-  $rec->{cdate} = defined $rec->{cdate} ? $rec->{cdate} + 0 : undef;
-  $rec->{mdate} = defined $rec->{mdate} ? $rec->{mdate} + 0 : undef;
-  Sauron::BackEnd::add_std_fields($rec);
-  return $rec;
 }
 
 # Singleton write paths (update/delete) must resolve the row (404) and, for

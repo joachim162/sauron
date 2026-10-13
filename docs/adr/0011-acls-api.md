@@ -99,6 +99,13 @@ behaviour), via `SauronAPI::Exception::validation` (400):
   not rejected (the legacy form hid those inputs rather than erroring).
 - No de-duplication (legacy has none).
 
+**Whitespace (deliberate divergence).** The legacy forms normalized
+whitespace before validation (`name` and the member match fields had all
+whitespace stripped, `comment` packed to single spaces with edges
+trimmed). The API instead rejects a `name`/`ip` containing whitespace with
+400 and stores `comment` verbatim; the old transforms were display-layer
+conveniences, and silently rewriting input is worse for an API.
+
 **Delete.** `DELETE …/{acl}?reassign_to=<id>` → 204. Omitting
 `reassign_to` detaches (`acl=-1`); supplying one validates existence
 (server-owned or built-in) and difference from the deleted ACL.

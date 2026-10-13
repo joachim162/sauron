@@ -7,8 +7,10 @@ our @EXPORT_OK = qw(key_list);
 
 use SauronAPI::Exception  ();
 use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
-use SauronAPI::Repository qw(dbq with_statement_timeout LIST_STATEMENT_TIMEOUT_MS);
-use Sauron::BackEnd       ();
+use SauronAPI::Repository qw(
+  dbq with_audit_fields with_statement_timeout
+  TSIG_ALGO_MIN TSIG_ALGO_MAX LIST_STATEMENT_TIMEOUT_MS
+);
 
 my %FILTER_SPEC = (
   name    => { kind => 'regex', col => 'name' },
@@ -19,7 +21,8 @@ my %FILTER_SPEC = (
     my ($v) = @_;
     SauronAPI::Exception->validation("'algo' must be an integer")
       unless $v =~ /^-?\d+$/;
-    return { clauses => ['algorithm >= ? AND algorithm <= ?'], bind => [157, 161] }
+    return { clauses => ['algorithm >= ? AND algorithm <= ?'],
+             bind => [TSIG_ALGO_MIN, TSIG_ALGO_MAX] }
       if $v == -1;
     return { clauses => ['algorithm = ?'], bind => [$v] };
   } },
@@ -87,10 +90,7 @@ sub _build_summary {
     mdate     => $mdate,
     muser     => $muser,
   };
-  $rec->{cdate} = defined $rec->{cdate} ? $rec->{cdate} + 0 : undef;
-  $rec->{mdate} = defined $rec->{mdate} ? $rec->{mdate} + 0 : undef;
-  Sauron::BackEnd::add_std_fields($rec);
-  return $rec;
+  return with_audit_fields($rec);
 }
 
 1;
