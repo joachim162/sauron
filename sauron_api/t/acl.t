@@ -163,8 +163,10 @@ subtest 'POST create ACL - member validation' => sub {
     ->status_is(400);
   $t->post_ok($BASE => $SUPER => json => { name => "v1-${pid}", acl => ['nope'] })
     ->status_is(400);
+  # Missing mode is rejected by the AmlElement schema (required: [mode]),
+  # before the request reaches the repository.
   $t->post_ok($BASE => $SUPER => json => { name => "v1-${pid}", acl => [{ ip => '10.0.0.0/8' }] })
-    ->status_is(400)->json_like('/message' => qr/mode/);
+    ->status_is(400)->json_like('/errors/0/path' => qr{/acl/0/mode});
   $t->post_ok($BASE => $SUPER => json => { name => "v1-${pid}", acl => [{ mode => 3, ip => '10.0.0.0/8' }] })
     ->status_is(400);
   $t->post_ok($BASE => $SUPER => json => { name => "v1-${pid}", acl => [{ mode => 0 }] })
@@ -254,6 +256,24 @@ subtest 'GET detail - full object with members and ref_count' => sub {
 subtest 'GET detail - built-in and unknown are 404' => sub {
   $t->get_ok("$BASE/any" => $SUPER)->status_is(404);
   $t->get_ok("$BASE/nope-${pid}" => $SUPER)->status_is(404)->json_is('/error' => 'Not Found');
+};
+
+subtest 'GET detail - legacy NULL op is read, not a 500' => sub {
+  my $legacy = "legacy-null-op-${pid}";
+  $t->post_ok($BASE => $SUPER => json => { name => $legacy })->status_is(201);
+  my $id = $t->tx->res->json->{id};
+
+  # Legacy rows can carry a NULL op (column has DEFAULT 0 but no NOT NULL);
+  # decode passes it through, so the response schema must allow null.
+  Sauron::DB::db_exec(
+    "INSERT INTO cidr_entries (type,ref,mode,ip,acl,tkey,op,comment) " .
+    "VALUES (0,$id,0,'203.0.113.0/24',-1,-1,NULL,'legacy null op')");
+
+  $t->get_ok("$BASE/$legacy" => $SUPER)->status_is(200);
+  my $j = $t->tx->res->json;
+  is(scalar @{$j->{acl}}, 1, 'legacy member present');
+  ok(!defined $j->{acl}[0]{op}, 'op null round-trips');
+  is($j->{acl}[0]{ip}, '203.0.113.0/24', 'ip read');
 };
 
 subtest 'GET detail - dotted name is addressable (relaxed placeholder)' => sub {

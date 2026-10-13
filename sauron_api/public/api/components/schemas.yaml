@@ -225,154 +225,42 @@ ServerFields:
       type: array
       description: ACL for zone transfers (cidr_entries type=1)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     allow_query:
       type: array
       description: ACL for queries (cidr_entries type=7)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     allow_recursion:
       type: array
       description: ACL for recursion (cidr_entries type=8)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     blackhole:
       type: array
       description: Blacklist (cidr_entries type=9)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     listen_on:
       type: array
       description: Listen-on ACL (cidr_entries type=10)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     listen_on_v6:
       type: array
       description: Listen-on ACL for IPv6 (cidr_entries type=16)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     allow_query_cache:
       type: array
       description: ACL for query cache (cidr_entries type=14)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     allow_notify:
       type: array
       description: ACL for notify (cidr_entries type=15)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     forwarders:
       type: array
       description: DNS forwarders (cidr_entries type=11)
@@ -628,59 +516,17 @@ ZoneFields:
       type: array
       description: ACL for dynamic updates (cidr_entries type=2)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     allow_query:
       type: array
       description: ACL for queries (cidr_entries type=4)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     allow_transfer:
       type: array
       description: ACL for zone transfers (cidr_entries type=5)
       items:
-        type: object
-        properties:
-          mode:
-            type: integer
-          ip:
-            type: string
-          acl:
-            type: integer
-          tkey:
-            type: integer
-          op:
-            type: integer
-          comment:
-            type: string
-            nullable: true
+        $ref: '#/AmlElement'
     masters:
       type: array
       description: List of master servers (cidr_entries type=3)
@@ -2466,6 +2312,8 @@ AmlElement:
     One Access Match List row (cidr_entries). `mode` selects the rule type:
     0 = CIDR/IP in `ip`, 1 = named ACL id in `acl`, 2 = TSIG key id in
     `tkey`. `op`: 0 = allow, 1 = NOT (negated match).
+  required:
+    - mode
   properties:
     mode:
       type: integer
@@ -2489,6 +2337,7 @@ AmlElement:
     op:
       type: integer
       enum: [0, 1]
+      nullable: true
       description: 0 = allow, 1 = NOT (negated)
     comment:
       type: string

@@ -333,7 +333,7 @@ export interface AmlElement {
   ip?: string | null;
   acl?: number | null;
   tkey?: number | null;
-  op: number;
+  op?: number | null;
   comment?: string | null;
 }
 
