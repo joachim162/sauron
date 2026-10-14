@@ -162,10 +162,11 @@ sub acl_update {
   return _build_detail($acl_id, \%data);
 }
 
-# Corrected delete (ADR 0011): reassigning/detaching referencing rows covers
-# ALL cidr_entries pointing at the ACL, including type=0 rows nested inside
-# other ACLs' bodies — BackEnd::delete_acl only reassigns type>0 rows and
-# leaves nested references dangling (issue #53).
+# Corrected delete (ADR 0011): reassignment covers all cidr_entries pointing
+# at the ACL. On detach, nested type=0 member rows are removed rather than
+# left with acl=-1 (which makes the containing ACL uneditable); type>0
+# server/zone option rows keep the legacy acl=-1 sentinel so empty directives
+# remain explicit in generated BIND config.
 sub acl_delete {
   my ($server_id, $acl_id, $reassign_to) = @_;
 
@@ -202,7 +203,12 @@ sub acl_delete {
     unless Sauron::DB::db_begin();
 
   my $ok = eval {
-    dbq('UPDATE cidr_entries SET acl=? WHERE acl=?', $newref, $acl_id);
+    if (defined $reassign_to) {
+      dbq('UPDATE cidr_entries SET acl=? WHERE acl=?', $newref, $acl_id);
+    } else {
+      dbq('DELETE FROM cidr_entries WHERE type=0 AND acl=?', $acl_id);
+      dbq('UPDATE cidr_entries SET acl=? WHERE type>0 AND acl=?', $newref, $acl_id);
+    }
     Sauron::DB::db_ignore_begin_and_commit(1);
     my $res = eval { Sauron::BackEnd::delete_acl($acl_id, $newref) };
     my $err = $@;

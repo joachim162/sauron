@@ -23,6 +23,7 @@ my $pid = $$;
 my (@users, @servers);
 
 sub _cleanup_fixtures {
+  eval { Sauron::DB::db_exec("DELETE FROM cidr_entries WHERE comment='detach-${pid}'"); };
   for my $sid (@servers) {
     eval {
       Sauron::DB::db_exec(
@@ -414,7 +415,7 @@ subtest 'DELETE - reassign moves nested references (type=0, issue #53 fix)' => s
   );
 };
 
-subtest 'DELETE - omitting reassign_to detaches references (acl=-1)' => sub {
+subtest 'DELETE - detach removes nested member but preserves server/zone option rows' => sub {
   $t->post_ok($BASE => $SUPER => json => { name => "victim2-${pid}" })->status_is(201);
   my $victim2_id = $t->tx->res->json->{id};
 
@@ -423,14 +424,24 @@ subtest 'DELETE - omitting reassign_to detaches references (acl=-1)' => sub {
     acl  => [{ mode => 1, acl => $victim2_id, comment => 'points at victim2' }],
   })->status_is(201);
 
+  Sauron::DB::db_exec(
+    "INSERT INTO cidr_entries (mode,ip,acl,tkey,op,comment,type,ref) " .
+    "VALUES (1,NULL,$victim2_id,-1,0,'detach-${pid}',1,$srv), " .
+    "(1,NULL,$victim2_id,-1,0,'detach-${pid}',5,987654)"
+  );
+
   $t->delete_ok("$BASE/victim2-${pid}" => $SUPER)->status_is(204);
 
   $t->get_ok("$BASE/nested3-${pid}" => $SUPER)->status_is(200);
-  is_deeply(
-    $t->tx->res->json->{acl},
-    [{ mode => 1, acl => -1, ip => undef, tkey => -1, op => 0, comment => 'points at victim2' }],
-    'nested reference detached (acl=-1)'
-  );
+  is_deeply($t->tx->res->json->{acl}, [], 'nested member rule is removed on detach');
+  $t->put_ok("$BASE/nested3-${pid}" => $SUPER => json => { comment => 'still editable' })
+    ->status_is(200)->json_is('/comment' => 'still editable');
+
+  my @q;
+  Sauron::DB::db_query(
+    "SELECT type,acl FROM cidr_entries WHERE comment='detach-${pid}' ORDER BY type", \@q);
+  is_deeply(\@q, [[1, '-1'], [5, '-1']], 'server/zone option rows keep the detached sentinel');
+  Sauron::DB::db_exec("DELETE FROM cidr_entries WHERE comment='detach-${pid}'");
 };
 
 subtest 'DELETE - server-level (type>0) references are reassigned too' => sub {

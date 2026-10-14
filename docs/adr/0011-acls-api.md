@@ -106,19 +106,24 @@ trimmed). The API instead rejects a `name`/`ip` containing whitespace with
 400 and stores `comment` verbatim; the old transforms were display-layer
 conveniences, and silently rewriting input is worse for an API.
 
-**Delete.** `DELETE …/{acl}?reassign_to=<id>` → 204. Omitting
-`reassign_to` detaches (`acl=-1`); supplying one validates existence
-(server-owned or built-in) and difference from the deleted ACL.
+**Delete.** `DELETE …/{acl}?reassign_to=<id>` → 204. Supplying
+`reassign_to` validates existence (server-owned or built-in) and difference
+from the deleted ACL. Without it, nested `type=0` member rows that reference
+the deleted ACL are removed; server/zone option rows (`type>0`) retain the
+legacy `acl=-1` detach sentinel. This avoids leaving an uneditable
+`mode=1, acl=-1` member in another ACL, while preserving server/zone
+options' existing explicit-empty directive behavior in generated BIND config.
 **Acyclicity on reassign:** a server-owned target must have been created
 *before* the deleted ACL (`id <`, built-ins excepted) — otherwise
 reassigning an ACL's own referencer to it creates a self-reference or a
 cycle (joachim162/sauron#54). This is the same id-ordering rule the
 member editor enforces; the legacy delete popup offered every ACL and
 left this hole open.
-**Corrected transaction:** the repo reassigns/detaches **all** rows with
-`acl=id` — including `type=0` nested references left dangling by
-`BackEnd::delete_acl` (joachim162/sauron#53) — wrapping the BackEnd call
-per the templates/group precedent; BackEnd untouched.
+**Corrected transaction:** with `reassign_to`, the repo updates all rows
+with `acl=id`, including `type=0` nested references left dangling by
+`BackEnd::delete_acl` (joachim162/sauron#53). Detach deletes nested rows and
+sets `acl=-1` only on `type>0` rows. The whole operation wraps the BackEnd
+call per the templates/group precedent; BackEnd untouched.
 
 **Authorization (legacy parity).** Reads: `server R` **and**
 `level >= ALEVEL_ACLS` (superuser bypasses). Writes: `superuser`.

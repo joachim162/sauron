@@ -91,10 +91,12 @@ delete:
   summary: Delete an ACL
   tags: [ acls ]
   description: >
-    Deletes the ACL and its member rows. Rules referencing it (in server or
-    zone options, or inside other ACLs) are detached (acl=-1) unless
-    `reassign_to` names another ACL on this server or a built-in, to which
-    they are moved first. Requires superuser.
+    Deletes the ACL and its member rows. Without `reassign_to`, nested member
+    rules (`type=0`) that reference it are removed; server/zone option rules
+    (`type>0`) retain the `acl=-1` detach sentinel so their explicit BIND
+    directives remain present. If `reassign_to` names another ACL on this
+    server or a built-in, all referencing rules are moved there instead.
+    Requires superuser.
   operationId: delete_acl
   x-mojo-name: delete_acl
   x-mojo-to: "Acl#delete_acl"

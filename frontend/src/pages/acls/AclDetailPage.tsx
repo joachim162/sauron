@@ -306,7 +306,8 @@ export default function AclDetailPage() {
               <p className="text-sm">
                 <strong>{acl.ref_count}</strong> rule{acl.ref_count !== 1 ? "s" : ""} use
                 {acl.ref_count === 1 ? "s" : ""} this ACL. Choose a replacement ACL for them,
-                or detach them.
+                or detach them. Detaching removes nested rules from other ACLs; server/zone
+                options keep their entry with no ACL target so the directive stays explicit.
               </p>
               <div className="space-y-2">
                 <Label htmlFor="reassign">Change references to point to</Label>
