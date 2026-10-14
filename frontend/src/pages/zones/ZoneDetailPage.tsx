@@ -63,12 +63,6 @@ const NOTIFY_VALUES: Record<string, string> = {
 
 /* ── helpers ──────────────────────────────────────────── */
 
-/** Extract data rows from BackEnd arrays (skip header row). */
-function dataRows(arr: unknown): unknown[][] {
-  if (!Array.isArray(arr) || arr.length <= 1) return [];
-  return arr.slice(1) as unknown[][];
-}
-
 /** Read-only field display */
 function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
@@ -87,31 +81,27 @@ type ERow = {
   values: string[];
 };
 
-function toERows(raw: unknown[][]): ERow[] {
-  // r = [dbId, val1, val2, ..., modeFlag]
-  // slice(1, -1) strips both the DB id (first) and the mode flag (last)
-  // that get_array_field always appends.
-  return raw.map((r) => ({
-    _dbId: Number(r[0]) || 0,
+/** Convert an API object-format array (e.g. [{ns, comment}]) to ERow[]. */
+function objToERows(arr: unknown, keys: string[]): ERow[] {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((item) => ({
+    _dbId: 0,
     _deleted: false,
-    values: r.slice(1, -1).map((v) => String(v ?? "")),
+    values: keys.map((k) => String((item as Record<string, unknown>)[k] ?? "")),
   }));
 }
 
-function buildArray(headers: string[], rows: ERow[]): unknown[][] {
-  const out: unknown[][] = [headers];
-  for (const r of rows) {
-    if (r._deleted && r._dbId > 0) {
-      out.push([r._dbId, ...r.values, -1]);
-    } else if (r._deleted) {
-      continue;
-    } else if (r._dbId === 0) {
-      out.push([0, ...r.values, 2]);
-    } else {
-      out.push([r._dbId, ...r.values, 1]);
-    }
-  }
-  return out;
+/** Convert visible ERow[] back to an API object-format array. */
+function rowsToObjects(rows: ERow[], keys: string[]): Record<string, unknown>[] {
+  return rows
+    .filter((r) => !r._deleted && (r.values[0] ?? "") !== "")
+    .map((r) => {
+      const obj: Record<string, unknown> = {};
+      keys.forEach((k, i) => {
+        obj[k] = r.values[i] ?? "";
+      });
+      return obj;
+    });
 }
 
 /* ── generic editable array card ─────────────────────── */
@@ -196,90 +186,6 @@ function EditableArrayCard({
   );
 }
 
-/* ── IP table with checkboxes ────────────────────────── */
-
-function IpArrayCard({
-  rows, setRows, editing,
-}: {
-  rows: ERow[];
-  setRows: (r: ERow[]) => void;
-  editing: boolean;
-}) {
-  const visible = rows.filter((r) => !r._deleted);
-  if (!editing && visible.length === 0) return null;
-
-  const update = (idx: number, col: number, val: string) => {
-    const next = [...rows];
-    const ri = rows.indexOf(visible[idx]);
-    next[ri] = { ...next[ri], values: [...next[ri].values] };
-    next[ri].values[col] = val;
-    setRows(next);
-  };
-  const remove = (idx: number) => {
-    const next = [...rows];
-    const ri = rows.indexOf(visible[idx]);
-    next[ri] = { ...next[ri], _deleted: true };
-    setRows(next);
-  };
-  const add = () => setRows([...rows, { _dbId: 0, _deleted: false, values: ["", "t", "t"] }]);
-
-  return (
-    <Card>
-      <CardHeader><CardTitle className="text-base">IP Addresses</CardTitle></CardHeader>
-      <CardContent>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-muted-foreground">
-              <th className="text-left py-1 font-medium">IP</th>
-              <th className="text-left py-1 font-medium w-20">Reverse</th>
-              <th className="text-left py-1 font-medium w-20">Forward</th>
-              {editing && <th className="w-8" />}
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((row, i) => (
-              <tr key={i} className="border-b last:border-0">
-                <td className="py-1">
-                  {editing ? (
-                    <Input value={row.values[0]} onChange={(e) => update(i, 0, e.target.value)}
-                      className="h-7 text-xs font-mono" placeholder="10.0.0.1" />
-                  ) : <span className="font-mono">{row.values[0]}</span>}
-                </td>
-                <td className="py-1">
-                  {editing ? (
-                    <input type="checkbox" checked={row.values[1] === "t"}
-                      onChange={(e) => update(i, 1, e.target.checked ? "t" : "f")} />
-                  ) : row.values[1] === "t" ? "Yes" : "No"}
-                </td>
-                <td className="py-1">
-                  {editing ? (
-                    <input type="checkbox" checked={row.values[2] === "t"}
-                      onChange={(e) => update(i, 2, e.target.checked ? "t" : "f")} />
-                  ) : row.values[2] === "t" ? "Yes" : "No"}
-                </td>
-                {editing && (
-                  <td className="py-1 text-right">
-                    <Button type="button" variant="ghost" size="icon" className="h-6 w-6"
-                      onClick={() => remove(i)}><X className="h-3 w-3" /></Button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {editing && (
-          <Button type="button" variant="outline" size="sm" className="mt-2" onClick={add}>
-            <Plus className="mr-1 h-3 w-3" /> Add IP
-          </Button>
-        )}
-        {!editing && visible.length === 0 && (
-          <p className="text-sm text-muted-foreground">No IP addresses configured.</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 /* ── main component ───────────────────────────────────── */
 
 export default function ZoneDetailPage() {
@@ -292,7 +198,6 @@ export default function ZoneDetailPage() {
   const [editing, setEditing] = useState(false);
 
   // Editable array state
-  const [ipEdit, setIpEdit] = useState<ERow[]>([]);
   const [nsEdit, setNsEdit] = useState<ERow[]>([]);
   const [mxEdit, setMxEdit] = useState<ERow[]>([]);
   const [txtEdit, setTxtEdit] = useState<ERow[]>([]);
@@ -325,13 +230,12 @@ export default function ZoneDetailPage() {
   const enterEdit = useCallback(() => {
     if (!zone) return;
     const d = zone as Record<string, unknown>;
-    setIpEdit(toERows(dataRows(d.ip)));
-    setNsEdit(toERows(dataRows(d.ns)));
-    setMxEdit(toERows(dataRows(d.mx)));
-    setTxtEdit(toERows(dataRows(d.txt)));
-    setAlsoNotifyEdit(toERows(dataRows(d.also_notify)));
-    setDhcpEdit(toERows(dataRows(d.dhcp)));
-    setZentriesTaEdit(toERows(dataRows(d.zentries_ta)));
+    setNsEdit(objToERows(d.ns, ["ns", "comment"]));
+    setMxEdit(objToERows(d.mx, ["pri", "mx", "comment"]));
+    setTxtEdit(objToERows(d.txt, ["txt", "comment"]));
+    setAlsoNotifyEdit(objToERows(d.also_notify, ["ip", "comment"]));
+    setDhcpEdit(objToERows(d.dhcp, ["dhcp", "comment"]));
+    setZentriesTaEdit(objToERows(d.zentries_ta, ["txt"]));
     setEditing(true);
   }, [zone]);
 
@@ -364,7 +268,7 @@ export default function ZoneDetailPage() {
     const data: Record<string, unknown> = {};
 
     // String fields
-    for (const key of ["name", "comment", "hostmaster", "expiration"]) {
+    for (const key of ["name", "comment", "hostmaster"]) {
       const v = fd.get(key) as string;
       if (v !== null && v !== undefined) data[key] = v;
     }
@@ -378,32 +282,39 @@ export default function ZoneDetailPage() {
       const v = fd.get(key) as string;
       data[key] = v ? Number(v) : 0;
     }
+    // Expiration is a Unix epoch timestamp; only send when provided
+    const expiration = fd.get("expiration") as string;
+    if (expiration && expiration.trim() !== "") {
+      const n = Number(expiration);
+      if (!Number.isNaN(n)) data.expiration = n;
+    }
     // Boolean/flag fields
     const txtAuto = fd.get("txt_auto_generation") as string;
     if (txtAuto !== null) data.txt_auto_generation = Number(txtAuto);
     const dummy = fd.get("dummy") as string;
     if (dummy !== null) data.dummy = dummy === "true";
 
-    // Array fields
-    data.ip = buildArray(["IP", "reverse", "forward"], ipEdit);
-    data.ns = buildArray(["NS", "Comments"], nsEdit);
-    data.mx = buildArray(["Priority", "MX", "Comments"], mxEdit);
-    data.txt = buildArray(["TXT", "Comments"], txtEdit);
-    data.also_notify = buildArray(["IP", "Comments"], alsoNotifyEdit);
-    data.dhcp = buildArray(["DHCP", "Comments"], dhcpEdit);
-    data.zentries_ta = buildArray(["Zone Entry"], zentriesTaEdit);
+    // Array fields (API object format; replace-all semantics)
+    data.ns = rowsToObjects(nsEdit, ["ns", "comment"]);
+    data.mx = rowsToObjects(mxEdit, ["pri", "mx", "comment"]).map((r) => ({
+      ...r,
+      pri: Number(r.pri),
+    }));
+    data.txt = rowsToObjects(txtEdit, ["txt", "comment"]);
+    data.also_notify = rowsToObjects(alsoNotifyEdit, ["ip", "comment"]);
+    data.dhcp = rowsToObjects(dhcpEdit, ["dhcp", "comment"]);
+    data.zentries_ta = rowsToObjects(zentriesTaEdit, ["txt"]);
 
     updateMutation.mutate(data as Partial<Zone>);
   };
 
   // Read-only data for view mode
-  const nsRows = dataRows(zoneData.ns);
-  const mxRows = dataRows(zoneData.mx);
-  const txtRows = dataRows(zoneData.txt);
-  const ipRows = dataRows(zoneData.ip);
-  const alsoNotifyRows = dataRows(zoneData.also_notify);
-  const dhcpRows = dataRows(zoneData.dhcp);
-  const zentriesTaRows = dataRows(zoneData.zentries_ta);
+  const nsRows = objToERows(zoneData.ns, ["ns", "comment"]);
+  const mxRows = objToERows(zoneData.mx, ["pri", "mx", "comment"]);
+  const txtRows = objToERows(zoneData.txt, ["txt", "comment"]);
+  const alsoNotifyRows = objToERows(zoneData.also_notify, ["ip", "comment"]);
+  const dhcpRows = objToERows(zoneData.dhcp, ["dhcp", "comment"]);
+  const zentriesTaRows = objToERows(zoneData.zentries_ta, ["txt"]);
 
   return (
     <div className="space-y-6">
@@ -628,22 +539,20 @@ export default function ZoneDetailPage() {
 
         {/* Multi-value sections */}
         <div className="grid gap-6 md:grid-cols-2">
-          <IpArrayCard rows={editing ? ipEdit : toERows(ipRows)} setRows={setIpEdit} editing={editing} />
-
           <EditableArrayCard title="Name Servers (NS)" columns={["NS", "Comment"]}
-            rows={editing ? nsEdit : toERows(nsRows)} setRows={setNsEdit} editing={editing} />
+            rows={editing ? nsEdit : nsRows} setRows={setNsEdit} editing={editing} />
 
           <EditableArrayCard title="Mail Exchanges (MX)" columns={["Priority", "MX", "Comment"]}
-            rows={editing ? mxEdit : toERows(mxRows)} setRows={setMxEdit} editing={editing} mono={[1]} />
+            rows={editing ? mxEdit : mxRows} setRows={setMxEdit} editing={editing} mono={[1]} />
 
           <EditableArrayCard title="Info (TXT)" columns={["TXT", "Comment"]}
-            rows={editing ? txtEdit : toERows(txtRows)} setRows={setTxtEdit} editing={editing} />
+            rows={editing ? txtEdit : txtRows} setRows={setTxtEdit} editing={editing} />
 
           <EditableArrayCard title="Custom Zone File Entries" columns={["Zone Entry"]}
-            rows={editing ? zentriesTaEdit : toERows(zentriesTaRows)} setRows={setZentriesTaEdit} editing={editing} />
+            rows={editing ? zentriesTaEdit : zentriesTaRows} setRows={setZentriesTaEdit} editing={editing} />
 
           <EditableArrayCard title="Stealth Servers to Notify" columns={["IP", "Comment"]}
-            rows={editing ? alsoNotifyEdit : toERows(alsoNotifyRows)} setRows={setAlsoNotifyEdit} editing={editing} />
+            rows={editing ? alsoNotifyEdit : alsoNotifyRows} setRows={setAlsoNotifyEdit} editing={editing} />
         </div>
 
         {/* DHCP section (master only) */}
@@ -651,7 +560,7 @@ export default function ZoneDetailPage() {
           <>
             <Separator className="my-6" />
             <EditableArrayCard title="Zone Specific DHCP Entries" columns={["DHCP", "Comment"]}
-              rows={editing ? dhcpEdit : toERows(dhcpRows)} setRows={setDhcpEdit} editing={editing} />
+              rows={editing ? dhcpEdit : dhcpRows} setRows={setDhcpEdit} editing={editing} />
           </>
         )}
 
@@ -669,10 +578,9 @@ export default function ZoneDetailPage() {
               <Field label="Last Modified" value={String(zoneData.mdate_str || "—").replace(/<[^>]*>/g, "").trim() || "—"} />
               {editing ? (
                 <div>
-                  <Label htmlFor="expiration" className="text-xs text-muted-foreground">Expiration Date</Label>
-                  <Input id="expiration" name="expiration"
+                  <Label htmlFor="expiration" className="text-xs text-muted-foreground">Expiration Date (Unix epoch, 0 = none)</Label>
+                  <Input id="expiration" name="expiration" type="number"
                     defaultValue={zoneData.expiration ? String(zoneData.expiration) : ""}
-                    placeholder="DD-MM-YYYY or +30d"
                     className="h-8 text-sm mt-1" />
                 </div>
               ) : (
