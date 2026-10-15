@@ -34,6 +34,8 @@
 - **Subgroups** — Additional group memberships a host may have beyond its base group.
 - **Group membership** — Being a host's base group or one of its subgroups. Searching by group matches membership, not just the base group.
 - **VMPS domain** — A server-scoped Cisco VLAN Management Policy Server definition that maps host MAC addresses to VLANs. A host group may be linked to at most one VMPS domain; a missing link means none.
+- **User account** — An identity used to access Sauron, with account and personal settings. It may receive permissions directly and through one or more user groups.
+- **Closed user account** — An account that can no longer be used to access Sauron, but whose identity record is retained for history. Distinct from a deleted user account.
 - **User group** — An access-control group governing user permissions. A distinct concept from a host group; they share only the word.
 
 ## Network Management

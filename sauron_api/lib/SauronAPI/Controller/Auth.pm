@@ -3,6 +3,7 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
 use Sauron::Util ();
+use SauronAPI::Repository::User qw(user_self_update user_change_password);
 use JSON::PP ();
 
 sub _render_user_response {
@@ -15,14 +16,16 @@ sub _render_user_response {
     api_auth_method => $auth_method,
   );
   my %user;
-  my $email = '';
+  my $email;
   my $name = '';
   my $superuser = 0;
+  my $email_notify = 0;
 
   if (Sauron::BackEnd::get_user($username, \%user) == 0) {
-    $email = $user{email} // '';
+    $email = $user{email};
     $name = $user{name} // '';
     $superuser = ($user{superuser} && $user{superuser} eq 't') ? 1 : 0;
+    $email_notify = $user{email_notify} ? 1 : 0;
   }
 
   $c->render(json => {
@@ -34,6 +37,7 @@ sub _render_user_response {
       superuser   => $superuser ? JSON::PP::true : JSON::PP::false,
       alevel      => $perms{alevel} // 0,
       auth_method => $auth_method,
+      email_notify => $email_notify ? JSON::PP::true : JSON::PP::false,
     },
     permissions => {
       server => $perms{server} // {},
@@ -165,6 +169,62 @@ sub me ($self) {
     json   => { error => 'Unauthorized', message => 'User not found' },
     status => 401
   );
+}
+
+# PUT /auth/me
+# Self-service account settings (email and email-notification preference).
+sub update_me ($self) {
+  return unless $self->openapi->valid_input;
+
+  my $uid = $self->stash('api_user_id');
+  my $method = $self->stash('api_auth_method') // 'pat';
+
+  unless ($uid) {
+    return $self->render(
+      json   => { error => 'Unauthorized', message => 'Not authenticated' },
+      status => 401
+    );
+  }
+
+  eval { user_self_update($uid, $self->req->json // {}) };
+  return $self->render_exception($@) if $@;
+
+  my %user;
+  if (Sauron::BackEnd::get_user_by_id($uid, \%user) == 0) {
+    return _render_user_response($self, $uid, $user{username}, $method);
+  }
+  $self->render(
+    json   => { error => 'Internal Server Error', message => 'Updated user not found' },
+    status => 500
+  );
+}
+
+# POST /auth/me/password
+# Change the caller's own local password.
+sub change_password ($self) {
+  return unless $self->openapi->valid_input;
+
+  my $uid = $self->stash('api_user_id');
+  unless ($uid) {
+    return $self->render(
+      json   => { error => 'Unauthorized', message => 'Not authenticated' },
+      status => 401
+    );
+  }
+
+  my $mode = $self->app->config->{auth}{mode} // 'password';
+  unless ($mode eq 'password' || $mode eq 'both') {
+    return $self->render(
+      json   => { error => 'Forbidden', message => 'Password login is not enabled' },
+      status => 403
+    );
+  }
+
+  my $json = $self->req->json // {};
+  eval { user_change_password($uid, $json->{current_password}, $json->{new_password}) };
+  return $self->render_exception($@) if $@;
+
+  $self->render(json => { message => 'Password changed' });
 }
 
 # GET /auth/config

@@ -1,0 +1,33 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get a user account
+  tags: [ users ]
+  description: >
+    Returns one user account by numeric ID. Users may read their own account;
+    reading another account requires superuser. Admin writes are intentionally
+    handled by the CLI tools (adduser, moduser, deluser), not this API.
+  operationId: get_user
+  x-mojo-name: get_user
+  x-mojo-to: "User#get_user"
+  parameters:
+    - $ref: '../components/parameters.yaml#/user_id'
+  responses:
+    '200':
+      description: User account
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/User'
+    '404':
+      description: User not found
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

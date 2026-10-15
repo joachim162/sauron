@@ -1,0 +1,173 @@
+use Mojo::Base -strict;
+
+use Test::More;
+use Test::Mojo;
+use JSON::PP;
+use FindBin;
+use lib "$FindBin::Bin/lib";
+
+use SauronAPITest qw(
+  setup_test_app
+  create_test_user delete_test_user
+);
+
+my $t = setup_test_app();
+
+my $pid = $$;
+my @users;
+
+END {
+  for my $uid (@users) {
+    eval { delete_test_user($uid); };
+  }
+}
+
+my $me = create_test_user(
+  username => "me_${pid}", email => "me_${pid}\@example.com", password => 'oldpass123');
+my $other = create_test_user(
+  username => "meother_${pid}", email => "meother_${pid}\@example.com");
+my $pwdless;
+{
+  Sauron::BackEnd::set_muser('test');
+  $pwdless = Sauron::BackEnd::add_record('users', {
+    username  => "mepwl_${pid}",
+    name      => 'Passwordless',
+    email     => "mepwl_${pid}\@example.com",
+    superuser => 'f',
+    flags     => 0,
+  });
+  die "Failed to create passwordless fixture: $pwdless" unless $pwdless > 0;
+}
+push @users, $me, $other, $pwdless;
+
+sub _proxy {
+  my ($email) = @_;
+  $t->reset_session;
+  return { 'X-Remote-User' => $email };
+}
+
+my $ME = _proxy("me_${pid}\@example.com");
+
+sub _login_me {
+  $t->reset_session;
+  $t->post_ok('/api/v1/auth/login' => json => {
+    email => "me_${pid}\@example.com", password => 'oldpass123',
+  })->status_is(200);
+}
+
+# ========================================================================
+# GET /auth/me exposes email_notify
+# ========================================================================
+
+subtest 'GET /auth/me exposes email_notify' => sub {
+  $t->get_ok('/api/v1/auth/me' => $ME)->status_is(200)
+    ->json_is('/user/email' => "me_${pid}\@example.com")
+    ->json_is('/user/email_notify' => JSON::PP::false);
+};
+
+# ========================================================================
+# PUT /auth/me — email preferences
+# ========================================================================
+
+subtest 'PUT /auth/me updates email_notify and persists' => sub {
+  $t->put_ok('/api/v1/auth/me' => $ME => json => { email_notify => JSON::PP::true })
+    ->status_is(200)->json_is('/user/email_notify' => JSON::PP::true);
+  $t->get_ok('/api/v1/auth/me' => $ME)->status_is(200)
+    ->json_is('/user/email_notify' => JSON::PP::true);
+  my @q;
+  Sauron::DB::db_query('SELECT flags FROM users WHERE id=?', \@q, $me);
+  is($q[0][0], 1, 'flags bit persisted');
+
+  $t->put_ok('/api/v1/auth/me' => $ME => json => { email_notify => JSON::PP::false })
+    ->status_is(200)->json_is('/user/email_notify' => JSON::PP::false);
+};
+
+subtest 'PUT /auth/me requires authentication' => sub {
+  $t->reset_session;
+  $t->put_ok('/api/v1/auth/me' => json => { email_notify => JSON::PP::true })
+    ->status_is(401);
+};
+
+# ========================================================================
+# PUT /auth/me — email
+# ========================================================================
+
+subtest 'PUT /auth/me validation' => sub {
+  $t->put_ok('/api/v1/auth/me' => $ME => json => { email => 'not-an-email' })
+    ->status_is(400);
+  $t->put_ok('/api/v1/auth/me' => $ME => json => { email => "meother_${pid}\@example.com" })
+    ->status_is(409)->json_is('/error' => 'Conflict');
+  $t->put_ok('/api/v1/auth/me' => $ME => json => { name => 'New Name' })
+    ->status_is(400);
+  $t->put_ok('/api/v1/auth/me' => $ME => json => { username => 'renamed' })
+    ->status_is(400);
+};
+
+subtest 'PUT /auth/me changes and clears email (session auth survives)' => sub {
+  _login_me();
+  $t->put_ok('/api/v1/auth/me' => json => { email => "me-new_${pid}\@example.com" })
+    ->status_is(200)->json_is('/user/email' => "me-new_${pid}\@example.com");
+  $t->get_ok('/api/v1/auth/me')->status_is(200)
+    ->json_is('/user/email' => "me-new_${pid}\@example.com");
+
+  $t->put_ok('/api/v1/auth/me' => json => { email => undef })->status_is(200)
+    ->json_is('/user/email' => undef);
+  $t->get_ok('/api/v1/auth/me')->status_is(200)->json_is('/user/email' => undef);
+
+  $t->put_ok('/api/v1/auth/me' => json => { email => "me_${pid}\@example.com" })->status_is(200);
+};
+
+# ========================================================================
+# POST /auth/me/password
+# ========================================================================
+
+subtest 'password change requires fields and valid current password' => sub {
+  _login_me();
+  $t->post_ok('/api/v1/auth/me/password')->status_is(400);
+  $t->post_ok('/api/v1/auth/me/password' => json => { current_password => 'oldpass123' })
+    ->status_is(400);
+  $t->post_ok('/api/v1/auth/me/password' => json => {
+    current_password => 'wrongpass', new_password => 'newpass456',
+  })->status_is(403)->json_is('/error' => 'Forbidden');
+};
+
+subtest 'password change succeeds, session survives, old password dies' => sub {
+  $t->post_ok('/api/v1/auth/me/password' => json => {
+    current_password => 'oldpass123', new_password => 'newpass456',
+  })->status_is(200)->json_is('/message' => 'Password changed');
+
+  $t->get_ok('/api/v1/auth/me')->status_is(200, 'session still valid');
+
+  $t->reset_session;
+  $t->post_ok('/api/v1/auth/login' => json => {
+    email => "me_${pid}\@example.com", password => 'oldpass123',
+  })->status_is(401, 'old password rejected');
+  $t->post_ok('/api/v1/auth/login' => json => {
+    email => "me_${pid}\@example.com", password => 'newpass456',
+  })->status_is(200, 'new password accepted');
+
+  my @q;
+  Sauron::DB::db_query('SELECT last_pwd, password FROM users WHERE id=?', \@q, $me);
+  ok($q[0][0] > 0, 'last_pwd updated');
+  isnt($q[0][1], '', 'password stored');
+};
+
+subtest 'password change requires email login mode with password support' => sub {
+  $t->app->config->{auth}{mode} = 'oidc';
+  $t->post_ok('/api/v1/auth/me/password' => _proxy("me_${pid}\@example.com") => json => {
+    current_password => 'newpass456', new_password => 'thirdpass789',
+  })->status_is(403)->json_is('/error' => 'Forbidden');
+  $t->app->config->{auth}{mode} = 'password';
+
+  $t->post_ok('/api/v1/auth/me/password' => $ME => json => {
+    current_password => 'newpass456', new_password => 'thirdpass789',
+  })->status_is(200);
+};
+
+subtest 'passwordless (proxy/SSO) account cannot set a password' => sub {
+  $t->post_ok('/api/v1/auth/me/password' => _proxy("mepwl_${pid}\@example.com") => json => {
+    current_password => 'anything123', new_password => 'whatever123',
+  })->status_is(409)->json_is('/error' => 'Conflict');
+};
+
+done_testing();

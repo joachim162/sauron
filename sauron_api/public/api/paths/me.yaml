@@ -28,3 +28,48 @@ get:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
+put:
+  security: []
+  summary: Update own email and email preferences
+  tags: [ auth ]
+  description: >
+    Self-service update of the authenticated user's account: email address
+    and the email-notification preference (legacy "Personal Settings").
+    Available regardless of how the user authenticated. Admin changes to
+    other accounts or other fields are handled by the CLI tools.
+  operationId: update_me
+  x-mojo-name: update_me
+  x-mojo-to: "Auth#update_me"
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateMe'
+  responses:
+    '200':
+      description: Updated current user information
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/UserResponse'
+    '400':
+      description: Invalid request (unknown field or invalid email)
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: Email already in use by another account
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
