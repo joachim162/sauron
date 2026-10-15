@@ -799,7 +799,8 @@ acl_reassign_to:
   required: false
   description: >
     Id of an ACL on the same server (or a built-in ACL) to move referencing
-    rules to before deleting. Omit to detach them (acl=-1).
+    rules to before deleting. Omit to detach: nested member rules in other
+    ACLs are removed; server/zone option rules keep acl=-1.
   schema:
     type: integer
     minimum: 1
