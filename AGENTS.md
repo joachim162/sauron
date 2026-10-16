@@ -98,6 +98,8 @@ The legacy CGI defines externally visible behavior. **API features must copy it*
 
 Pinned parity facts (codified in tests): zone type enum M/S/H/F/C/A; reverse zones master-only and always arpa-transformed from CIDR; catalog zones ttl=0/minimum=0; server create requires `name`+`hostaddr`+`directory`, while `hostname`/`hostmaster` are optional with no injected defaults.
 
+Authentication divergences from the legacy CGI (`SAURON_AUTH_MODE`, `SAURON_AUTH_PROG`, password change gating) are recorded in `docs/adr/0012-api-password-auth-vs-legacy-auth-modes.md`. The API follows its own `auth.mode`; do not copy the legacy external-auth gates into API code without a new ADR.
+
 ## Repository Layer Rules (ADR 0001)
 - Repositories exist for Host, Server, Zone, and Net. Their controllers must not call `Sauron::BackEnd` or `Sauron::DB` for those resources. All DB access flows through the repository. (Auth.pm is the exception until user-management endpoints justify a Users repository.)
 - Repository functions take resolved IDs (`$server_id`, `$zone_id`), not names. Controllers resolve names via `get_server_id_or_404` / `get_zone_id_or_404` / `get_net_id_or_404` and run authz before calling the repository.
