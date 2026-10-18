@@ -2,6 +2,7 @@ package SauronAPI::Controller::User;
 use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use SauronAPI::AuthZ qw(check_perms);
+use SauronAPI::Exception ();
 use SauronAPI::Repository::User qw(user_list user_find);
 
 # /users is a read-only browsing resource. Listing requires superuser; a user
@@ -31,13 +32,9 @@ sub get_user ($self) {
   return unless $self->require_auth;
 
   my $user_id = $self->param('id');
-  unless ($self->stash('api_superuser')
-          || $user_id == ($self->stash('api_user_id') // 0)) {
-    return $self->render(
-      json   => { error => 'Forbidden', message => 'Insufficient access' },
-      status => 403
-    );
-  }
+  SauronAPI::Exception->forbidden('Insufficient access')
+    unless $self->stash('api_superuser')
+        || $user_id == ($self->stash('api_user_id') // 0);
 
   my $user = eval { user_find($user_id) };
   return $self->render_exception($@) if $@;
