@@ -1488,7 +1488,10 @@ ChangePasswordRequest:
     new_password:
       type: string
       format: password
-      description: New password to store (hashed at rest)
+      description: >-
+        New password to store (hashed at rest). When the deployment uses
+        password mode 1 (Unix crypt), values longer than 8 bytes are rejected
+        because the hash would silently truncate them.
 
 UserResponse:
   type: object

@@ -89,6 +89,11 @@ sub user_self_update {
       unless $allowed{$field};
   }
 
+  # A body without updatable fields is a no-op: legacy reports "No changes
+  # made" and the request must not bump the audit columns.
+  return user_find($user_id)
+    unless exists $input->{email} || exists $input->{email_notify};
+
   my $row = _user_row($user_id);
   my %rec = (id => $user_id);
 
@@ -127,8 +132,16 @@ sub user_change_password {
   SauronAPI::Exception->forbidden('Invalid current password')
     if Sauron::Util::pwd_check($current, $stored);
 
-  my $hash = do { no warnings 'once';
-                  Sauron::Util::pwd_make($new, $main::SAURON_PWD_MODE // 1) };
+  my $mode = do { no warnings 'once'; $main::SAURON_PWD_MODE // 1 };
+  if ($mode == 1) {
+    my $bytes = $new;
+    utf8::encode($bytes) if utf8::is_utf8($bytes);
+    SauronAPI::Exception->validation(
+      'new_password is longer than 8 bytes; password mode 1 (Unix crypt) would truncate it'
+    ) if length($bytes) > 8;
+  }
+
+  my $hash = Sauron::Util::pwd_make($new, $mode);
   dbq('UPDATE users SET password=?, last_pwd=? WHERE id=?', $hash, time, $user_id);
   return;
 }

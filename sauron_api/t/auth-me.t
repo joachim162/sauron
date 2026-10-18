@@ -82,6 +82,22 @@ subtest 'PUT /auth/me updates email_notify and persists' => sub {
     ->status_is(200)->json_is('/user/email_notify' => JSON::PP::false);
 };
 
+subtest 'PUT /auth/me with no updatable fields is a no-op' => sub {
+  _login_me();
+  my @q;
+  Sauron::DB::db_query('SELECT mdate, muser FROM users WHERE id=?', \@q, $me);
+  my ($mdate0, $muser0) = @{$q[0]};
+  sleep 1;
+
+  $t->put_ok('/api/v1/auth/me' => json => {})->status_is(200)
+    ->json_is('/user/email' => "me_${pid}\@example.com");
+
+  Sauron::DB::db_query('SELECT mdate, muser FROM users WHERE id=?', \@q, $me);
+  my ($mdate1, $muser1) = @{$q[0]};
+  is($mdate1, $mdate0, 'mdate not bumped');
+  is($muser1, $muser0, 'muser not bumped');
+};
+
 subtest 'PUT /auth/me requires authentication' => sub {
   $t->reset_session;
   $t->put_ok('/api/v1/auth/me' => json => { email_notify => JSON::PP::true })
@@ -127,13 +143,18 @@ subtest 'password change requires fields and valid current password' => sub {
   $t->post_ok('/api/v1/auth/me/password' => json => { current_password => 'oldpass123' })
     ->status_is(400);
   $t->post_ok('/api/v1/auth/me/password' => json => {
-    current_password => 'wrongpass', new_password => 'newpass456',
+    current_password => 'wrongpass', new_password => 'newpass2',
   })->status_is(403)->json_is('/error' => 'Forbidden');
+
+  # Unix crypt mode truncates at 8 bytes; reject instead of storing silently
+  $t->post_ok('/api/v1/auth/me/password' => json => {
+    current_password => 'oldpass123', new_password => 'toolongpass9',
+  })->status_is(400)->json_like('/message' => qr/8 bytes/);
 };
 
 subtest 'password change succeeds, session survives, old password dies' => sub {
   $t->post_ok('/api/v1/auth/me/password' => json => {
-    current_password => 'oldpass123', new_password => 'newpass456',
+    current_password => 'oldpass123', new_password => 'newpass2',
   })->status_is(200)->json_is('/message' => 'Password changed');
 
   $t->get_ok('/api/v1/auth/me')->status_is(200, 'session still valid');
@@ -143,7 +164,7 @@ subtest 'password change succeeds, session survives, old password dies' => sub {
     email => "me_${pid}\@example.com", password => 'oldpass123',
   })->status_is(401, 'old password rejected');
   $t->post_ok('/api/v1/auth/login' => json => {
-    email => "me_${pid}\@example.com", password => 'newpass456',
+    email => "me_${pid}\@example.com", password => 'newpass2',
   })->status_is(200, 'new password accepted');
 
   my @q;
@@ -155,12 +176,12 @@ subtest 'password change succeeds, session survives, old password dies' => sub {
 subtest 'password change requires email login mode with password support' => sub {
   $t->app->config->{auth}{mode} = 'oidc';
   $t->post_ok('/api/v1/auth/me/password' => _proxy("me_${pid}\@example.com") => json => {
-    current_password => 'newpass456', new_password => 'thirdpass789',
+    current_password => 'newpass2', new_password => 'thirdpa3',
   })->status_is(403)->json_is('/error' => 'Forbidden');
   $t->app->config->{auth}{mode} = 'password';
 
   $t->post_ok('/api/v1/auth/me/password' => $ME => json => {
-    current_password => 'newpass456', new_password => 'thirdpass789',
+    current_password => 'newpass2', new_password => 'thirdpa3',
   })->status_is(200);
 };
 

@@ -186,17 +186,10 @@ sub update_me ($self) {
     );
   }
 
-  eval { user_self_update($uid, $self->req->json // {}) };
+  my $updated = eval { user_self_update($uid, $self->req->json // {}) };
   return $self->render_exception($@) if $@;
 
-  my %user;
-  if (Sauron::BackEnd::get_user_by_id($uid, \%user) == 0) {
-    return _render_user_response($self, $uid, $user{username}, $method);
-  }
-  $self->render(
-    json   => { error => 'Internal Server Error', message => 'Updated user not found' },
-    status => 500
-  );
+  return _render_user_response($self, $uid, $updated->{username}, $method);
 }
 
 # POST /auth/me/password
