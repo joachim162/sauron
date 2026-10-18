@@ -83,7 +83,8 @@ sub user_self_update {
   my ($user_id, $input) = @_;
 
   $user_id = _validate_user_id($user_id);
-  my %allowed = map { $_ => 1 } qw(email email_notify);
+  my %allowed = map { $_ => 1 }
+    qw(email email_notify default_server_id default_zone_id);
   for my $field (keys %$input) {
     SauronAPI::Exception->validation("Field '$field' cannot be changed here")
       unless $allowed{$field};
@@ -92,7 +93,7 @@ sub user_self_update {
   # A body without updatable fields is a no-op: legacy reports "No changes
   # made" and the request must not bump the audit columns.
   return user_find($user_id)
-    unless exists $input->{email} || exists $input->{email_notify};
+    unless grep { exists $input->{$_} } keys %allowed;
 
   my $row = _user_row($user_id);
   my %rec = (id => $user_id);
@@ -105,6 +106,12 @@ sub user_self_update {
     } else {
       $rec{email} = undef;
     }
+  }
+
+  if (exists $input->{default_server_id} || exists $input->{default_zone_id}) {
+    my ($server, $zone) = _validated_defaults($input, $row->[5], $row->[6]);
+    $rec{server} = $server;
+    $rec{zone}   = $zone;
   }
 
   $rec{email_notify} = exists $input->{email_notify}
@@ -204,6 +211,45 @@ sub _build_user_response {
 sub _id_or_undef {
   my ($value) = @_;
   return (defined $value && $value > 0) ? $value + 0 : undef;
+}
+
+sub _validated_defaults {
+  my ($input, $current_server, $current_zone) = @_;
+
+  $current_server = -1 unless defined $current_server && $current_server > 0;
+  $current_zone   = -1 unless defined $current_zone   && $current_zone   > 0;
+
+  my $server = exists $input->{default_server_id}
+    ? $input->{default_server_id}
+    : $current_server;
+  my $zone = exists $input->{default_zone_id}
+    ? $input->{default_zone_id}
+    : $current_zone;
+
+  $server = -1 unless defined $server;
+  $zone   = -1 unless defined $zone;
+
+  if ($server > 0) {
+    my $rows = dbq('SELECT id FROM servers WHERE id=?', $server);
+    SauronAPI::Exception->validation(
+      "Default server '$server' does not exist"
+    ) unless @$rows;
+  }
+
+  if ($zone > 0) {
+    my $rows = dbq('SELECT id,server FROM zones WHERE id=?', $zone);
+    SauronAPI::Exception->validation(
+      "Default zone '$zone' does not exist"
+    ) unless @$rows;
+    SauronAPI::Exception->validation(
+      "Default zone '$zone' requires default_server_id"
+    ) if $server < 1;
+    SauronAPI::Exception->validation(
+      "Default zone '$zone' does not belong to server '$server'"
+    ) if $rows->[0][1] != $server;
+  }
+
+  return ($server, $zone);
 }
 
 sub _assert_unique_email {

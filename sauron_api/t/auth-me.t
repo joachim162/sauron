@@ -9,18 +9,33 @@ use lib "$FindBin::Bin/lib";
 use SauronAPITest qw(
   setup_test_app
   create_test_user delete_test_user
+  create_test_server delete_test_server
+  create_test_zone delete_test_zone
 );
 
 my $t = setup_test_app();
 
 my $pid = $$;
-my @users;
+my (@users, @servers, @zones);
 
 END {
   for my $uid (@users) {
     eval { delete_test_user($uid); };
   }
+  for my $zid (@zones) {
+    eval { delete_test_zone($zid); };
+  }
+  for my $sid (@servers) {
+    eval { delete_test_server($sid); };
+  }
 }
+
+my $srv  = create_test_server(name => "me-srv-${pid}",  comment => 'self defaults test');
+my $srv2 = create_test_server(name => "me-srv2-${pid}", comment => 'self defaults test 2');
+my $zone = create_test_zone(server_id => $srv,  name => "me-zone-${pid}.example.com");
+my $zone2 = create_test_zone(server_id => $srv2, name => "me-zone2-${pid}.example.com");
+push @servers, $srv, $srv2;
+push @zones, $zone, $zone2;
 
 my $me = create_test_user(
   username => "me_${pid}", email => "me_${pid}\@example.com", password => 'oldpass123');
@@ -96,6 +111,50 @@ subtest 'PUT /auth/me with no updatable fields is a no-op' => sub {
   my ($mdate1, $muser1) = @{$q[0]};
   is($mdate1, $mdate0, 'mdate not bumped');
   is($muser1, $muser0, 'muser not bumped');
+};
+
+subtest 'PUT /auth/me manages default server/zone' => sub {
+  _login_me();
+
+  $t->put_ok('/api/v1/auth/me' => json => {
+    default_server_id => $srv, default_zone_id => $zone,
+  })->status_is(200)
+    ->json_is('/user/default_server_id' => $srv)
+    ->json_is('/user/default_zone_id'   => $zone);
+
+  $t->put_ok('/api/v1/auth/me' => json => {
+    default_server_id => undef, default_zone_id => undef,
+  })->status_is(200)
+    ->json_is('/user/default_server_id' => undef)
+    ->json_is('/user/default_zone_id'   => undef);
+
+  $t->put_ok('/api/v1/auth/me' => json => { default_server_id => $srv })
+    ->status_is(200)
+    ->json_is('/user/default_server_id' => $srv)
+    ->json_is('/user/default_zone_id'   => undef);
+
+  $t->put_ok('/api/v1/auth/me' => json => {
+    default_server_id => $srv2, default_zone_id => $zone2,
+  })->status_is(200);
+
+  # same server: existing zone is preserved
+  $t->put_ok('/api/v1/auth/me' => json => { default_server_id => $srv2 })
+    ->status_is(200)
+    ->json_is('/user/default_zone_id' => $zone2);
+
+  # switching the server with a stale zone is rejected
+  $t->put_ok('/api/v1/auth/me' => json => { default_server_id => $srv })
+    ->status_is(400)->json_is('/error' => 'Bad Request');
+
+  # a zone requires a server
+  $t->put_ok('/api/v1/auth/me' => json => {
+    default_server_id => undef, default_zone_id => undef,
+  })->status_is(200);
+  $t->put_ok('/api/v1/auth/me' => json => { default_zone_id => $zone })
+    ->status_is(400)->json_is('/error' => 'Bad Request');
+
+  $t->put_ok('/api/v1/auth/me' => json => { default_server_id => 999999999 })
+    ->status_is(400)->json_is('/error' => 'Bad Request', 'unknown server');
 };
 
 subtest 'PUT /auth/me requires authentication' => sub {

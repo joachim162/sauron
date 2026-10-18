@@ -1456,12 +1456,24 @@ AuthenticatedUser:
       type: boolean
       description: Whether the authenticated user receives email notifications
       example: false
+    default_server_id:
+      type: integer
+      nullable: true
+      description: Default server selection; null means no default
+      example: 1
+    default_zone_id:
+      type: integer
+      nullable: true
+      description: Default zone selection; null means no default
+      example: 42
 
 UpdateMe:
   type: object
   description: >
-    Self-service account settings the authenticated user may change.
-    Admin operations intentionally use the CLI tools instead.
+    Self-service account settings the authenticated user may change: email,
+    email-notification preference, and default server/zone selections (legacy
+    "Save defaults"/"Clear defaults"). Admin operations intentionally use the
+    CLI tools instead. Default selections do not grant permissions.
   additionalProperties: false
   properties:
     email:
@@ -1473,6 +1485,20 @@ UpdateMe:
     email_notify:
       type: boolean
       description: Whether the user receives email notifications
+    default_server_id:
+      type: integer
+      nullable: true
+      minimum: 1
+      description: Default server selection; null clears it
+      example: 1
+    default_zone_id:
+      type: integer
+      nullable: true
+      minimum: 1
+      description: >-
+        Default zone selection; null clears it. Requires default_server_id and
+        the zone must belong to that server.
+      example: 42
 
 ChangePasswordRequest:
   type: object

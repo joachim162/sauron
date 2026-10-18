@@ -21,12 +21,15 @@ sub _render_user_response {
   my $name = '';
   my $superuser = 0;
   my $email_notify = 0;
+  my ($default_server, $default_zone);
 
   if (Sauron::BackEnd::get_user($username, \%user) == 0) {
     $email = $user{email};
     $name = $user{name} // '';
     $superuser = ($user{superuser} && $user{superuser} eq 't') ? 1 : 0;
     $email_notify = $user{email_notify} ? 1 : 0;
+    $default_server = ($user{server} // -1) > 0 ? $user{server} + 0 : undef;
+    $default_zone   = ($user{zone}   // -1) > 0 ? $user{zone}   + 0 : undef;
   }
 
   $c->render(json => {
@@ -39,6 +42,8 @@ sub _render_user_response {
       alevel      => $perms{alevel} // 0,
       auth_method => $auth_method,
       email_notify => $email_notify ? JSON::PP::true : JSON::PP::false,
+      default_server_id => $default_server,
+      default_zone_id   => $default_zone,
     },
     permissions => {
       server => $perms{server} // {},
