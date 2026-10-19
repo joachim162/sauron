@@ -59,6 +59,18 @@ sub startup {
     if ($result->{user_id}) {
       $c->load_user_context($result->{user_id}, 'password');
     }
+
+    # Personal access token auth. Resolved here, not only in the OpenAPI
+    # security callback, so operations declared with `security: []`
+    # (e.g. /auth/me) also accept Bearer tokens. Precedence matches the
+    # secured operations: proxy > session > PAT.
+    unless ($c->stash('api_user_id')) {
+      my $auth = $c->req->headers->authorization;
+      if (defined $auth && $auth =~ /^Bearer\s+(\S+)$/) {
+        my $user_id = $c->pat_user_id($1);
+        $c->load_user_context($user_id, 'pat') if $user_id;
+      }
+    }
   });
 
   # Global exception boundary: any SauronAPI::Exception that unwinds out of an
@@ -94,6 +106,18 @@ sub startup {
       api_superuser   => $superuser,
     );
     return 1;
+  });
+
+  # Resolve a personal access token to a usable account. Tokens belonging to
+  # locked or expired accounts are rejected, matching the proxy/session flows.
+  # Passwordless accounts have no status marker and stay valid.
+  $self->helper(pat_user_id => sub ($c, $token) {
+    my $user_id = Sauron::BackEnd::verify_pat($token);
+    return undef unless $user_id;
+
+    my $status = Sauron::BackEnd::get_user_status($user_id);
+    return undef if !defined $status || $status =~ /[EL]/;
+    return $user_id;
   });
 
   $self->helper(require_auth => sub ($c) {
@@ -192,7 +216,7 @@ sub startup {
         my ($token) = $auth =~ /^Bearer\s+(.+)$/;
         return $c->$cb('Invalid Authorization format') unless ($token);
 
-        my $user_id = Sauron::BackEnd::verify_pat($token);
+        my $user_id = $c->pat_user_id($token);
         return $c->$cb('Invalid or expired token') unless ($user_id);
 
         $c->load_user_context($user_id, 'pat');

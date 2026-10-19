@@ -19,9 +19,9 @@ my %FILTER_SPEC = (
   name      => { kind => 'regex',  col => 'u.name' },
   email     => { kind => 'regex',  col => 'u.email' },
   comment   => { kind => 'regex',  col => 'u.comment' },
-  superuser => { kind => 'custom', code => \&_superuser_bool },
-  locked    => { kind => 'custom', code => \&_marker_bool },
-  closed    => { kind => 'custom', code => \&_closed_bool },
+  superuser => { kind => 'bool', col => 'COALESCE(u.superuser,false)' },
+  locked    => { kind => 'bool', col => "COALESCE(u.password LIKE 'LOCKED:%',false)" },
+  closed    => { kind => 'bool', col => "COALESCE(u.password = 'LOCKED:REMOVED',false)" },
 );
 
 my %SORT_COLUMN = (
@@ -264,32 +264,6 @@ sub _assert_unique_email {
     $email, $exclude_id // -1
   );
   SauronAPI::Exception->conflict("Email '$email' is already in use") if @$rows;
-}
-
-sub _superuser_bool {
-  return _bool_filter('superuser', 'COALESCE(u.superuser,false)', shift);
-}
-
-sub _closed_bool {
-  return _bool_filter('closed', "COALESCE(u.password = 'LOCKED:REMOVED',false)", shift);
-}
-
-sub _marker_bool {
-  return _bool_filter('locked', "COALESCE(u.password LIKE 'LOCKED:%',false)", shift);
-}
-
-sub _bool_filter {
-  my ($name, $criterion, $value) = @_;
-
-  my $b = lc $value;
-  SauronAPI::Exception->validation("Invalid boolean '$value' for '$name' (true or false)")
-    unless $b =~ /^(?:true|false|1|0)$/;
-  my $bound = ($b eq 'true' || $b eq '1') ? 't' : 'f';
-  return {
-    clauses => ["$criterion = ?"],
-    bind    => [$bound],
-    echo    => [{ name => $name, value => "$value" }],
-  };
 }
 
 1;

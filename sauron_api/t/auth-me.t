@@ -11,6 +11,7 @@ use SauronAPITest qw(
   create_test_user delete_test_user
   create_test_server delete_test_server
   create_test_zone delete_test_zone
+  make_pat
 );
 
 my $t = setup_test_app();
@@ -41,6 +42,8 @@ my $me = create_test_user(
   username => "me_${pid}", email => "me_${pid}\@example.com", password => 'oldpass123');
 my $other = create_test_user(
   username => "meother_${pid}", email => "meother_${pid}\@example.com");
+my $pat_user = create_test_user(
+  username => "mepat_${pid}", email => "mepat_${pid}\@example.com", password => 'patpass1');
 my $pwdless;
 {
   Sauron::BackEnd::set_muser('test');
@@ -53,7 +56,7 @@ my $pwdless;
   });
   die "Failed to create passwordless fixture: $pwdless" unless $pwdless > 0;
 }
-push @users, $me, $other, $pwdless;
+push @users, $me, $other, $pat_user, $pwdless;
 
 sub _proxy {
   my ($email) = @_;
@@ -242,6 +245,44 @@ subtest 'password change requires email login mode with password support' => sub
   $t->post_ok('/api/v1/auth/me/password' => $ME => json => {
     current_password => 'newpass2', new_password => 'thirdpa3',
   })->status_is(200);
+};
+
+subtest 'PAT authentication reaches self-service endpoints' => sub {
+  my $pat = make_pat($pat_user, 'me-test');
+  $t->reset_session;
+  my $bearer = { Authorization => "Bearer $pat" };
+
+  $t->get_ok('/api/v1/auth/me' => $bearer)->status_is(200)
+    ->json_is('/user/username'    => "mepat_${pid}")
+    ->json_is('/user/auth_method' => 'pat');
+
+  $t->put_ok('/api/v1/auth/me' => $bearer => json => {
+    email_notify => JSON::PP::true,
+  })->status_is(200)->json_is('/user/email_notify' => JSON::PP::true);
+
+  $t->post_ok('/api/v1/auth/me/password' => $bearer => json => {
+    current_password => 'patpass1', new_password => 'patpass2',
+  })->status_is(200)->json_is('/message' => 'Password changed');
+
+  $t->get_ok("/api/v1/users/$pat_user" => $bearer)->status_is(200);
+
+  $t->get_ok('/api/v1/auth/me' => { Authorization => 'Bearer invalid-token' })
+    ->status_is(401)->json_is('/error' => 'Unauthorized');
+};
+
+subtest 'PAT is rejected for locked and expired accounts' => sub {
+  my $pat = make_pat($pat_user, 'lock-test');
+  my $bearer = { Authorization => "Bearer $pat" };
+
+  Sauron::DB::db_exec(
+    "UPDATE users SET password='LOCKED:' || password WHERE id=$pat_user");
+  $t->get_ok('/api/v1/auth/me' => $bearer)->status_is(401);
+  $t->get_ok("/api/v1/users/$pat_user" => $bearer)->status_is(401);
+
+  Sauron::DB::db_exec(
+    "UPDATE users SET password=substr(password, 8), expiration=1 WHERE id=$pat_user");
+  $t->get_ok('/api/v1/auth/me' => $bearer)->status_is(401);
+  $t->get_ok("/api/v1/users/$pat_user" => $bearer)->status_is(401);
 };
 
 subtest 'passwordless (proxy/SSO) account cannot set a password' => sub {
