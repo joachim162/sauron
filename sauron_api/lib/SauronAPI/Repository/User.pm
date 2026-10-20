@@ -10,7 +10,7 @@ our @EXPORT_OK = qw(
 );
 
 use Sauron::BackEnd ();
-use Sauron::DB ();
+use Sauron::DB      ();
 use Sauron::Util    ();
 use SauronAPI::Exception  ();
 use SauronAPI::ListQuery  qw(compile_filters parse_sort sort_sql sort_echo list_metadata set_total);
@@ -18,29 +18,62 @@ use SauronAPI::Repository qw(dbq with_statement_timeout LIST_STATEMENT_TIMEOUT_M
 use Scalar::Util qw(blessed);
 use JSON::PP ();
 
+# ---------------------------------------------------------------------------
+# Constants and specifications
+# ---------------------------------------------------------------------------
+
 my %FILTER_SPEC = (
-  username  => { kind => 'regex',  col => 'u.username' },
-  name      => { kind => 'regex',  col => 'u.name' },
-  email     => { kind => 'regex',  col => 'u.email' },
-  comment   => { kind => 'regex',  col => 'u.comment' },
-  superuser => { kind => 'bool', col => 'COALESCE(u.superuser,false)' },
-  locked    => { kind => 'bool', col => "COALESCE(u.password LIKE 'LOCKED:%',false)" },
-  closed    => { kind => 'bool', col => "COALESCE(u.password = 'LOCKED:REMOVED',false)" },
+  username  => { kind => 'regex', col => 'u.username' },
+  name      => { kind => 'regex', col => 'u.name' },
+  email     => { kind => 'regex', col => 'u.email' },
+  comment   => { kind => 'regex', col => 'u.comment' },
+  superuser => { kind => 'bool',  col => 'COALESCE(u.superuser,false)' },
+  locked    => { kind => 'bool',  col => "COALESCE(u.password LIKE 'LOCKED:%',false)" },
+  closed    => { kind => 'bool',  col => "COALESCE(u.password = 'LOCKED:REMOVED',false)" },
 );
 
 my %SORT_COLUMN = (
-  username               => 'u.username',
-  name                   => 'u.name',
-  email                  => 'u.email',
-  superuser              => 'COALESCE(u.superuser,false)',
-  locked                 => "COALESCE(u.password LIKE 'LOCKED:%',false)",
-  closed                 => "COALESCE(u.password = 'LOCKED:REMOVED',false)",
-  expiration             => 'u.expiration',
-  last_login_at          => 'u.last',
+  username                => 'u.username',
+  name                    => 'u.name',
+  email                   => 'u.email',
+  superuser               => 'COALESCE(u.superuser,false)',
+  locked                  => "COALESCE(u.password LIKE 'LOCKED:%',false)",
+  closed                  => "COALESCE(u.password = 'LOCKED:REMOVED',false)",
+  expiration              => 'u.expiration',
+  last_login_at           => 'u.last',
   last_password_change_at => 'u.last_pwd',
-  cdate                  => 'u.cdate',
-  mdate                  => 'u.mdate',
+  cdate                   => 'u.cdate',
+  mdate                   => 'u.mdate',
 );
+
+my @RIGHT_KINDS = qw(
+  group server zone net hostmask ipmask level elimit defdept
+  tmplmask grpmask delmask rhf flag defhost
+);
+
+my %RIGHT_TYPE = map { $RIGHT_KINDS[$_] => $_ } 0..$#RIGHT_KINDS;
+
+my %RIGHT_FIELDS = (
+  group    => [qw(group_id)],
+  server   => [qw(server_id mode)],
+  zone     => [qw(zone_id mode)],
+  net      => [qw(net_id)],
+  hostmask => [qw(pattern zone_id)],
+  delmask  => [qw(pattern zone_id)],
+  ipmask   => [qw(pattern)],
+  tmplmask => [qw(pattern)],
+  grpmask  => [qw(pattern)],
+  level    => [qw(value)],
+  elimit   => [qw(value)],
+  defdept  => [qw(value)],
+  defhost  => [qw(value)],
+  rhf      => [qw(field required)],
+  flag     => [qw(value)],
+);
+
+# ---------------------------------------------------------------------------
+# List
+# ---------------------------------------------------------------------------
 
 sub user_list {
   my (%opts) = @_;
@@ -76,12 +109,20 @@ sub user_list {
   return ([ map { _build_user_response($_) } @$rows ], $meta);
 }
 
+# ---------------------------------------------------------------------------
+# Single record
+# ---------------------------------------------------------------------------
+
 sub user_find {
   my ($user_id) = @_;
 
   my $row = _user_row(_validate_user_id($user_id));
   return _build_user_response($row);
 }
+
+# ---------------------------------------------------------------------------
+# Self-service account settings and password changes
+# ---------------------------------------------------------------------------
 
 sub user_self_update {
   my ($user_id, $input) = @_;
@@ -147,6 +188,210 @@ sub user_change_password {
   dbq('UPDATE users SET password=?, last_pwd=? WHERE id=? RETURNING id', $hash, time, $user_id);
   return;
 }
+
+# ---------------------------------------------------------------------------
+# Authentication eligibility
+# ---------------------------------------------------------------------------
+
+sub user_is_active {
+  my ($user_id) = @_;
+  return 0 unless defined $user_id && $user_id =~ /^[1-9][0-9]*$/;
+  return @{dbq(
+    "SELECT id FROM users WHERE id=? AND COALESCE(password,'') NOT ILIKE 'LOCKED:%' "
+      . "AND (COALESCE(expiration,0)<=0 OR expiration>extract(epoch FROM now()))", $user_id
+  )} ? 1 : 0;
+}
+
+# ---------------------------------------------------------------------------
+# Administrative account operations
+# ---------------------------------------------------------------------------
+
+sub user_create {
+  my ($actor_id, $input) = @_;
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $rec = _account_fields($input, undef, 1);
+    $rec->{password} = exists $input->{password} ? _password_hash($input->{password}) : undef;
+    $rec->{last_pwd} = exists $input->{password} ? time : 0;
+    my $id = Sauron::BackEnd::add_user($rec);
+    SauronAPI::Exception->persistence('Failed to create user') unless $id > 0;
+    my $row = _user_row($id);
+    my %changes = %$input;
+    delete $changes{password};
+    _audit($actor, $row, 'ADD: User', \%changes);
+    return _build_user_response($row);
+  });
+}
+
+sub user_update {
+  my ($actor_id, $user_id, $input) = @_;
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $row = _open_user($user_id);
+    my $rec = _account_fields($input, $row, 0);
+    return _build_user_response($row) unless keys %$rec;
+    _guard_admin($actor, $row, $rec, 0);
+    _save_user($row, $rec);
+    _audit($actor, $row, 'UPDATE: User', $input);
+    return user_find($user_id);
+  });
+}
+
+sub user_lock {
+  my ($actor_id, $user_id) = @_;
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $row = _open_user($user_id);
+    SauronAPI::Exception->conflict('Account is already locked') if ($row->[2] // '') =~ /^LOCKED:/i;
+    my %rec = (password => 'LOCKED:' . ($row->[2] // ''));
+    _guard_admin($actor, $row, \%rec, 0);
+    _save_user($row, \%rec);
+    _revoke_credentials($user_id);
+    _audit($actor, $row, 'LOCK: User');
+    return user_find($user_id);
+  });
+}
+
+sub user_unlock {
+  my ($actor_id, $user_id) = @_;
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $row = _open_user($user_id);
+    my $password = $row->[2] // '';
+    SauronAPI::Exception->conflict('Account is not locked') unless $password =~ s/^LOCKED://i;
+    _save_user($row, {password => length $password ? $password : undef});
+    _audit($actor, $row, 'UNLOCK: User');
+    return user_find($user_id);
+  });
+}
+
+sub user_reset_password {
+  my ($actor_id, $user_id, $input) = @_;
+  _allowed_fields($input, {password => 1});
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $row = _open_user($user_id);
+    my $hash = _password_hash($input->{password});
+    $hash = 'LOCKED:' . $hash if ($row->[2] // '') =~ /^LOCKED:/i;
+    _save_user($row, {password => $hash, last_pwd => time});
+    _revoke_credentials($user_id);
+    _audit($actor, $row, 'PASSWORD: User');
+    return user_find($user_id);
+  });
+}
+
+sub user_remove {
+  my ($actor_id, $user_id, $delete) = @_;
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $row = $delete ? _user_row(_validate_user_id($user_id), 1) : _open_user($user_id);
+    SauronAPI::Exception->conflict('Only locked or expired accounts can be closed or deleted')
+      unless ($row->[2] // '') =~ /^LOCKED:/i || (($row->[7] // 0) > 0 && $row->[7] <= time);
+    _guard_admin($actor, $row, {}, 1);
+    _revoke_credentials($user_id);
+    dbq('DELETE FROM user_rights WHERE type=2 AND ref=? RETURNING id', $user_id);
+    if ($delete) {
+      dbq('DELETE FROM users WHERE id=? RETURNING id', $user_id);
+    } else {
+      my $now = time;
+      my $expiration = ($row->[7] // 0) > $now ? $row->[7] : $now;
+      dbq(
+        'UPDATE users SET server=DEFAULT,zone=DEFAULT,superuser=DEFAULT,last_pwd=DEFAULT,flags=DEFAULT,'
+          . 'email=NULL,last_from=NULL,search_opts=NULL,comment=NULL,'
+          . 'name=?,password=?,expiration=?,mdate=?,muser=? WHERE id=? RETURNING id',
+        'Removed User', 'LOCKED:REMOVED', $expiration, $now, $actor->[1], $user_id
+      );
+    }
+    _audit($actor, $row, ($delete ? 'DELETE' : 'ANONYMIZE') . ': User');
+    return $delete ? undef : user_find($user_id);
+  });
+}
+
+# ---------------------------------------------------------------------------
+# Permission rules
+# ---------------------------------------------------------------------------
+
+sub user_right_list {
+  my ($user_id, %opts) = @_;
+  _user_row(_validate_user_id($user_id));
+  SauronAPI::Exception->validation('Sorting is fixed for user rights') if exists $opts{params}{sort};
+  compile_filters($opts{params} // {}, {});
+  my $page = $opts{page} // 1;
+  my $per_page = $opts{per_page} // 50;
+  my $sql = 'SELECT r.id,r.rtype,r.rref,r.rule,NULL::integer AS group_id,NULL::text AS group_name '
+    . 'FROM user_rights r WHERE r.type=2 AND r.ref=? UNION ALL '
+    . 'SELECT r.id,r.rtype,r.rref,r.rule,g.id,g.name FROM user_rights r '
+    . 'JOIN user_groups g ON r.type=1 AND r.ref=g.id '
+    . 'WHERE EXISTS (SELECT 1 FROM user_rights m WHERE m.type=2 AND m.ref=? AND m.rtype=0 AND m.rref=g.id)';
+  my $rows = dbq("SELECT * FROM ($sql) rights ORDER BY group_id NULLS FIRST,id LIMIT ? OFFSET ?",
+    $user_id, $user_id, $per_page, ($page - 1) * $per_page);
+  my $count = dbq("SELECT COUNT(*) FROM ($sql) rights", $user_id, $user_id);
+  my $meta = list_metadata($page, $per_page, [], []);
+  set_total($meta, $count->[0][0]);
+  return ([map { _right_response($_) } @$rows], $meta);
+}
+
+sub user_right_add {
+  my ($actor_id, $user_id, $input) = @_;
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $row = _open_user($user_id);
+    my ($type, $ref, $rule) = _right_record($input);
+    SauronAPI::Exception->conflict('Direct permission rule already exists') if @{dbq(
+      "SELECT id FROM user_rights WHERE type=2 AND ref=? AND rtype=? AND rref=? AND COALESCE(rule,'')=?",
+      $user_id, $type, $ref, $rule)};
+    my $id = Sauron::BackEnd::add_record('user_rights', {
+      type => 2, ref => $user_id, rtype => $type, rref => $ref, rule => $rule,
+    });
+    SauronAPI::Exception->persistence('Failed to add permission rule') unless $id > 0;
+    _save_user($row, {});
+    my $result = _right_response([$id, $type, $ref, $rule, undef, undef]);
+    _audit($actor, $row, 'ADD: User right', $result);
+    return $result;
+  });
+}
+
+sub user_right_delete {
+  my ($actor_id, $user_id, $right_id) = @_;
+  return _admin_transaction($actor_id, sub {
+    my ($actor) = @_;
+    my $row = _open_user($user_id);
+    my @bind = ($user_id);
+    my $where = 'type=2 AND ref=?';
+    if (defined $right_id) {
+      $where .= ' AND id=?';
+      push @bind, _validate_user_id($right_id);
+    }
+    my $removed = dbq("DELETE FROM user_rights WHERE $where RETURNING id,rtype,rref,rule", @bind);
+    SauronAPI::Exception->not_found('Direct permission rule not found') if defined $right_id && !@$removed;
+    if (@$removed) {
+      _save_user($row, {});
+      _audit($actor, $row, 'REMOVE: User rights', {rights => [map { _right_response([@$_, undef, undef]) } @$removed]});
+    }
+    return;
+  });
+}
+
+# ---------------------------------------------------------------------------
+# User-group reference data
+# ---------------------------------------------------------------------------
+
+sub user_group_list {
+  my (%opts) = @_;
+  my $page = $opts{page} // 1;
+  my $per_page = $opts{per_page} // 50;
+  SauronAPI::Exception->validation('Sorting is fixed for user groups') if exists $opts{params}{sort};
+  compile_filters($opts{params} // {}, {});
+  my $rows = dbq('SELECT id,name,comment FROM user_groups ORDER BY name,id LIMIT ? OFFSET ?',
+    $per_page, ($page - 1) * $per_page);
+  my $meta = list_metadata($page, $per_page, [], []);
+  set_total($meta, dbq('SELECT COUNT(*) FROM user_groups')->[0][0]);
+  return ([map { +{id => 0 + $_->[0], name => $_->[1], comment => $_->[2]} } @$rows], $meta);
+}
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 sub _validate_user_id {
   my ($user_id) = @_;
@@ -260,15 +505,6 @@ sub _assert_unique_email {
     $email, $exclude_id // -1
   );
   SauronAPI::Exception->conflict("Email '$email' is already in use") if @$rows;
-}
-
-sub user_is_active {
-  my ($user_id) = @_;
-  return 0 unless defined $user_id && $user_id =~ /^[1-9][0-9]*$/;
-  return @{dbq(
-    "SELECT id FROM users WHERE id=? AND COALESCE(password,'') NOT ILIKE 'LOCKED:%' "
-      . "AND (COALESCE(expiration,0)<=0 OR expiration>extract(epoch FROM now()))", $user_id
-  )} ? 1 : 0;
 }
 
 sub _password_hash {
@@ -413,117 +649,6 @@ sub _account_fields {
   return \%rec;
 }
 
-sub user_create {
-  my ($actor_id, $input) = @_;
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $rec = _account_fields($input, undef, 1);
-    $rec->{password} = exists $input->{password} ? _password_hash($input->{password}) : undef;
-    $rec->{last_pwd} = exists $input->{password} ? time : 0;
-    my $id = Sauron::BackEnd::add_user($rec);
-    SauronAPI::Exception->persistence('Failed to create user') unless $id > 0;
-    my $row = _user_row($id);
-    my %changes = %$input;
-    delete $changes{password};
-    _audit($actor, $row, 'ADD: User', \%changes);
-    return _build_user_response($row);
-  });
-}
-
-sub user_update {
-  my ($actor_id, $user_id, $input) = @_;
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $row = _open_user($user_id);
-    my $rec = _account_fields($input, $row, 0);
-    return _build_user_response($row) unless keys %$rec;
-    _guard_admin($actor, $row, $rec, 0);
-    _save_user($row, $rec);
-    _audit($actor, $row, 'UPDATE: User', $input);
-    return user_find($user_id);
-  });
-}
-
-sub user_lock {
-  my ($actor_id, $user_id) = @_;
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $row = _open_user($user_id);
-    SauronAPI::Exception->conflict('Account is already locked') if ($row->[2] // '') =~ /^LOCKED:/i;
-    my %rec = (password => 'LOCKED:' . ($row->[2] // ''));
-    _guard_admin($actor, $row, \%rec, 0);
-    _save_user($row, \%rec);
-    _revoke_credentials($user_id);
-    _audit($actor, $row, 'LOCK: User');
-    return user_find($user_id);
-  });
-}
-
-sub user_unlock {
-  my ($actor_id, $user_id) = @_;
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $row = _open_user($user_id);
-    my $password = $row->[2] // '';
-    SauronAPI::Exception->conflict('Account is not locked') unless $password =~ s/^LOCKED://i;
-    _save_user($row, {password => length $password ? $password : undef});
-    _audit($actor, $row, 'UNLOCK: User');
-    return user_find($user_id);
-  });
-}
-
-sub user_reset_password {
-  my ($actor_id, $user_id, $input) = @_;
-  _allowed_fields($input, {password => 1});
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $row = _open_user($user_id);
-    my $hash = _password_hash($input->{password});
-    $hash = 'LOCKED:' . $hash if ($row->[2] // '') =~ /^LOCKED:/i;
-    _save_user($row, {password => $hash, last_pwd => time});
-    _revoke_credentials($user_id);
-    _audit($actor, $row, 'PASSWORD: User');
-    return user_find($user_id);
-  });
-}
-
-sub user_remove {
-  my ($actor_id, $user_id, $delete) = @_;
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $row = $delete ? _user_row(_validate_user_id($user_id), 1) : _open_user($user_id);
-    SauronAPI::Exception->conflict('Only locked or expired accounts can be closed or deleted')
-      unless ($row->[2] // '') =~ /^LOCKED:/i || (($row->[7] // 0) > 0 && $row->[7] <= time);
-    _guard_admin($actor, $row, {}, 1);
-    _revoke_credentials($user_id);
-    dbq('DELETE FROM user_rights WHERE type=2 AND ref=? RETURNING id', $user_id);
-    if ($delete) {
-      dbq('DELETE FROM users WHERE id=? RETURNING id', $user_id);
-    } else {
-      my $now = time;
-      my $expiration = ($row->[7] // 0) > $now ? $row->[7] : $now;
-      dbq(
-        'UPDATE users SET server=DEFAULT,zone=DEFAULT,superuser=DEFAULT,last_pwd=DEFAULT,flags=DEFAULT,'
-          . 'email=NULL,last_from=NULL,search_opts=NULL,comment=NULL,'
-          . 'name=?,password=?,expiration=?,mdate=?,muser=? WHERE id=? RETURNING id',
-        'Removed User', 'LOCKED:REMOVED', $expiration, $now, $actor->[1], $user_id
-      );
-    }
-    _audit($actor, $row, ($delete ? 'DELETE' : 'ANONYMIZE') . ': User');
-    return $delete ? undef : user_find($user_id);
-  });
-}
-
-my @RIGHT_KINDS = qw(group server zone net hostmask ipmask level elimit defdept tmplmask grpmask delmask rhf flag defhost);
-my %RIGHT_TYPE = map { $RIGHT_KINDS[$_] => $_ } 0..$#RIGHT_KINDS;
-my %RIGHT_FIELDS = (
-  group => [qw(group_id)], server => [qw(server_id mode)], zone => [qw(zone_id mode)],
-  net => [qw(net_id)], hostmask => [qw(pattern zone_id)], delmask => [qw(pattern zone_id)],
-  ipmask => [qw(pattern)], tmplmask => [qw(pattern)], grpmask => [qw(pattern)],
-  level => [qw(value)], elimit => [qw(value)], defdept => [qw(value)], defhost => [qw(value)],
-  rhf => [qw(field required)], flag => [qw(value)],
-);
-
 sub _right_record {
   my ($input) = @_;
   my $kind = $input->{kind} // '';
@@ -606,80 +731,6 @@ sub _right_response {
     $out{value} = ($kind eq 'level' || $kind eq 'elimit') && $rule =~ /^\d+$/ ? 0 + $rule : $rule;
   }
   return \%out;
-}
-
-sub user_right_list {
-  my ($user_id, %opts) = @_;
-  _user_row(_validate_user_id($user_id));
-  SauronAPI::Exception->validation('Sorting is fixed for user rights') if exists $opts{params}{sort};
-  compile_filters($opts{params} // {}, {});
-  my $page = $opts{page} // 1;
-  my $per_page = $opts{per_page} // 50;
-  my $sql = 'SELECT r.id,r.rtype,r.rref,r.rule,NULL::integer AS group_id,NULL::text AS group_name '
-    . 'FROM user_rights r WHERE r.type=2 AND r.ref=? UNION ALL '
-    . 'SELECT r.id,r.rtype,r.rref,r.rule,g.id,g.name FROM user_rights r '
-    . 'JOIN user_groups g ON r.type=1 AND r.ref=g.id '
-    . 'WHERE EXISTS (SELECT 1 FROM user_rights m WHERE m.type=2 AND m.ref=? AND m.rtype=0 AND m.rref=g.id)';
-  my $rows = dbq("SELECT * FROM ($sql) rights ORDER BY group_id NULLS FIRST,id LIMIT ? OFFSET ?",
-    $user_id, $user_id, $per_page, ($page - 1) * $per_page);
-  my $count = dbq("SELECT COUNT(*) FROM ($sql) rights", $user_id, $user_id);
-  my $meta = list_metadata($page, $per_page, [], []);
-  set_total($meta, $count->[0][0]);
-  return ([map { _right_response($_) } @$rows], $meta);
-}
-
-sub user_right_add {
-  my ($actor_id, $user_id, $input) = @_;
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $row = _open_user($user_id);
-    my ($type, $ref, $rule) = _right_record($input);
-    SauronAPI::Exception->conflict('Direct permission rule already exists') if @{dbq(
-      "SELECT id FROM user_rights WHERE type=2 AND ref=? AND rtype=? AND rref=? AND COALESCE(rule,'')=?",
-      $user_id, $type, $ref, $rule)};
-    my $id = Sauron::BackEnd::add_record('user_rights', {
-      type => 2, ref => $user_id, rtype => $type, rref => $ref, rule => $rule,
-    });
-    SauronAPI::Exception->persistence('Failed to add permission rule') unless $id > 0;
-    _save_user($row, {});
-    my $result = _right_response([$id, $type, $ref, $rule, undef, undef]);
-    _audit($actor, $row, 'ADD: User right', $result);
-    return $result;
-  });
-}
-
-sub user_right_delete {
-  my ($actor_id, $user_id, $right_id) = @_;
-  return _admin_transaction($actor_id, sub {
-    my ($actor) = @_;
-    my $row = _open_user($user_id);
-    my @bind = ($user_id);
-    my $where = 'type=2 AND ref=?';
-    if (defined $right_id) {
-      $where .= ' AND id=?';
-      push @bind, _validate_user_id($right_id);
-    }
-    my $removed = dbq("DELETE FROM user_rights WHERE $where RETURNING id,rtype,rref,rule", @bind);
-    SauronAPI::Exception->not_found('Direct permission rule not found') if defined $right_id && !@$removed;
-    if (@$removed) {
-      _save_user($row, {});
-      _audit($actor, $row, 'REMOVE: User rights', {rights => [map { _right_response([@$_, undef, undef]) } @$removed]});
-    }
-    return;
-  });
-}
-
-sub user_group_list {
-  my (%opts) = @_;
-  my $page = $opts{page} // 1;
-  my $per_page = $opts{per_page} // 50;
-  SauronAPI::Exception->validation('Sorting is fixed for user groups') if exists $opts{params}{sort};
-  compile_filters($opts{params} // {}, {});
-  my $rows = dbq('SELECT id,name,comment FROM user_groups ORDER BY name,id LIMIT ? OFFSET ?',
-    $per_page, ($page - 1) * $per_page);
-  my $meta = list_metadata($page, $per_page, [], []);
-  set_total($meta, dbq('SELECT COUNT(*) FROM user_groups')->[0][0]);
-  return ([map { +{id => 0 + $_->[0], name => $_->[1], comment => $_->[2]} } @$rows], $meta);
 }
 
 1;
