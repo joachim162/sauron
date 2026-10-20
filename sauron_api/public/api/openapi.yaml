@@ -111,6 +111,27 @@ paths:
   /users/{id}:
     $ref: "./paths/user.yaml"
 
+  /users/{id}/lock:
+    $ref: './paths/user-admin.yaml#/lock'
+
+  /users/{id}/unlock:
+    $ref: './paths/user-admin.yaml#/unlock'
+
+  /users/{id}/close:
+    $ref: './paths/user-admin.yaml#/close'
+
+  /users/{id}/password:
+    $ref: './paths/user-admin.yaml#/password'
+
+  /users/{id}/rights:
+    $ref: './paths/user-admin.yaml#/rights'
+
+  /users/{id}/rights/{right_id}:
+    $ref: './paths/user-admin.yaml#/right'
+
+  /user-groups:
+    $ref: './paths/user-admin.yaml#/groups'
+
   /servers:
     $ref: "./paths/servers.yaml"
 
@@ -251,6 +272,18 @@ components:
       $ref: './components/schemas.yaml#/User'
     UserListResponse:
       $ref: './components/schemas.yaml#/UserListResponse'
+    NewUser:
+      $ref: './components/user-admin.yaml#/NewUser'
+    UpdateUser:
+      $ref: './components/user-admin.yaml#/UpdateUser'
+    NewUserRight:
+      $ref: './components/user-admin.yaml#/NewUserRight'
+    UserRight:
+      $ref: './components/user-admin.yaml#/UserRight'
+    UserRightListResponse:
+      $ref: './components/user-admin.yaml#/UserRightListResponse'
+    UserGroupListResponse:
+      $ref: './components/user-admin.yaml#/UserGroupListResponse'
     UpdateMe:
       $ref: './components/schemas.yaml#/UpdateMe'
     ChangePasswordRequest:

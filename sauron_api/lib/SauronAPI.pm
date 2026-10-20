@@ -10,6 +10,7 @@ use Sauron::Sauron;
 use Sauron::DB;
 use Sauron::BackEnd;
 use SauronAPI::Repository::Net ();
+use SauronAPI::Repository::User qw(user_is_active);
 use SauronAPI::Exception ();
 use Net::Netmask;
 
@@ -110,13 +111,11 @@ sub startup {
 
   # Resolve a personal access token to a usable account. Tokens belonging to
   # locked or expired accounts are rejected, matching the proxy/session flows.
-  # Passwordless accounts have no status marker and stay valid.
   $self->helper(pat_user_id => sub ($c, $token) {
     my $user_id = Sauron::BackEnd::verify_pat($token);
     return undef unless $user_id;
 
-    my $status = Sauron::BackEnd::get_user_status($user_id);
-    return undef if !defined $status || $status =~ /[EL]/;
+    return undef unless user_is_active($user_id);
     return $user_id;
   });
 
@@ -168,9 +167,7 @@ sub startup {
     warn "DEBUG resolve_proxy_user: match=$match found=$found user=" . ($user{id} // 'none') . "\n";
     SauronAPI::Exception->unauthorized("User '$remote_user' not found") unless $found;
 
-    my $ustatus = Sauron::BackEnd::get_user_status($user{id});
-    warn "DEBUG resolve_proxy_user: ustatus=" . ($ustatus // 'undef') . "\n";
-    SauronAPI::Exception->forbidden('Account is no longer active') if (!defined $ustatus || $ustatus =~ /[EL]/);
+    SauronAPI::Exception->forbidden('Account is no longer active') unless user_is_active($user{id});
 
     return { user_id => $user{id}, username => $user{username} };
   });
@@ -189,8 +186,7 @@ sub startup {
       return { error => 'Unauthorized', message => 'User not found', status => 401 };
     }
 
-    my $ustatus = Sauron::BackEnd::get_user_status($user_id);
-    if (!defined $ustatus || $ustatus =~ /[EL]/) {
+    if (!user_is_active($user_id)) {
       Sauron::BackEnd::delete_session($token);
       return { error => 'Forbidden', message => 'Account is no longer active', status => 403 };
     }

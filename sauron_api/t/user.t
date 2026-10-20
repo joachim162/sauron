@@ -71,10 +71,10 @@ subtest 'detail: self or superuser only' => sub {
   $t->get_ok("$BASE/999999999" => $ORD)->status_is(403);
 };
 
-subtest 'removed write operations are 404' => sub {
-  $t->post_ok($BASE => $SUPER => json => { username => _uname('new') })->status_is(404);
-  $t->put_ok("$BASE/$ordinary" => $SUPER => json => { comment => 'x' })->status_is(404);
-  $t->delete_ok("$BASE/$other" => $SUPER)->status_is(404);
+subtest 'administrative writes require superuser' => sub {
+  $t->post_ok($BASE => $ORD => json => { username => _uname('new') })->status_is(403);
+  $t->put_ok("$BASE/$ordinary" => $ORD => json => { comment => 'x' })->status_is(403);
+  $t->delete_ok("$BASE/$other" => $ORD)->status_is(403);
 };
 
 # ========================================================================

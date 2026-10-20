@@ -77,8 +77,8 @@ Frontend (Vite dev :5173) served via Apache proxy at /app/
 **Key entry points:**
 - `sauron_api/lib/SauronAPI.pm` — App startup, OpenAPI plugin, `before_dispatch` hook
 - `sauron_api/lib/SauronAPI/Controller/` — One controller per resource (Auth, Host, Server, Zone, Net)
-- `sauron_api/lib/SauronAPI/Repository/` — One repository per resource. Data-access layer for API **reads** (own SQL, bind params) and **writes** (delegated to `Sauron::BackEnd`). See `docs/adr/0001-repository-layer.md`.
-- `Sauron/BackEnd.pm` — 4500+ lines, legacy database operations. Mandatory for CGI and for all writes. Do not add new functions; new API read logic goes in repositories.
+- `sauron_api/lib/SauronAPI/Repository/` — One repository per resource. Owns API data access and validation, using bound SQL for reads and unchanged `Sauron::BackEnd` write helpers where applicable. API-specific write corrections belong in repositories, not the legacy module. See `docs/adr/0001-repository-layer.md` and `docs/adr/0013-administrative-user-management.md`.
+- `Sauron/BackEnd.pm` — Legacy database operations shared with CGI and CLI tools. **Frozen for API work: do not modify it, change its signatures, or add functions.** Implement API-specific behavior exclusively in the repository layer.
 - `sauron_api/public/api/openapi.yaml` — Root OpenAPI spec (references `paths/` and `components/`)
 - `frontend/src/api/index.ts` — Frontend API client
 - `frontend/src/hooks/use-auth.tsx` — Auth context provider
@@ -101,7 +101,7 @@ Pinned parity facts (codified in tests): zone type enum M/S/H/F/C/A; reverse zon
 Authentication divergences from the legacy CGI (`SAURON_AUTH_MODE`, `SAURON_AUTH_PROG`, password change gating) are recorded in `docs/adr/0012-api-password-auth-vs-legacy-auth-modes.md`. The API follows its own `auth.mode`; do not copy the legacy external-auth gates into API code without a new ADR.
 
 ## Repository Layer Rules (ADR 0001)
-- Repositories exist for Host, Server, Zone, and Net. Their controllers must not call `Sauron::BackEnd` or `Sauron::DB` for those resources. All DB access flows through the repository. (Auth.pm is the exception until user-management endpoints justify a Users repository.)
+- Resource controllers, including User, must not call `Sauron::BackEnd` or `Sauron::DB`. All resource DB access flows through the corresponding repository. Existing authentication/session/token plumbing in Auth.pm is a legacy exception; do not extend it with resource CRUD.
 - Repository functions take resolved IDs (`$server_id`, `$zone_id`), not names. Controllers resolve names via `get_server_id_or_404` / `get_zone_id_or_404` / `get_net_id_or_404` and run authz before calling the repository.
 - SQL in repositories: values always bound (`db_query($sql, \@out, @bind)`); identifiers (sort/filter columns) from hardcoded whitelist maps. No interpolated user input.
 - Repositories throw `SauronAPI::Exception` (single class, `status`/`kind`/`message`; shortcut constructors `not_found`, `validation`, `forbidden`, `conflict`, `persistence`). Controllers map exceptions to HTTP via the shared `render_exception` helper in `SauronAPI.pm`.
@@ -136,6 +136,30 @@ All paginated list endpoints return the same envelope so the frontend data layer
 - **No comments unless requested**
 - **TypeScript:** shadcn/ui conventions, TanStack Query for data fetching, `lucide-react` for icons
 - **API client** is in `frontend/src/api/index.ts`. Use TanStack Query's `useQuery`/`useMutation` for data fetching.
+
+### Consistent style throughout `sauron_api/`
+
+- **Follow neighboring modules, not personal preferences.** Use `Controller/Vlan.pm`, `Controller/Zone.pm`, and `Controller/User.pm` as controller examples. Do not introduce a different pattern for one resource or perform unrelated style migrations without approval.
+- **Module structure:** controllers use `Mojo::Base 'Mojolicious::Controller', -signatures` and actions named for the routed operation; repositories use `strict`/`warnings`, explicit `@EXPORT_OK`, and resource-prefixed public functions. Keep private helpers `_`-prefixed.
+- **Controller flow must be explicit:** OpenAPI `valid_input` → `require_auth` → required ID resolution and authorization → repository call → response rendering. Perform authorization before accessing protected resource data. Keep special access rules (such as self-read) visible in the action.
+- **Do not hide routine controller flow** behind per-controller wrappers such as `_admin`, `_list_options`, or generic action dispatchers. Existing shared application helpers (`require_auth`, ID resolution, `list_query_params`, `render_exception`) should be reused.
+- **Repository errors are handled locally:** wrap each controller repository invocation in `eval`, then immediately `return $self->render_exception($@) if $@;`. The global `around_dispatch` boundary is a fallback, not a substitute for this convention.
+- **Separate calls from rendering:** assign repository results to meaningful variables (`$user`, `$right`, `($rows, $meta)`) before calling `render`. Do not nest repository calls inside `render` or compress multi-step actions into long one-liners.
+- **Pagination stays visible:** extract `$page` and `$per_page` in each list action with defaults `1` and `50`, and pass them explicitly alongside `$self->list_query_params`. Render envelopes as `{ data => $rows, metadata => $meta }`.
+- **Repository responsibilities:** keep SQL, business validation, codecs, response shaping, transactions, and audit writes out of controllers. Reuse `SauronAPI::Repository` and `SauronAPI::ListQuery` helpers; throw `SauronAPI::Exception` for expected failures. Never leak BackEnd return codes or DB errors directly to HTTP clients.
+- **Formatting:** use the existing 2-space indentation, same-line braces, spaces inside hash constructors, and blank lines between validation/authz, repository work, and rendering. Split long argument lists across lines.
+- **Specs and tests:** extend the existing OpenAPI path/component organization and controller-parity test suites. A style-only refactor must preserve response bodies, status codes, authorization, and repository behavior; run the API tests to verify this.
+
+Standard controller repository-call pattern:
+
+```perl
+my $user = eval {
+  user_update($self->stash('api_user_id'), $user_id, $self->req->json // {});
+};
+return $self->render_exception($@) if $@;
+
+$self->render(openapi => $user);
+```
 
 ## OpenAPI Pitfalls
 

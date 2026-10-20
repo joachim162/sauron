@@ -35,8 +35,13 @@
 - **Group membership** — Being a host's base group or one of its subgroups. Searching by group matches membership, not just the base group.
 - **VMPS domain** — A server-scoped Cisco VLAN Management Policy Server definition that maps host MAC addresses to VLANs. A host group may be linked to at most one VMPS domain; a missing link means none.
 - **User account** — An identity used to access Sauron, with account and personal settings. It may receive permissions directly and through one or more user groups.
-- **Closed user account** — An account that can no longer be used to access Sauron, but whose identity record is retained for history. Distinct from a deleted user account.
+- **Passwordless user account** — A user account with no local Sauron password. It cannot authenticate by password, but may use an external identity provider or a personal access token.
+- **Closed user account** — A permanently retired account, with personal details, permissions, and user-group memberships removed. Its username and identity record are retained for history; closure is not a reversible suspension. Called an "anonymized user" by the legacy tools; not complete anonymization because the username remains.
+- **Locked user account** — A temporarily suspended account that cannot access Sauron while locked. Unlike closure, locking is reversible and preserves account details and permissions.
+- **Deleted user account** — An account whose identity record has been permanently removed. Distinct from a closed user account.
 - **User group** — An access-control group governing user permissions. A distinct concept from a host group; they share only the word.
+- **Direct permission rule** — An access-control rule assigned to a user account itself, rather than obtained through a user group.
+- **Inherited permission rule** — An access-control rule a user account receives through membership in a user group. It belongs to the group, not to the individual account.
 
 ## Network Management
 

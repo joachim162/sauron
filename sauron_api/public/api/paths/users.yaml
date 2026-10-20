@@ -39,3 +39,45 @@ get:
       $ref: '../components/responses.yaml#/ForbiddenError'
     '500':
       $ref: '../components/responses.yaml#/Error'
+post:
+  security:
+    - BearerAuth: []
+  summary: Create a user account
+  tags: [users]
+  description: >-
+    Requires superuser. Username is required and must match the CLI syntax.
+    An omitted password creates a passwordless account; supplied passwords
+    require auth.mode password or both. Defaults do not grant access. Assign
+    memberships and direct permissions separately through the rights resource.
+    Unknown fields are rejected. No temporary password is generated or returned.
+  operationId: create_user
+  x-mojo-name: create_user
+  x-mojo-to: 'User#create_user'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/user-admin.yaml#/NewUser'
+  responses:
+    '201':
+      description: User created
+      headers:
+        Location:
+          description: URL of the new user account
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/User'
+    '400':
+      $ref: '../components/responses.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '409':
+      $ref: '../components/responses.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

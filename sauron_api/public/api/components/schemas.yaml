@@ -1556,8 +1556,9 @@ UserResponse:
 UserFields:
   type: object
   description: >
-    Writable user account settings. Username and email are immutable after
-    creation; credentials and permissions are managed outside this schema.
+    User account settings returned by the API. Administrative input uses
+    separate NewUser and UpdateUser schemas; permission rules are managed
+    through the user rights resource.
   properties:
     name:
       type: string
@@ -1617,6 +1618,7 @@ User:
         - expiration
         - last_login_at
         - last_password_change_at
+        - last_login_from
         - locked
         - closed
         - cdate
@@ -1632,13 +1634,13 @@ User:
         username:
           type: string
           readOnly: true
-          description: Immutable login name
+          description: Login name; administrative renames preserve the numeric ID
           example: ada
         email:
           type: string
           nullable: true
           readOnly: true
-          description: Immutable email address; may be absent on legacy accounts
+          description: Email address; may be absent on passwordless or legacy accounts
           example: ada@example.com
         last_login_at:
           type: integer
@@ -1652,6 +1654,11 @@ User:
           readOnly: true
           description: Last password change timestamp (Unix epoch), or null if unknown
           example: 1711400000
+        last_login_from:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Source address of the last login, or null if unknown
         locked:
           type: boolean
           readOnly: true
