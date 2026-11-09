@@ -45,11 +45,18 @@ post:
   summary: Create a user account
   tags: [users]
   description: >-
-    Requires superuser. Username is required and must match the CLI syntax.
-    An omitted password creates a passwordless account; supplied passwords
-    require auth.mode password or both. Defaults do not grant access. Assign
-    memberships and direct permissions separately through the rights resource.
-    Unknown fields are rejected. No temporary password is generated or returned.
+    Requires superuser, a username matching the CLI syntax, and a non-empty
+    local password. Missing, null, or empty passwords return 400. Account
+    creation requires auth.mode password or both; a valid creation request in
+    oidc mode returns 403. Email is optional for administrative provisioning.
+    For a non-superuser, supplying both a default server and a
+    matching default zone creates direct R grants for both, atomically with the
+    account and audit history. A server alone or no defaults creates no grants;
+    superusers receive no redundant grants. Under SAURON_PRIVILEGE_MODE=0,
+    server R also authorizes reads of its zones; the default zone is not an
+    access boundary. Assign memberships and additional permissions separately
+    through the rights resource. Unknown fields are rejected. No temporary
+    password is generated or returned.
   operationId: create_user
   x-mojo-name: create_user
   x-mojo-to: 'User#create_user'

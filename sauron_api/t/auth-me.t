@@ -123,7 +123,10 @@ subtest 'PUT /auth/me manages default server/zone' => sub {
     default_server_id => $srv, default_zone_id => $zone,
   })->status_is(200)
     ->json_is('/user/default_server_id' => $srv)
-    ->json_is('/user/default_zone_id'   => $zone);
+    ->json_is('/user/default_zone_id'   => $zone)
+    ->json_is('/rights' => [])
+    ->json_is('/permissions/server' => {})
+    ->json_is('/permissions/zone' => {});
 
   $t->put_ok('/api/v1/auth/me' => json => {
     default_server_id => undef, default_zone_id => undef,
@@ -171,8 +174,13 @@ subtest 'PUT /auth/me requires authentication' => sub {
 # ========================================================================
 
 subtest 'PUT /auth/me validation' => sub {
-  $t->put_ok('/api/v1/auth/me' => $ME => json => { email => 'not-an-email' })
-    ->status_is(400);
+  for my $email ('not-an-email', 'bad!@example.com', 'bad@-example.com',
+    'bad@example..com', 'bad@example-.com', 'bad@@example.com') {
+    $t->put_ok('/api/v1/auth/me' => $ME => json => { email => $email })
+      ->status_is(400);
+  }
+  $t->get_ok('/api/v1/auth/me' => $ME)->status_is(200)
+    ->json_is('/user/email' => "me_${pid}\@example.com");
   $t->put_ok('/api/v1/auth/me' => $ME => json => { email => "meother_${pid}\@example.com" })
     ->status_is(409)->json_is('/error' => 'Conflict');
   $t->put_ok('/api/v1/auth/me' => $ME => json => { name => 'New Name' })
@@ -181,16 +189,22 @@ subtest 'PUT /auth/me validation' => sub {
     ->status_is(400);
 };
 
-subtest 'PUT /auth/me changes and clears email (session auth survives)' => sub {
+subtest 'PUT /auth/me changes email but ordinary users cannot clear it' => sub {
   _login_me();
+  for my $email ("Me.Name_${pid}+tag-test\@Example.com", "me_${pid}\@intranet") {
+    $t->put_ok('/api/v1/auth/me' => json => { email => $email })
+      ->status_is(200)->json_is('/user/email' => $email);
+  }
   $t->put_ok('/api/v1/auth/me' => json => { email => "me-new_${pid}\@example.com" })
     ->status_is(200)->json_is('/user/email' => "me-new_${pid}\@example.com");
   $t->get_ok('/api/v1/auth/me')->status_is(200)
     ->json_is('/user/email' => "me-new_${pid}\@example.com");
 
-  $t->put_ok('/api/v1/auth/me' => json => { email => undef })->status_is(200)
-    ->json_is('/user/email' => undef);
-  $t->get_ok('/api/v1/auth/me')->status_is(200)->json_is('/user/email' => undef);
+  for my $email (undef, '', '   ') {
+    $t->put_ok('/api/v1/auth/me' => json => { email => $email })->status_is(400);
+    $t->get_ok('/api/v1/auth/me')->status_is(200)
+      ->json_is('/user/email' => "me-new_${pid}\@example.com");
+  }
 
   $t->put_ok('/api/v1/auth/me' => json => { email => "me_${pid}\@example.com" })->status_is(200);
 };

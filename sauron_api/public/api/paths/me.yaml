@@ -3,9 +3,14 @@ get:
   summary: Get current authenticated user
   tags: [ auth ]
   description: >
-    Returns information about the currently authenticated user.
-    Auth is handled before routing: proxy auth (X-Remote-User header from trusted
-    reverse proxy) or session cookie. Returns 401 if not authenticated.
+    Returns information about the currently authenticated user, the existing
+    permissions summary, and a complete unpaginated rights array containing
+    all direct and inherited permission rules with source-group provenance.
+    Available to ordinary users and superusers, including email-less accounts;
+    only the authenticated user's rules are exposed. The administrative
+    /users/{id}/rights resource remains superuser-only. Auth is handled before
+    routing: proxy auth (X-Remote-User header from a trusted reverse proxy),
+    session cookie, or Bearer PAT. Returns 401 if not authenticated.
   operationId: auth_me
   x-mojo-name: auth_me
   x-mojo-to: "Auth#me"
@@ -28,15 +33,21 @@ get:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
 put:
   security: []
-  summary: Update own email and email preferences
+  summary: Update own personal settings
   tags: [ auth ]
   description: >
-    Self-service update of the authenticated user's account: email address
-    and the email-notification preference (legacy "Personal Settings").
-    Available regardless of how the user authenticated. Admin changes to
-    other accounts or other fields are handled by the CLI tools.
+    Self-service update of the authenticated user's email, notification
+    preference, and default server/zone selections. Ordinary users must leave
+    a valid, non-empty email: null, empty, or whitespace-only email is rejected.
+    Omission preserves an existing valid address; an email-less ordinary user
+    must supply one even for an otherwise empty update. Superusers may maintain
+    email-less accounts. Changing defaults never grants access. Permission
+    rules are read-only here. Available with proxy, session, or PAT
+    authentication. Administrative changes are handled by /users.
   operationId: update_me
   x-mojo-name: update_me
   x-mojo-to: "Auth#update_me"
@@ -54,7 +65,7 @@ put:
           schema:
             $ref: '../components/schemas.yaml#/UserResponse'
     '400':
-      description: Invalid request (unknown field or invalid email)
+      description: Invalid request (unknown field, invalid defaults, or missing/invalid email)
       content:
         application/json:
           schema:

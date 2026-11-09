@@ -2,8 +2,10 @@ UserAccountInput:
   type: object
   description: >-
     Administrative account fields. Only supplied fields are changed on update.
-    Defaults are navigation preferences and never grant permissions. Username
-    and email are mutable; the numeric user ID remains stable.
+    Changing defaults never grants permissions. On creation only, supplying
+    both defaults for a non-superuser grants server R and zone R, matching
+    legacy adduser. A server alone grants nothing. Username and email are
+    mutable; the numeric user ID remains stable.
   properties:
     username:
       type: string
@@ -11,7 +13,9 @@ UserAccountInput:
     email:
       type: string
       nullable: true
-      description: Unique email address, or null to clear it.
+      description: >-
+        Unique email address validated like the legacy CGI, or null to clear it.
+        Administrators may create and maintain email-less accounts.
     name:
       type: string
       nullable: true
@@ -42,7 +46,7 @@ NewUser:
   allOf:
     - $ref: '#/UserAccountInput'
     - type: object
-      required: [username]
+      required: [username, password]
       properties:
         password:
           type: string
@@ -50,9 +54,9 @@ NewUser:
           writeOnly: true
           minLength: 1
           description: >-
-            Optional local password. Omission creates a passwordless account.
-            Allowed only in password or both authentication mode. Password mode
-            1 rejects values longer than eight bytes instead of truncating them.
+            Required non-empty local password. Account creation is allowed only
+            in password or both authentication mode. Password mode 1 rejects
+            values longer than eight bytes instead of truncating them.
 
 UpdateUser:
   $ref: '#/UserAccountInput'

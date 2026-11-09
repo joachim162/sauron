@@ -48,11 +48,9 @@ sub create_user ($self) {
   return unless check_perms($self, type => 'superuser');
 
   my $input = $self->req->json // {};
-  if (exists $input->{password}) {
-    my $mode = $self->app->config->{auth}{mode} // 'password';
-    SauronAPI::Exception->forbidden('Local-password administration is not enabled')
-      unless $mode eq 'password' || $mode eq 'both';
-  }
+  my $mode = $self->app->config->{auth}{mode} // 'password';
+  SauronAPI::Exception->forbidden('Local-password administration is not enabled')
+    unless $mode eq 'password' || $mode eq 'both';
 
   my $user = eval { user_create($self->stash('api_user_id'), $input) };
   return $self->render_exception($@) if $@;

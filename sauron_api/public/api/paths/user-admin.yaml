@@ -99,8 +99,9 @@ rights:
     summary: List direct and inherited user permission rules
     tags: [users]
     description: >-
-      Requires superuser, including when reading one's own rights. Returns a
-      paginated collection with source-group provenance. Direct rules sort first,
+      Requires superuser, including when reading one's own rights. Ordinary
+      users can view their own complete rules through GET /auth/me instead.
+      Returns a paginated collection with source-group provenance. Direct rules sort first,
       then inherited rules by group ID, and within each source by rule ID.
       Inherited rules are read-only; only direct rules can be removed here.
     operationId: list_user_rights

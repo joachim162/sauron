@@ -23,6 +23,9 @@ sub _query {
 
 END {
   eval { Sauron::DB::db_exec("DROP TRIGGER IF EXISTS $trigger ON history"); };
+  for my $table (qw(user_rights history)) {
+    eval { Sauron::DB::db_exec("DROP TRIGGER IF EXISTS reject_initial_${table}_$pid ON $table"); };
+  }
   if ($group) {
     eval { _query('DELETE FROM user_rights WHERE type=1 AND ref=? RETURNING id', $group); };
     eval { _query('DELETE FROM user_groups WHERE id=? RETURNING id', $group); };
@@ -51,11 +54,23 @@ sub _new {
   my (%fields) = @_;
   my $name = 'ua-new-' . $pid . '-' . ++$seq;
   $t->reset_session;
-  $t->post_ok($BASE => $SUPER => json => {username => $name, %fields})->status_is(201);
+  $t->post_ok($BASE => $SUPER => json => {username => $name, password => 'testpass', %fields})->status_is(201);
   my $rows = _query('SELECT id FROM users WHERE username=?', $fields{username} // $name);
   push @users, $rows->[0][0] if @$rows;
   die $t->tx->res->body unless $t->tx->res->code == 201;
   return $t->tx->res->json;
+}
+
+sub _legacy_passwordless {
+  my (%fields) = @_;
+  my $name = 'ua-legacy-' . $pid . '-' . ++$seq;
+  my $id = Sauron::BackEnd::add_record('users', {
+    username => $name, password => undef, email => $fields{email}, flags => 0,
+    superuser => $fields{superuser} ? 't' : 'f',
+  });
+  die 'Legacy passwordless fixture failed' unless $id > 0;
+  push @users, $id;
+  return {id => $id, username => $name};
 }
 
 sub _history_count {
@@ -78,7 +93,7 @@ sub _no_credentials {
 
 subtest 'all administrative routes enforce authentication and superuser' => sub {
   my @requests = (
-    [post => $BASE, {username => "ua-denied-$pid"}],
+    [post => $BASE, {username => "ua-denied-$pid", password => 'testpass'}],
     [put => "$BASE/$ordinary", {superuser => JSON::PP::true}],
     [delete => "$BASE/$ordinary"],
     (map { [post => "$BASE/$ordinary/$_"] } qw(lock unlock close)),
@@ -99,7 +114,7 @@ subtest 'all administrative routes enforce authentication and superuser' => sub 
   }
 };
 
-subtest 'create accounts, validate identity, and do not grant from defaults' => sub {
+subtest 'create accounts, validate identity, and grant read access from paired defaults' => sub {
   my $user = _new(default_server_id => $server, default_zone_id => $zone, email_notify => JSON::PP::true);
   my $id = $user->{id};
   like($t->tx->res->headers->location // '', qr{/users/$id$}, 'Location identifies account');
@@ -108,14 +123,28 @@ subtest 'create accounts, validate identity, and do not grant from defaults' => 
   is($user->{email_notify}, JSON::PP::true, 'notification preference');
   is($user->{superuser}, JSON::PP::false, 'not superuser by default');
   ok(!exists $user->{password}, 'no password returned');
-  ok(!defined _query('SELECT password FROM users WHERE id=?', $id)->[0][0], 'passwordless storage');
-  is(_query('SELECT COUNT(*) FROM user_rights WHERE type=2 AND ref=?', $id)->[0][0], 0, 'defaults grant no rights');
+  is(Sauron::Util::pwd_check('testpass', _query('SELECT password FROM users WHERE id=?', $id)->[0][0]),
+    0, 'required password stored as a usable hash');
+  is($user->{email}, undef, 'administrator may create an email-less account');
+  $t->get_ok("$BASE/$id/rights" => $SUPER)->status_is(200)
+    ->json_is('/metadata/pagination/total' => 2)
+    ->json_is('/data/0/kind' => 'server')->json_is('/data/0/server_id' => $server)
+    ->json_is('/data/0/mode' => 'R')->json_is('/data/0/source' => 'direct')
+    ->json_is('/data/1/kind' => 'zone')->json_is('/data/1/zone_id' => $zone)
+    ->json_is('/data/1/mode' => 'R')->json_is('/data/1/source' => 'direct');
+  is(_history_count($id), 3, 'account and both initial grants audited');
+  my $pat = make_pat($id, 'initial-access');
+  $t->reset_session;
+  $t->get_ok('/api/v1/auth/me' => {Authorization => "Bearer $pat"})->status_is(200)
+    ->json_is("/permissions/server/$server" => 'R')
+    ->json_is("/permissions/zone/$zone" => 'R')
+    ->json_is('/permissions/alevel' => 0);
   my $password_user = _new(password => 'safe1234', email => "ua-login-$pid\@example.com");
   my $stored = _query('SELECT password,last_pwd FROM users WHERE id=?', $password_user->{id})->[0];
   isnt($stored->[0], 'safe1234', 'password hashed');
   is(Sauron::Util::pwd_check('safe1234', $stored->[0]), 0, 'hash verifies');
   ok($stored->[1] > 0, 'password timestamp');
-  $t->post_ok($BASE => $SUPER => json => {username => $user->{username}})->status_is(409);
+  $t->post_ok($BASE => $SUPER => json => {username => $user->{username}, password => 'testpass'})->status_is(409);
   for my $input (
     {}, {username => 'Bad_User'}, {username => "ua-invalid-$pid", password => ''},
     {username => "ua-invalid-$pid", password => '123456789'},
@@ -125,9 +154,97 @@ subtest 'create accounts, validate identity, and do not grant from defaults' => 
     {username => "ua-invalid-$pid", expiration => -1},
     {username => "ua-invalid-$pid", rights => []}
   ) {
-    $t->post_ok($BASE => $SUPER => json => $input)->status_is(400);
+    $t->post_ok($BASE => $SUPER => json => {password => 'testpass', %$input})->status_is(400);
   }
-  $t->post_ok($BASE => $SUPER => json => {username => "ua-invalid-$pid", email => "ua-login-$pid\@example.com"})->status_is(409);
+  $t->post_ok($BASE => $SUPER => json => {
+    username => "ua-invalid-$pid", password => 'testpass', email => "ua-login-$pid\@example.com",
+  })->status_is(409);
+};
+
+subtest 'creation requires a non-empty password in password and both modes' => sub {
+  for my $mode (qw(password both)) {
+    local $t->app->config->{auth}{mode} = $mode;
+    my $name = "ua-required-password-$mode-$pid";
+    for my $fields ({}, {password => undef}, {password => ''}) {
+      $t->post_ok($BASE => $SUPER => json => {username => $name, %$fields})->status_is(400);
+      is(scalar @{_query('SELECT id FROM users WHERE username=?', $name)}, 0, 'no account created');
+      is(_query('SELECT COUNT(*) FROM history WHERE uid=? AND type=5 AND info LIKE ?',
+        $super, "%$name%")->[0][0], 0, 'no successful creation history');
+    }
+    my $user = _new(password => 'safe1234');
+    ok($user->{last_password_change_at} > 0, 'initial password timestamp returned');
+    ok(!exists $user->{password}, 'password not returned');
+  }
+};
+
+subtest 'initial grants require paired defaults and a non-superuser' => sub {
+  for my $fields ({}, {default_server_id => $server}, {
+    default_server_id => $server, default_zone_id => $zone, superuser => JSON::PP::true,
+  }) {
+    my $user = _new(%$fields);
+    $t->get_ok("$BASE/$user->{id}/rights" => $SUPER)->status_is(200)
+      ->json_is('/data' => [])->json_is('/metadata/pagination/total' => 0);
+    is(_history_count($user->{id}), 1, 'only account creation audited');
+  }
+};
+
+subtest 'ordinary self-service requires email but administrators may maintain email-less accounts' => sub {
+  my $user = _new;
+  my $id = $user->{id};
+  $t->put_ok("$BASE/$id" => $SUPER => json => {comment => 'Still email-less'})
+    ->status_is(200)->json_is('/email' => undef);
+  my $pat = make_pat($id, 'email-required');
+  my $bearer = {Authorization => "Bearer $pat"};
+  my $before = _query('SELECT mdate,muser,flags FROM users WHERE id=?', $id);
+  $t->reset_session;
+  $t->get_ok('/api/v1/auth/me' => $bearer)->status_is(200)
+    ->json_is('/user/email' => undef)->json_is('/rights' => []);
+  for my $input ({}, {email_notify => JSON::PP::true}, {default_server_id => $server},
+    {email => undef}, {email => ''}, {email => '   '}, {email => 'bad!@example.com'}) {
+    $t->put_ok('/api/v1/auth/me' => $bearer => json => $input)->status_is(400);
+  }
+  is_deeply(_query('SELECT mdate,muser,flags FROM users WHERE id=?', $id), $before,
+    'rejected personal settings do not change the record');
+  $t->put_ok('/api/v1/auth/me' => $bearer => json => {
+    email => "ua-self-$pid\@example.com", email_notify => JSON::PP::true,
+  })->status_is(200)->json_is('/user/email' => "ua-self-$pid\@example.com");
+  $t->put_ok('/api/v1/auth/me' => $bearer => json => {email_notify => JSON::PP::false})
+    ->status_is(200)->json_is('/user/email' => "ua-self-$pid\@example.com");
+  $t->put_ok("$BASE/$id" => $SUPER => json => {email => undef})->status_is(200)
+    ->json_is('/email' => undef);
+  $t->get_ok('/api/v1/auth/me' => $bearer)->status_is(200)->json_is('/user/email' => undef);
+  $t->put_ok('/api/v1/auth/me' => $bearer => json => {})->status_is(400);
+
+  my $admin = _new(superuser => JSON::PP::true);
+  my $admin_pat = make_pat($admin->{id}, 'admin-email-optional');
+  my $admin_bearer = {Authorization => "Bearer $admin_pat"};
+  $t->put_ok('/api/v1/auth/me' => $admin_bearer => json => {email_notify => JSON::PP::true})
+    ->status_is(200)->json_is('/user/email' => undef);
+  $t->put_ok('/api/v1/auth/me' => $admin_bearer => json => {email => "ua-self-admin-$pid\@example.com"})
+    ->status_is(200);
+  $t->put_ok('/api/v1/auth/me' => $admin_bearer => json => {email => undef})
+    ->status_is(200)->json_is('/user/email' => undef);
+};
+
+subtest 'administrative email validation follows the legacy CGI' => sub {
+  my $email = "UA.Name_$pid+tag-test\@Example.com";
+  my $user = _new(email => $email);
+  my $id = $user->{id};
+  is($user->{email}, $email, 'legacy local-part characters preserved');
+  my $history = _history_count($id);
+  for my $invalid ('bad!@example.com', 'bad@-example.com',
+    'bad@example..com', 'bad@example-.com', 'bad@@example.com') {
+    $t->post_ok($BASE => $SUPER => json => {
+      username => "ua-email-invalid-$pid", password => 'testpass', email => $invalid,
+    })->status_is(400);
+    $t->put_ok("$BASE/$id" => $SUPER => json => {email => $invalid})->status_is(400);
+  }
+  $t->get_ok("$BASE/$id" => $SUPER)->status_is(200)->json_is('/email' => $email);
+  is(_history_count($id), $history, 'rejected emails do not create history');
+  is(scalar @{_query('SELECT id FROM users WHERE username=?', "ua-email-invalid-$pid")},
+    0, 'rejected emails do not create accounts');
+  $t->put_ok("$BASE/$id" => $SUPER => json => {email => "ua-$pid\@intranet"})
+    ->status_is(200)->json_is('/email' => "ua-$pid\@intranet");
 };
 
 subtest 'partial updates, renames, clearing fields and stable IDs' => sub {
@@ -138,6 +255,8 @@ subtest 'partial updates, renames, clearing fields and stable IDs' => sub {
     default_server_id => $server, default_zone_id => $zone, expiration => time + 86400,
   })->status_is(200)->json_is('/id' => $id)->json_is('/username' => "ua-renamed-$pid")
     ->json_is('/email_notify' => JSON::PP::true)->json_is('/muser' => "ua-admin-$pid");
+  $t->get_ok("$BASE/$id/rights" => $SUPER)->status_is(200)
+    ->json_is('/metadata/pagination/total' => 0);
   $t->put_ok("$BASE/$id" => $SUPER => json => {email => undef, comment => undef, expiration => undef,
     default_server_id => undef, default_zone_id => undef})->status_is(200)
     ->json_is('/email' => undef)->json_is('/expiration' => 0)->json_is('/default_server_id' => undef);
@@ -165,7 +284,7 @@ subtest 'self-lockout and self-demotion are rejected' => sub {
 };
 
 subtest 'passwordless superusers qualify and role changes apply without revoking PATs' => sub {
-  my $user = _new(superuser => JSON::PP::true, email => "ua-second-admin-$pid\@example.com");
+  my $user = _legacy_passwordless(superuser => 1, email => "ua-second-admin-$pid\@example.com");
   my $id = $user->{id};
   my $pat = make_pat($id, 'second-admin');
   $t->reset_session;
@@ -202,7 +321,7 @@ subtest 'locking, unlocking and password resets revoke credentials' => sub {
   for my $input ({}, {password => ''}, {password => '123456789'}, {password => 'short', current_password => 'oldpass1'}) {
     $t->post_ok("$BASE/$id/password" => $SUPER => json => $input)->status_is(400);
   }
-  my $passwordless = _new;
+  my $passwordless = _legacy_passwordless;
   $t->post_ok("$BASE/$passwordless->{id}/lock" => $SUPER)->status_is(200);
   $t->post_ok("$BASE/$passwordless->{id}/unlock" => $SUPER)->status_is(200);
   ok(!defined _query('SELECT password FROM users WHERE id=?', $passwordless->{id})->[0][0], 'passwordless unlock stays passwordless');
@@ -213,7 +332,11 @@ subtest 'OIDC mode forbids local-password provisioning, not other administration
   local $t->app->config->{auth}{mode} = 'oidc';
   $t->post_ok($BASE => $SUPER => json => {username => "ua-oidc-denied-$pid", password => 'localpw1'})->status_is(403);
   $t->post_ok("$BASE/$user->{id}/password" => $SUPER => json => {password => 'localpw1'})->status_is(403);
-  _new;
+  $t->post_ok($BASE => $SUPER => json => {username => "ua-oidc-denied-$pid"})->status_is(400);
+  is(scalar @{_query('SELECT id FROM users WHERE username=?', "ua-oidc-denied-$pid")},
+    0, 'OIDC creation cannot bypass the password requirement');
+  $t->put_ok("$BASE/$user->{id}" => $SUPER => json => {comment => 'OIDC administration'})
+    ->status_is(200);
   $t->post_ok("$BASE/$user->{id}/lock" => $SUPER)->status_is(200);
 };
 
@@ -274,12 +397,40 @@ subtest 'all rule kinds, validation and inherited provenance' => sub {
   $t->reset_session;
   $t->get_ok('/api/v1/auth/me' => {Authorization => "Bearer $pat"})->status_is(200)
     ->json_is("/permissions/server/$server" => 'RW');
+  my $self_rights = $t->tx->res->json->{rights};
+  is(scalar @$self_rights, 15, 'self view includes every remaining rule kind');
+  is_deeply((grep { $_->{id} == $inherited } @$self_rights)[0], $source,
+    'self view preserves inherited group provenance');
+  is((grep { $_->{kind} eq 'net' } @$self_rights)[0]{net_id}, $net, 'self view includes networks');
+  is((grep { $_->{kind} eq 'elimit' } @$self_rights)[0]{value}, 30, 'self view includes expiration limit');
+  is((grep { $_->{kind} eq 'flag' } @$self_rights)[0]{value}, 'CNAME', 'self view includes privilege flags');
+  $t->get_ok("$BASE/$id/rights" => {Authorization => "Bearer $pat"})->status_is(403);
+  $t->get_ok("$BASE/$ordinary/rights" => {Authorization => "Bearer $pat"})->status_is(403);
+  $t->put_ok('/api/v1/auth/me' => {Authorization => "Bearer $pat"} => json => {rights => []})->status_is(400);
+  $t->get_ok('/api/v1/auth/me' => $ORD)->status_is(200)->json_is('/rights' => []);
+  $t->get_ok("/api/v1/auth/me?id=$ordinary" => {Authorization => "Bearer $pat"})
+    ->status_is(200)->json_is('/rights' => $self_rights);
   $t->delete_ok("$BASE/$id/rights" => $SUPER)->status_is(204);
   $t->get_ok("$BASE/$id/rights" => $SUPER)->status_is(200)->json_is('/metadata/pagination/total' => 0);
   ok(@{_query('SELECT id FROM user_rights WHERE id=?', $inherited)}, 'group-owned rule preserved');
   $t->reset_session;
   $t->get_ok('/api/v1/auth/me' => {Authorization => "Bearer $pat"})->status_is(200)
-    ->json_is('/permissions/server' => {});
+    ->json_is('/permissions/server' => {})->json_is('/rights' => []);
+};
+
+subtest 'self permission rules are complete rather than limited to a list page' => sub {
+  my $user = _new;
+  my $id = $user->{id};
+  _query("INSERT INTO user_rights (type,ref,rtype,rref,rule) "
+    . "SELECT 2,?,4,-1,'^host-' || n FROM generate_series(1,105) n RETURNING id", $id);
+  $t->get_ok("$BASE/$id/rights" => $SUPER)->status_is(200)
+    ->json_is('/metadata/pagination/total' => 105);
+  is(scalar @{$t->tx->res->json->{data}}, 50, 'administrative list remains paginated');
+  my $pat = make_pat($id, 'all-own-rights');
+  $t->reset_session;
+  $t->get_ok('/api/v1/auth/me' => {Authorization => "Bearer $pat"})->status_is(200);
+  is(scalar @{$t->tx->res->json->{rights}}, 105, 'all own rules returned');
+  $t->json_is('/rights/104/pattern' => '^host-105');
 };
 
 subtest 'group lookup is paginated read-only reference data' => sub {
@@ -325,7 +476,7 @@ subtest 'closure is terminal and deletion is explicit' => sub {
 
 subtest 'passwordless expiration is enforced for proxy, session and PAT authentication' => sub {
   my $email = "ua-expiry-$pid\@example.com";
-  my $user = _new(email => $email);
+  my $user = _legacy_passwordless(email => $email);
   my $id = $user->{id};
   my ($pat, $session) = _credentials($id);
   $t->reset_session;
@@ -360,7 +511,7 @@ subtest 'audit failures roll back account, rights and credential changes' => sub
   $t->post_ok("$BASE/$id/lock" => $SUPER)->status_is(500);
   $t->post_ok("$BASE/$expired_id/close" => $SUPER)->status_is(500);
   $t->delete_ok("$BASE/$expired_id" => $SUPER)->status_is(500);
-  $t->post_ok($BASE => $SUPER => json => {username => "ua-rollback-$pid"})->status_is(500);
+  $t->post_ok($BASE => $SUPER => json => {username => "ua-rollback-$pid", password => 'testpass'})->status_is(500);
   is(Sauron::DB::db_exec("DROP TRIGGER $trigger ON history"), 0, 'remove audit failure trigger');
   is(scalar @{_query('SELECT id FROM users WHERE username=?', "ua-rollback-$pid")}, 0, 'failed creation rolled back');
   $t->get_ok("$BASE/$expired_id" => $SUPER)->status_is(200)->json_is('/closed' => JSON::PP::false);
@@ -373,6 +524,34 @@ subtest 'audit failures roll back account, rights and credential changes' => sub
   is(_query('SELECT COUNT(*) FROM bff_sessions WHERE user_id=?', $id)->[0][0], 1, 'session revocation rolled back');
   is(Sauron::Util::pwd_check('oldpass1', _query('SELECT password FROM users WHERE id=?', $id)->[0][0]), 0, 'password reset rolled back');
   is(_history_count($id), $history, 'no false success history');
+};
+
+subtest 'initial grant and grant-audit failures roll back the entire creation' => sub {
+  my $before = _query('SELECT COUNT(*) FROM user_rights WHERE (rtype=1 AND rref=?) OR (rtype=2 AND rref=?)',
+    $server, $zone)->[0][0];
+  for my $table (qw(user_rights history)) {
+    my $name = "ua-initial-$table-$pid";
+    $name =~ tr/_/-/;
+    my $failure = "reject_initial_${table}_$pid";
+    my $condition = $table eq 'history'
+      ? "NEW.uid=$super AND NEW.type=5 AND NEW.action='ADD: User right'"
+      : "NEW.type=2 AND NEW.rtype=2 AND NEW.rref=$zone";
+    is(Sauron::DB::db_exec("CREATE FUNCTION pg_temp.$failure() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN IF $condition THEN RAISE EXCEPTION 'initial grant unavailable'; END IF; RETURN NEW; END \$\$"),
+      0, 'initial grant failure function');
+    is(Sauron::DB::db_exec("CREATE TRIGGER $failure BEFORE INSERT ON $table FOR EACH ROW EXECUTE FUNCTION pg_temp.$failure()"),
+      0, 'initial grant failure trigger');
+    $t->post_ok($BASE => $SUPER => json => {
+      username => $name, password => 'testpass', default_server_id => $server, default_zone_id => $zone,
+    })->status_is(500);
+    is(Sauron::DB::db_exec("DROP TRIGGER $failure ON $table"), 0, 'remove failure trigger');
+    my $rows = _query('SELECT id FROM users WHERE username=?', $name);
+    push @users, map { $_->[0] } @$rows;
+    is(scalar @$rows, 0, 'account creation rolled back');
+    is(_query('SELECT COUNT(*) FROM history WHERE uid=? AND type=5 AND info LIKE ?', $super, "%$name%")
+      ->[0][0], 0, 'account and grant history rolled back');
+    is(_query('SELECT COUNT(*) FROM user_rights WHERE (rtype=1 AND rref=?) OR (rtype=2 AND rref=?)',
+      $server, $zone)->[0][0], $before, 'no orphaned initial grants');
+  }
 };
 
 subtest 'administrative history excludes credentials' => sub {

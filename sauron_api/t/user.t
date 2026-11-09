@@ -72,7 +72,7 @@ subtest 'detail: self or superuser only' => sub {
 };
 
 subtest 'administrative writes require superuser' => sub {
-  $t->post_ok($BASE => $ORD => json => { username => _uname('new') })->status_is(403);
+  $t->post_ok($BASE => $ORD => json => { username => _uname('new'), password => 'testpass' })->status_is(403);
   $t->put_ok("$BASE/$ordinary" => $ORD => json => { comment => 'x' })->status_is(403);
   $t->delete_ok("$BASE/$other" => $ORD)->status_is(403);
 };

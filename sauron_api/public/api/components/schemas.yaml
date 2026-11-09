@@ -1472,15 +1472,21 @@ UpdateMe:
   description: >
     Self-service account settings the authenticated user may change: email,
     email-notification preference, and default server/zone selections (legacy
-    "Save defaults"/"Clear defaults"). Admin operations intentionally use the
-    CLI tools instead. Default selections do not grant permissions.
+    "Save defaults"/"Clear defaults"). Ordinary users must leave a valid,
+    non-empty email when saving, including on an otherwise empty update.
+    Email may be omitted if the stored address is valid; email-less accounts
+    must supply one. Superusers may maintain email-less accounts. Changing
+    default selections here never grants permissions; administrative account
+    management is available through /users.
   additionalProperties: false
   properties:
     email:
       type: string
       nullable: true
       format: email
-      description: New email address; null clears it
+      description: >-
+        New email address, validated like the legacy CGI. Ordinary users cannot
+        clear it; only superusers may use null to clear their own email.
       example: ada@example.com
     email_notify:
       type: boolean
@@ -1524,6 +1530,18 @@ UserResponse:
   properties:
     user:
       $ref: '#/AuthenticatedUser'
+    rights:
+      type: array
+      readOnly: true
+      description: >-
+        Complete, unpaginated list of the authenticated user's direct and
+        inherited permission rules, with source-group provenance. Direct rules
+        sort first, then inherited rules by group ID; within each source, rules
+        sort by ID. Includes all rule kinds, not only the permissions summary.
+        Read-only here; /users/{id}/rights remains superuser-only. Direct rules
+        are not guaranteed overrides of inherited rules.
+      items:
+        $ref: './user-admin.yaml#/UserRight'
     permissions:
       type: object
       properties:

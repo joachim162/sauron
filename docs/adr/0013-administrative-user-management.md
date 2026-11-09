@@ -10,9 +10,10 @@ Administrative account lifecycle and permission management were available throug
 `adduser`, `moduser`, and `deluser`.
 
 The administrative API covers the user-side functionality of those tools.
-Strict CLI parity would also reproduce administrator-lockout hazards, permit
-reopening a closed identity, and require a local password even for externally
-authenticated accounts. These behaviors are deliberately not all copied.
+Strict CLI parity would also reproduce administrator-lockout hazards and
+permit reopening a closed identity. These behaviors are deliberately not
+copied. New accounts require a supplied local password; existing passwordless
+accounts remain supported.
 
 This ADR records the administrative API's agreed behavior, deliberate CLI
 divergences, and the legacy gaps either corrected or explicitly retained.
@@ -60,6 +61,15 @@ granted by a group. The user's account schema does not accept a replace-all
 permission set. Preserve the existing permission evaluator rather than making
 its flattened effective-permission result writable.
 
+All authenticated users can view their own complete permission rules through
+`GET /auth/me`. Its response retains the existing `permissions` summary and
+adds an unpaginated `rights` array using the same typed objects and provenance
+as the administrative collection. It includes every direct and inherited rule,
+not just the first page. Only the authenticated identity is used; users cannot
+select another account. Rules are read-only on `/auth/me`, and
+`GET /users/{id}/rights` remains superuser-only even for self-read. The same
+account response is returned by login and personal-settings updates.
+
 Reject an exact duplicate direct rule with `409 Conflict`. Distinct rules of
 the same kind remain allowed, preserving legacy evaluator behavior. A direct
 rule may duplicate an inherited grant because the two have different owners:
@@ -73,18 +83,30 @@ account-and-rule changes are not one atomic save.
 
 ### Account lifecycle
 
-- `POST /users` accepts an optional local password. When supplied, hash it
-  using the configured password mode and preserve the API's existing
-  password-length safeguards. When omitted, create a passwordless account.
-  Do not automatically generate or return a temporary password.
+- `POST /users` requires a non-empty local password. Missing, null, and empty
+  passwords return `400`. Hash the supplied password using the configured
+  password mode and preserve the API's existing password-length safeguards.
+  Do not automatically generate or return a temporary password. This replaces
+  the earlier decision to allow passwordless API account creation; existing
+  passwordless accounts remain supported for authentication and administration.
 - `POST /users/{id}/close` clears personal details, removes permissions and
   memberships, and disables access while retaining the username and ID for
   history. This is the operation the CLI calls anonymization, not complete
   anonymization of the retained identity or its history.
-- Default server and zone selections are navigation preferences, not access
-  grants. Creating an account with defaults does not automatically grant read
-  access; administrators assign access explicitly through the rights resource
-  or user-group membership.
+- On creation only, a non-superuser with both a default server and a matching
+  default zone receives direct server `R` and zone `R` rules, matching legacy
+  `adduser`. Account insertion, both grants, and all audit entries commit
+  atomically. No defaults or a server alone produce no grants; superusers do
+  not receive redundant grants. Legacy `adduser` also skips these grants when
+  an initial user group is supplied; the API currently assigns memberships
+  separately and has no initial-group input.
+- Later changes to default server/zone selections, whether administrative or
+  self-service, never grant or remove permissions. Defaults remain navigation
+  preferences, not an access boundary. In `SAURON_PRIVILEGE_MODE=0`, a server
+  `R` rule can authorize reads across that server's zones, not only the default
+  zone. Server-only initial grants (option B) are deferred to
+  [issue #64](https://github.com/joachim162/sauron/issues/64); option A, exact
+  legacy behavior, is the current decision.
 - `DELETE /users/{id}` permanently removes the account.
 - Both closure and permanent deletion require a locked or expired target,
   matching the `deluser` precondition.
@@ -93,6 +115,22 @@ account-and-rule changes are not one atomic save.
   membership changes on a closed account are rejected with `409 Conflict`.
   Repeated closure also returns `409 Conflict`, matching the CLI rejection of
   an already anonymized account. Locking, unlike closure, is reversible.
+
+### Personal-settings email requirement
+
+Administrators may create and maintain email-less accounts through `/users`.
+Reading `/auth/me` does not require an email. When an ordinary user saves
+personal settings through `PUT /auth/me`, the resulting email must be valid
+and non-empty. Explicit null, empty, or whitespace-only values are rejected
+with `400`. Omission is allowed only when an existing valid address is retained;
+an email-less ordinary account must supply one even for an otherwise empty
+update. Failed validation leaves preferences and audit columns unchanged.
+Superusers may maintain email-less accounts, including through `/auth/me`.
+
+Non-empty addresses follow the legacy CGI local-part character rules and
+`Sauron::Util::valid_domainname` validation. This does not change authentication
+identity matching or email uniqueness policy. Existing empty-update no-op
+behavior is retained for accounts satisfying the email requirement.
 
 ### Administrator-lockout protection
 
@@ -111,13 +149,14 @@ loss of access caused by scheduled expiration or external authentication outages
 
 ### Local-password administration and authentication mode
 
-When `auth.mode` is `oidc`, reject account creation with a supplied local
-password and administrative local-password resets with `403 Forbidden`.
-Passwordless account creation and other administrative operations remain
-available. Local-password provisioning and resets are available in `password`
-and `both` modes. This extends the mode gate used by self-service password
-changes in ADR 0012 to the new administrative password-setting operations.
-It does not change existing login or self-service behavior.
+Account creation and administrative local-password resets are available only
+when `auth.mode` is `password` or `both`. A valid request in `oidc` mode returns
+`403 Forbidden`. Since creation requires a local password, the API cannot
+provision new accounts in OIDC-only mode; there is no passwordless creation
+exception. Other administrative operations remain available, including for
+existing passwordless accounts. This extends the mode gate used by self-service
+password changes in ADR 0012 without changing existing login or self-service
+password behavior.
 
 ### Account eligibility across authentication methods
 
@@ -191,12 +230,12 @@ to retain the CLI's last-login source information.
 | Last active superuser | No last-administrator safeguard | Reject changes leaving no active superuser | Preserve administrative recovery through the API |
 | Closure versus deletion | `deluser` defaults to anonymization; `--delete` removes the record | Explicit `POST .../close`; `DELETE` always removes the record | Make retention versus permanent removal unambiguous |
 | Anonymization terminology | Retains username and ID while calling the operation anonymization | Call it account closure and document retained identity | Do not imply complete anonymization |
-| Passwordless creation | `adduser` prompts for a password and offers a generated default | Omitted password creates an account without a local password; no generated credential | Support proxy/SSO provisioning without a password-delivery workflow |
+| Initial password | `adduser` prompts for a password and offers a generated default | Require a supplied non-empty password; never generate or return a credential | Preserve explicit password provisioning without a password-delivery workflow |
 | Reopening closed accounts | `moduser --unlock` strips `LOCKED:` even from `LOCKED:REMOVED`; a later password reset can restore usability | Closed accounts are immutable except for permanent deletion | Keep historical identities terminal; use reversible locking for suspension |
 | Credentials after locking or administrative password reset | `moduser` changes the password field without deleting existing sessions or PATs; old PATs can become usable again after unlocking | Permanently revoke all existing sessions and PATs on either operation | Prevent old credentials from surviving a security intervention |
 | Password reset on a locked account | `moduser --passwd` refuses locked accounts | Allow an administrative reset while preserving the lock | Replace compromised credentials without briefly reactivating the account |
-| Password administration in OIDC mode | CLI password operations are not governed by the API's `auth.mode` | Reject supplied passwords on creation and administrative resets in `oidc` mode with 403 | Keep new password-setting operations consistent with the self-service mode gate |
-| Initial read access from defaults | `adduser` grants server and zone R when both defaults are supplied for a non-superuser without an initial user group | Defaults never implicitly grant access; use explicit direct rules or group membership | Keep navigation preferences separate from authorization |
+| Password administration in OIDC mode | CLI password operations are not governed by the API's `auth.mode` | Reject valid account-creation and administrative reset requests in `oidc` mode with 403 | Keep required password provisioning consistent with the self-service mode gate |
+| Initial read access from defaults | `adduser` grants server and zone R when both defaults are supplied for a non-superuser without an initial user group | Preserve paired-default grants on creation; no server-only grants and no grants on later default changes | Restore CLI parity while preventing self-service privilege escalation |
 | Exact duplicate direct rules | CLI and database allow redundant rows | Reject exact duplicate direct rules with 409; overlapping inherited grants remain allowed | Avoid redundant rows while preserving independent ownership of direct and inherited grants |
 | Administrative audit coverage | CLI history covers creation, closure/deletion, and membership changes but omits many other mutations | Audit every successful administrative mutation atomically with the change, excluding credential material | Provide complete administrative accountability and avoid unaudited commits |
 | Invalid permission patterns and storage bounds | CLI regex rules are not compiled before insertion; overlong values reach the CHAR(80) database limit | Reject invalid Perl regexes and values longer than 80 characters with 400 | Avoid installing unusable rules and surface storage constraints as validation errors |
@@ -236,8 +275,8 @@ assumption rather than requiring a local password.
 
 ## Alternatives considered
 
-- Copy CLI behavior exactly, including closure as the default delete behavior,
-  mandatory local passwords, and no administrator-lockout safeguards. Rejected
+- Copy CLI behavior exactly, including closure as the default delete behavior
+  and no administrator-lockout safeguards. Rejected
   because accidental loss of access and ambiguous destructive operations are
   especially hazardous for remote clients.
 - Permit reopening closed accounts. Rejected because closure has already
@@ -259,7 +298,8 @@ assumption rather than requiring a local password.
   above. The legacy tools are unchanged and remain available for recovery.
 - Clients must choose closure or permanent deletion explicitly, and cannot
   reactivate a closed identity through the API.
-- A passwordless account cannot use password login; it may authenticate through
+- New accounts created through the API must have a local password. Existing
+  passwordless accounts cannot use password login, but may authenticate through
   a configured external identity provider or an issued personal access token.
 - Implementation and controller-parity tests must enforce the lifecycle,
   lockout, and credential-revocation invariants, rather than relying on

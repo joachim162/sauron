@@ -4,7 +4,7 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 use Sauron::BackEnd ();
 use Sauron::Util ();
 use SauronAPI::Exception ();
-use SauronAPI::Repository::User qw(user_self_update user_change_password);
+use SauronAPI::Repository::User qw(user_self_update user_change_password user_rights);
 use JSON::PP ();
 
 sub _render_user_response {
@@ -32,7 +32,11 @@ sub _render_user_response {
     $default_zone   = ($user{zone}   // -1) > 0 ? $user{zone}   + 0 : undef;
   }
 
+  my $rights = eval { user_rights($user_id) };
+  return $c->render_exception($@) if $@;
+
   $c->render(json => {
+    rights      => $rights,
     user        => {
       id          => $user_id,
       username    => $username,

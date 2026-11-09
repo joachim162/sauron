@@ -6,7 +6,7 @@ use Exporter 'import';
 our @EXPORT_OK = qw(
   user_list user_find user_self_update user_change_password user_is_active
   user_create user_update user_lock user_unlock user_reset_password user_remove
-  user_right_list user_right_add user_right_delete user_group_list
+  user_rights user_right_list user_right_add user_right_delete user_group_list
 );
 
 use Sauron::BackEnd ();
@@ -135,12 +135,17 @@ sub user_self_update {
       unless $allowed{$field};
   }
 
-  # A body without updatable fields is a no-op: legacy reports "No changes
-  # made" and the request must not bump the audit columns.
-  return user_find($user_id)
+  my $row = _user_row($user_id);
+  if (($row->[11] // '') ne 't') {
+    my $email = exists $input->{email} ? $input->{email} : $row->[8];
+    SauronAPI::Exception->validation('Email is required when saving personal settings')
+      unless defined $email && $email =~ /\S/;
+    _assert_unique_email($email, $user_id) unless exists $input->{email};
+  }
+
+  return _build_user_response($row)
     unless grep { exists $input->{$_} } keys %allowed;
 
-  my $row = _user_row($user_id);
   my %rec = (id => $user_id);
 
   if (exists $input->{email}) {
@@ -211,14 +216,20 @@ sub user_create {
   return _admin_transaction($actor_id, sub {
     my ($actor) = @_;
     my $rec = _account_fields($input, undef, 1);
-    $rec->{password} = exists $input->{password} ? _password_hash($input->{password}) : undef;
-    $rec->{last_pwd} = exists $input->{password} ? time : 0;
+    $rec->{password} = _password_hash($input->{password});
+    $rec->{last_pwd} = time;
     my $id = Sauron::BackEnd::add_user($rec);
     SauronAPI::Exception->persistence('Failed to create user') unless $id > 0;
     my $row = _user_row($id);
     my %changes = %$input;
     delete $changes{password};
     _audit($actor, $row, 'ADD: User', \%changes);
+    if (($row->[11] // '') ne 't' && $row->[5] > 0 && $row->[6] > 0) {
+      for my $grant ([$RIGHT_TYPE{server}, $row->[5]], [$RIGHT_TYPE{zone}, $row->[6]]) {
+        my $right = _insert_right($id, @$grant, 'R');
+        _audit($actor, $row, 'ADD: User right', $right);
+      }
+    }
     return _build_user_response($row);
   });
 }
@@ -311,6 +322,15 @@ sub user_remove {
 # Permission rules
 # ---------------------------------------------------------------------------
 
+sub user_rights {
+  my ($user_id) = @_;
+  _user_row(_validate_user_id($user_id));
+  my $sql = _rights_sql();
+  my $rows = dbq("SELECT * FROM ($sql) rights ORDER BY group_id NULLS FIRST,id",
+    $user_id, $user_id);
+  return [ map { _right_response($_) } @$rows ];
+}
+
 sub user_right_list {
   my ($user_id, %opts) = @_;
   _user_row(_validate_user_id($user_id));
@@ -318,11 +338,7 @@ sub user_right_list {
   compile_filters($opts{params} // {}, {});
   my $page = $opts{page} // 1;
   my $per_page = $opts{per_page} // 50;
-  my $sql = 'SELECT r.id,r.rtype,r.rref,r.rule,NULL::integer AS group_id,NULL::text AS group_name '
-    . 'FROM user_rights r WHERE r.type=2 AND r.ref=? UNION ALL '
-    . 'SELECT r.id,r.rtype,r.rref,r.rule,g.id,g.name FROM user_rights r '
-    . 'JOIN user_groups g ON r.type=1 AND r.ref=g.id '
-    . 'WHERE EXISTS (SELECT 1 FROM user_rights m WHERE m.type=2 AND m.ref=? AND m.rtype=0 AND m.rref=g.id)';
+  my $sql = _rights_sql();
   my $rows = dbq("SELECT * FROM ($sql) rights ORDER BY group_id NULLS FIRST,id LIMIT ? OFFSET ?",
     $user_id, $user_id, $per_page, ($page - 1) * $per_page);
   my $count = dbq("SELECT COUNT(*) FROM ($sql) rights", $user_id, $user_id);
@@ -340,12 +356,8 @@ sub user_right_add {
     SauronAPI::Exception->conflict('Direct permission rule already exists') if @{dbq(
       "SELECT id FROM user_rights WHERE type=2 AND ref=? AND rtype=? AND rref=? AND COALESCE(rule,'')=?",
       $user_id, $type, $ref, $rule)};
-    my $id = Sauron::BackEnd::add_record('user_rights', {
-      type => 2, ref => $user_id, rtype => $type, rref => $ref, rule => $rule,
-    });
-    SauronAPI::Exception->persistence('Failed to add permission rule') unless $id > 0;
+    my $result = _insert_right($user_id, $type, $ref, $rule);
     _save_user($row, {});
-    my $result = _right_response([$id, $type, $ref, $rule, undef, undef]);
     _audit($actor, $row, 'ADD: User right', $result);
     return $result;
   });
@@ -497,8 +509,10 @@ sub _assert_unique_email {
   my ($email, $exclude_id) = @_;
 
   return unless defined $email && length $email;
-  SauronAPI::Exception->validation("Invalid email format")
-    unless $email =~ /^[^\@\s]+\@[^\@\s]+\.[^\@\s]+$/;
+  my ($local, $domain) = $email =~ /^(\S+)\@(\S+)$/;
+  SauronAPI::Exception->validation('Invalid email format')
+    unless defined $local && $local =~ /^[A-Za-z0-9_.+\-]+$/
+      && Sauron::Util::valid_domainname($domain);
 
   my $rows = dbq(
     'SELECT id FROM users WHERE email=? AND id<>?',
@@ -647,6 +661,23 @@ sub _account_fields {
     $rec{zone} = $zone;
   }
   return \%rec;
+}
+
+sub _rights_sql {
+  return 'SELECT r.id,r.rtype,r.rref,r.rule,NULL::integer AS group_id,NULL::text AS group_name '
+    . 'FROM user_rights r WHERE r.type=2 AND r.ref=? UNION ALL '
+    . 'SELECT r.id,r.rtype,r.rref,r.rule,g.id,g.name FROM user_rights r '
+    . 'JOIN user_groups g ON r.type=1 AND r.ref=g.id '
+    . 'WHERE EXISTS (SELECT 1 FROM user_rights m WHERE m.type=2 AND m.ref=? AND m.rtype=0 AND m.rref=g.id)';
+}
+
+sub _insert_right {
+  my ($user_id, $type, $ref, $rule) = @_;
+  my $id = Sauron::BackEnd::add_record('user_rights', {
+    type => 2, ref => $user_id, rtype => $type, rref => $ref, rule => $rule,
+  });
+  SauronAPI::Exception->persistence('Failed to add permission rule') unless $id > 0;
+  return _right_response([$id, $type, $ref, $rule, undef, undef]);
 }
 
 sub _right_record {
