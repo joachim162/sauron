@@ -49,6 +49,10 @@ post:
     local password. Missing, null, or empty passwords return 400. Account
     creation requires auth.mode password or both; a valid creation request in
     oidc mode returns 403. Email is optional for administrative provisioning.
+    Email-less accounts cannot use email/password login or email-matched proxy
+    authentication until an administrator assigns an email. They need an
+    out-of-band PAT (modpat) or a proxy configured to match usernames instead;
+    this operation does not issue a PAT or session.
     For a non-superuser, supplying both a default server and a
     matching default zone creates direct R grants for both, atomically with the
     account and audit history. A server alone or no defaults creates no grants;

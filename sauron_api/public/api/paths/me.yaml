@@ -10,7 +10,9 @@ get:
     only the authenticated user's rules are exposed. The administrative
     /users/{id}/rights resource remains superuser-only. Auth is handled before
     routing: proxy auth (X-Remote-User header from a trusted reverse proxy),
-    session cookie, or Bearer PAT. Returns 401 if not authenticated.
+    session cookie, or Bearer PAT. Unusable sessions and PATs do not establish
+    an identity; returns 401 if no eligible credential authenticates the caller.
+    An inactive proxy-identified account receives 403.
   operationId: auth_me
   x-mojo-name: auth_me
   x-mojo-to: "Auth#me"
@@ -22,13 +24,13 @@ get:
           schema:
             $ref: '../components/schemas.yaml#/UserResponse'
     '401':
-      description: Not authenticated
+      description: No eligible authentication, including unusable session or PAT
       content:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
     '403':
-      description: Account expired or locked
+      description: Proxy-identified account expired or locked
       content:
         application/json:
           schema:

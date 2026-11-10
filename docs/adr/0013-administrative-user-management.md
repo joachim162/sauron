@@ -126,6 +126,12 @@ with `400`. Omission is allowed only when an existing valid address is retained;
 an email-less ordinary account must supply one even for an otherwise empty
 update. Failed validation leaves preferences and audit columns unchanged.
 Superusers may maintain email-less accounts, including through `/auth/me`.
+An email-less account cannot use email/password login or email-matched proxy
+authentication until an administrator assigns an email. It may instead use a
+PAT issued out of band with `modpat`, or proxy authentication configured to
+match usernames. Account creation does not issue credentials beyond storing
+the supplied password; this API does not provide PAT issuance. Self-service
+email assignment presupposes one of those existing authentication methods.
 
 Non-empty addresses follow the legacy CGI local-part character rules and
 `Sauron::Util::valid_domainname` validation. This does not change authentication
@@ -171,13 +177,30 @@ accounts remain eligible for these authentication methods.
 This corrects API reliance on the legacy status helper; it does not change the
 separate existing `/auth/login` OIDC-mode behavior described below.
 
+Preserve the existing authentication response behavior: an inactive account
+identified by a trusted proxy receives `403`. An unusable session or PAT does
+not establish an identity, so protected endpoints return `401` when no other
+eligible credential succeeds. Password login returns `403` for locked or
+expired accounts.
+
+A request may contain both a session cookie and a PAT. If the session is
+unusable, the API tries the PAT. The two credentials may belong to different
+accounts: for example, an expired session for Alice and a valid PAT for active
+user Bob result in a request authenticated as Bob, with Bob's permissions.
+The PAT owner must independently be active; fallback cannot authenticate a
+locked or expired account. A session and PAT for the same active user also
+work this way if only the session has expired.
+
 ### Credential revocation
 
 Locking an account or administratively resetting its local password permanently
 revokes all of its existing sessions and personal access tokens. Unlocking does
 not restore revoked credentials. Closure likewise revokes credentials; permanent
 deletion removes them with the account. Credential revocation must be committed
-atomically with the corresponding account change.
+atomically with the corresponding account change. These guarantees apply to
+REST API operations: the legacy `moduser --lock` does not revoke credentials.
+The API rejects them while the account is locked, but unlocking through the
+legacy CLI can make them usable again.
 
 Administrative password resets are allowed on locked accounts and preserve the
 lock. The administrator can replace a compromised password before explicitly

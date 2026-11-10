@@ -226,6 +226,25 @@ subtest 'ordinary self-service requires email but administrators may maintain em
     ->status_is(200)->json_is('/user/email' => undef);
 };
 
+subtest 'email-less provisioning supports username proxy or later email assignment' => sub {
+  my $user = _new;
+  my $id = $user->{id};
+  $t->reset_session;
+  $t->post_ok('/api/v1/auth/login' => json => {email => undef, password => 'testpass'})
+    ->status_is(400);
+  {
+    local $t->app->config->{proxy_auth}{match} = 'username';
+    $t->get_ok('/api/v1/auth/me' => {'X-Remote-User' => $user->{username}})
+      ->status_is(200)->json_is('/user/id' => $id)->json_is('/user/email' => undef);
+  }
+  my $email = "ua-provisioned-$pid\@example.com";
+  $t->put_ok("$BASE/$id" => $SUPER => json => {email => $email})->status_is(200);
+  $t->reset_session;
+  $t->post_ok('/api/v1/auth/login' => json => {email => $email, password => 'testpass'})
+    ->status_is(200)->json_is('/user/id' => $id);
+  $t->reset_session;
+};
+
 subtest 'administrative email validation follows the legacy CGI' => sub {
   my $email = "UA.Name_$pid+tag-test\@Example.com";
   my $user = _new(email => $email);
@@ -488,6 +507,11 @@ subtest 'passwordless expiration is enforced for proxy, session and PAT authenti
   $t->put_ok("$BASE/$id" => $SUPER => json => {expiration => time - 1})->status_is(200);
   $t->reset_session;
   $t->get_ok('/api/v1/auth/me' => {'X-Remote-User' => $email})->status_is(403);
+  my $eligible_pat = make_pat($ordinary, 'eligible-fallback');
+  $t->reset_session;
+  $t->get_ok('/api/v1/auth/me' => {
+    Cookie => "bff_session=$session", Authorization => "Bearer $eligible_pat",
+  })->status_is(200)->json_is('/user/id' => $ordinary)->json_is('/user/auth_method' => 'pat');
   $t->reset_session;
   $t->get_ok('/api/v1/auth/me' => {Cookie => "bff_session=$session"})->status_is(401);
   $t->reset_session;
