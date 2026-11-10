@@ -1418,7 +1418,7 @@ LoginRequest:
       description: User's password
       example: secretpassword
 
-User:
+AuthenticatedUser:
   type: object
   properties:
     id:
@@ -1452,12 +1452,96 @@ User:
       type: string
       enum: [password, proxy, pat]
       description: Authentication method used
+    email_notify:
+      type: boolean
+      description: Whether the authenticated user receives email notifications
+      example: false
+    default_server_id:
+      type: integer
+      nullable: true
+      description: Default server selection; null means no default
+      example: 1
+    default_zone_id:
+      type: integer
+      nullable: true
+      description: Default zone selection; null means no default
+      example: 42
+
+UpdateMe:
+  type: object
+  description: >
+    Self-service account settings the authenticated user may change: email,
+    email-notification preference, and default server/zone selections (legacy
+    "Save defaults"/"Clear defaults"). Ordinary users must leave a valid,
+    non-empty email when saving, including on an otherwise empty update.
+    Email may be omitted if the stored address is valid; email-less accounts
+    must supply one. Superusers may maintain email-less accounts. Changing
+    default selections here never grants permissions; administrative account
+    management is available through /users.
+  additionalProperties: false
+  properties:
+    email:
+      type: string
+      nullable: true
+      format: email
+      description: >-
+        New email address, validated like the legacy CGI. Ordinary users cannot
+        clear it; only superusers may use null to clear their own email.
+      example: ada@example.com
+    email_notify:
+      type: boolean
+      description: Whether the user receives email notifications
+    default_server_id:
+      type: integer
+      nullable: true
+      minimum: 1
+      description: Default server selection; null clears it
+      example: 1
+    default_zone_id:
+      type: integer
+      nullable: true
+      minimum: 1
+      description: >-
+        Default zone selection; null clears it. Requires default_server_id and
+        the zone must belong to that server.
+      example: 42
+
+ChangePasswordRequest:
+  type: object
+  additionalProperties: false
+  required:
+    - current_password
+    - new_password
+  properties:
+    current_password:
+      type: string
+      format: password
+      description: Current password for verification
+    new_password:
+      type: string
+      format: password
+      description: >-
+        New password to store (hashed at rest). When the deployment uses
+        password mode 1 (Unix crypt), values longer than 8 bytes are rejected
+        because the hash would silently truncate them.
 
 UserResponse:
   type: object
   properties:
     user:
-      $ref: '#/User'
+      $ref: '#/AuthenticatedUser'
+    rights:
+      type: array
+      readOnly: true
+      description: >-
+        Complete, unpaginated list of the authenticated user's direct and
+        inherited permission rules, with source-group provenance. Direct rules
+        sort first, then inherited rules by group ID; within each source, rules
+        sort by ID. Includes all rule kinds, not only the permissions summary.
+        Read-only here; /users/{id}/rights remains superuser-only. Direct rules
+        are not guaranteed overrides of inherited rules.
+      items:
+        $ref: './user-admin.yaml#/UserRight'
     permissions:
       type: object
       properties:
@@ -1486,6 +1570,159 @@ UserResponse:
           items:
             type: string
           example: ["^mail-"]
+
+UserFields:
+  type: object
+  description: >
+    User account settings returned by the API. Administrative input uses
+    separate NewUser and UpdateUser schemas; permission rules are managed
+    through the user rights resource.
+  properties:
+    name:
+      type: string
+      nullable: true
+      default: null
+      description: User's display name
+      example: Ada Lovelace
+    comment:
+      type: string
+      nullable: true
+      default: null
+      description: User account comment
+      example: DNS administrator
+    superuser:
+      type: boolean
+      default: false
+      description: Whether the account is a superuser
+    email_notify:
+      type: boolean
+      default: false
+      description: Whether the user receives email notifications
+    default_server_id:
+      type: integer
+      nullable: true
+      default: null
+      description: Default server selection; null means no default
+      example: 1
+    default_zone_id:
+      type: integer
+      nullable: true
+      default: null
+      description: >-
+        Default zone selection; null means no default. A non-null value requires
+        default_server_id and the zone must belong to that server.
+      example: 42
+    expiration:
+      type: integer
+      nullable: true
+      default: 0
+      description: >-
+        Account expiration timestamp (Unix epoch). Zero or null means no
+        expiration.
+      example: 1735689600
+
+User:
+  allOf:
+    - $ref: '#/UserFields'
+    - type: object
+      required:
+        - id
+        - username
+        - email
+        - superuser
+        - email_notify
+        - default_server_id
+        - default_zone_id
+        - expiration
+        - last_login_at
+        - last_password_change_at
+        - last_login_from
+        - locked
+        - closed
+        - cdate
+        - cuser
+        - mdate
+        - muser
+      properties:
+        id:
+          type: integer
+          readOnly: true
+          description: Stable user ID
+          example: 23
+        username:
+          type: string
+          readOnly: true
+          description: Login name; administrative renames preserve the numeric ID
+          example: ada
+        email:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Email address; may be absent on passwordless or legacy accounts
+          example: ada@example.com
+        last_login_at:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: Last login timestamp (Unix epoch), or null if never logged in
+          example: 1711500000
+        last_password_change_at:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: Last password change timestamp (Unix epoch), or null if unknown
+          example: 1711400000
+        last_login_from:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Source address of the last login, or null if unknown
+        locked:
+          type: boolean
+          readOnly: true
+          description: Whether the account is locked; closed accounts are also locked
+          example: false
+        closed:
+          type: boolean
+          readOnly: true
+          description: >-
+            Whether the account has been closed while retaining its identity
+            record for history.
+          example: false
+        cdate:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: Creation timestamp (Unix epoch)
+        cuser:
+          type: string
+          nullable: true
+          readOnly: true
+          description: User who created the account
+        mdate:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: Last modification timestamp (Unix epoch)
+        muser:
+          type: string
+          nullable: true
+          readOnly: true
+          description: User who last modified the account
+
+UserListResponse:
+  type: object
+  description: Paginated list of users.
+  required:
+    - data
+    - metadata
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/User'
+    metadata:
+      $ref: '#/Metadata'
 
 NetFields:
   type: object

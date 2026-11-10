@@ -1,0 +1,94 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: List user accounts (paginated)
+  tags: [ users ]
+  description: >
+    Returns user accounts in the paginated {data, metadata} envelope.
+    Closed accounts remain visible. Requires superuser.
+  operationId: list_users
+  x-mojo-name: list_users
+  x-mojo-to: "User#list_users"
+  parameters:
+    - $ref: '../components/parameters.yaml#/page'
+    - $ref: '../components/parameters.yaml#/per_page'
+    - $ref: '../components/parameters.yaml#/user_username'
+    - $ref: '../components/parameters.yaml#/user_name'
+    - $ref: '../components/parameters.yaml#/user_email'
+    - $ref: '../components/parameters.yaml#/user_comment'
+    - $ref: '../components/parameters.yaml#/user_superuser'
+    - $ref: '../components/parameters.yaml#/user_locked'
+    - $ref: '../components/parameters.yaml#/user_closed'
+    - $ref: '../components/parameters.yaml#/user_filter_sort'
+  responses:
+    '200':
+      description: Paginated list of users in the {data, metadata} envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/UserListResponse'
+    '400':
+      description: Invalid filter or sort value
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+post:
+  security:
+    - BearerAuth: []
+  summary: Create a user account
+  tags: [users]
+  description: >-
+    Requires superuser, a username matching the CLI syntax, and a non-empty
+    local password. Missing, null, or empty passwords return 400. Account
+    creation requires auth.mode password or both; a valid creation request in
+    oidc mode returns 403. Email is optional for administrative provisioning.
+    Email-less accounts cannot use email/password login or email-matched proxy
+    authentication until an administrator assigns an email. They need an
+    out-of-band PAT (modpat) or a proxy configured to match usernames instead;
+    this operation does not issue a PAT or session.
+    For a non-superuser, supplying both a default server and a
+    matching default zone creates direct R grants for both, atomically with the
+    account and audit history. A server alone or no defaults creates no grants;
+    superusers receive no redundant grants. Under SAURON_PRIVILEGE_MODE=0,
+    server R also authorizes reads of its zones; the default zone is not an
+    access boundary. Assign memberships and additional permissions separately
+    through the rights resource. Unknown fields are rejected. No temporary
+    password is generated or returned.
+  operationId: create_user
+  x-mojo-name: create_user
+  x-mojo-to: 'User#create_user'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/user-admin.yaml#/NewUser'
+  responses:
+    '201':
+      description: User created
+      headers:
+        Location:
+          description: URL of the new user account
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/User'
+    '400':
+      $ref: '../components/responses.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '409':
+      $ref: '../components/responses.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

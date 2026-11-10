@@ -1,0 +1,101 @@
+get:
+  security:
+    - BearerAuth: []
+  summary: Get a user account
+  tags: [users]
+  description: >-
+    Returns one user account by numeric ID. Users may read their own account;
+    reading another account requires superuser. Credentials are never returned.
+    Permission rules are available separately to superusers through /rights.
+  operationId: get_user
+  x-mojo-name: get_user
+  x-mojo-to: 'User#get_user'
+  parameters:
+    - $ref: '../components/parameters.yaml#/user_id'
+  responses:
+    '200':
+      description: User account
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/User'
+    '404':
+      $ref: '../components/responses.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security:
+    - BearerAuth: []
+  summary: Update a user account
+  tags: [users]
+  description: >-
+    Superuser-only partial update. Omitted fields are unchanged; nullable fields
+    can be cleared. Username and email are mutable. Defaults do not grant
+    permissions. Passwords and rights cannot be changed through this operation.
+    Closed-account edits, self-disabling changes, and last-administrator lockout
+    return 409. Expiration is enforced independently of local-password presence.
+  operationId: update_user
+  x-mojo-name: update_user
+  x-mojo-to: 'User#update_user'
+  parameters:
+    - $ref: '../components/parameters.yaml#/user_id'
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/user-admin.yaml#/UpdateUser'
+  responses:
+    '200':
+      description: Updated user account
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/User'
+    '400':
+      $ref: '../components/responses.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '404':
+      $ref: '../components/responses.yaml#/Error'
+    '409':
+      $ref: '../components/responses.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+delete:
+  security:
+    - BearerAuth: []
+  summary: Permanently delete a user account
+  tags: [users]
+  description: >-
+    Requires superuser and a locked or expired target. Removes the identity
+    record, memberships, direct rights, sessions, and PATs, retaining audit
+    history. Closed accounts may be deleted. Unlike deluser's default, DELETE
+    always removes the account; use POST /close to retain its identity.
+    Administrator-lockout conflicts return 409.
+  operationId: delete_user
+  x-mojo-name: delete_user
+  x-mojo-to: 'User#delete_user'
+  parameters:
+    - $ref: '../components/parameters.yaml#/user_id'
+  responses:
+    '204':
+      description: User permanently deleted
+    '400':
+      $ref: '../components/responses.yaml#/Error'
+    '401':
+      $ref: '../components/responses.yaml#/UnauthorizedError'
+    '403':
+      $ref: '../components/responses.yaml#/ForbiddenError'
+    '404':
+      $ref: '../components/responses.yaml#/Error'
+    '409':
+      $ref: '../components/responses.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

@@ -16,6 +16,8 @@ tags:
     description: API Endpoints for Zones
   - name: auth
     description: Authentication Endpoints
+  - name: users
+    description: API Endpoints for User Accounts
   - name: networks
     description: API Endpoints for Networks
   - name: groups
@@ -44,6 +46,9 @@ paths:
 
   /auth/me:
     $ref: "./paths/me.yaml"
+
+  /auth/me/password:
+    $ref: "./paths/me-password.yaml"
 
   /auth/config:
     get:
@@ -99,6 +104,33 @@ paths:
           description: Redirect to self or to the OIDC provider
         '200':
           description: Authenticated, redirected to the frontend
+
+  /users:
+    $ref: "./paths/users.yaml"
+
+  /users/{id}:
+    $ref: "./paths/user.yaml"
+
+  /users/{id}/lock:
+    $ref: './paths/user-admin.yaml#/lock'
+
+  /users/{id}/unlock:
+    $ref: './paths/user-admin.yaml#/unlock'
+
+  /users/{id}/close:
+    $ref: './paths/user-admin.yaml#/close'
+
+  /users/{id}/password:
+    $ref: './paths/user-admin.yaml#/password'
+
+  /users/{id}/rights:
+    $ref: './paths/user-admin.yaml#/rights'
+
+  /users/{id}/rights/{right_id}:
+    $ref: './paths/user-admin.yaml#/right'
+
+  /user-groups:
+    $ref: './paths/user-admin.yaml#/groups'
 
   /servers:
     $ref: "./paths/servers.yaml"
@@ -232,8 +264,30 @@ components:
       $ref: './components/schemas.yaml#/Metadata'
     LoginRequest:
       $ref: './components/schemas.yaml#/LoginRequest'
+    AuthenticatedUser:
+      $ref: './components/schemas.yaml#/AuthenticatedUser'
+    UserFields:
+      $ref: './components/schemas.yaml#/UserFields'
     User:
       $ref: './components/schemas.yaml#/User'
+    UserListResponse:
+      $ref: './components/schemas.yaml#/UserListResponse'
+    NewUser:
+      $ref: './components/user-admin.yaml#/NewUser'
+    UpdateUser:
+      $ref: './components/user-admin.yaml#/UpdateUser'
+    NewUserRight:
+      $ref: './components/user-admin.yaml#/NewUserRight'
+    UserRight:
+      $ref: './components/user-admin.yaml#/UserRight'
+    UserRightListResponse:
+      $ref: './components/user-admin.yaml#/UserRightListResponse'
+    UserGroupListResponse:
+      $ref: './components/user-admin.yaml#/UserGroupListResponse'
+    UpdateMe:
+      $ref: './components/schemas.yaml#/UpdateMe'
+    ChangePasswordRequest:
+      $ref: './components/schemas.yaml#/ChangePasswordRequest'
     UserResponse:
       $ref: './components/schemas.yaml#/UserResponse'
     NetFields:

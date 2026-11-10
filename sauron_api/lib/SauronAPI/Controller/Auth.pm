@@ -3,6 +3,8 @@ use Mojo::Base 'Mojolicious::Controller', -signatures;
 
 use Sauron::BackEnd ();
 use Sauron::Util ();
+use SauronAPI::Exception ();
+use SauronAPI::Repository::User qw(user_self_update user_change_password user_rights);
 use JSON::PP ();
 
 sub _render_user_response {
@@ -15,17 +17,26 @@ sub _render_user_response {
     api_auth_method => $auth_method,
   );
   my %user;
-  my $email = '';
+  my $email;
   my $name = '';
   my $superuser = 0;
+  my $email_notify = 0;
+  my ($default_server, $default_zone);
 
   if (Sauron::BackEnd::get_user($username, \%user) == 0) {
-    $email = $user{email} // '';
+    $email = $user{email};
     $name = $user{name} // '';
     $superuser = ($user{superuser} && $user{superuser} eq 't') ? 1 : 0;
+    $email_notify = $user{email_notify} ? 1 : 0;
+    $default_server = ($user{server} // -1) > 0 ? $user{server} + 0 : undef;
+    $default_zone   = ($user{zone}   // -1) > 0 ? $user{zone}   + 0 : undef;
   }
 
+  my $rights = eval { user_rights($user_id) };
+  return $c->render_exception($@) if $@;
+
   $c->render(json => {
+    rights      => $rights,
     user        => {
       id          => $user_id,
       username    => $username,
@@ -34,6 +45,9 @@ sub _render_user_response {
       superuser   => $superuser ? JSON::PP::true : JSON::PP::false,
       alevel      => $perms{alevel} // 0,
       auth_method => $auth_method,
+      email_notify => $email_notify ? JSON::PP::true : JSON::PP::false,
+      default_server_id => $default_server,
+      default_zone_id   => $default_zone,
     },
     permissions => {
       server => $perms{server} // {},
@@ -49,63 +63,31 @@ sub _render_user_response {
 # Authenticate with email + password, create session.
 sub login ($self) {
   my $json = $self->req->json;
-  unless ($json && $json->{email} && $json->{password}) {
-    return $self->render(
-      json   => { error => 'Bad Request', message => 'email and password are required' },
-      status => 400
-    );
-  }
+  SauronAPI::Exception->validation('email and password are required')
+    unless $json && $json->{email} && $json->{password};
 
   my $email    = $json->{email};
   my $password = $json->{password};
 
-  unless ($email =~ /^[^\s@]+@[^\s@]+\.[^\s@]+$/) {
-    return $self->render(
-      json   => { error => 'Bad Request', message => 'Invalid email format' },
-      status => 400
-    );
-  }
+  SauronAPI::Exception->validation('Invalid email format')
+    unless $email =~ /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   my %user;
-  if (Sauron::BackEnd::get_user_by_email($email, \%user) != 0) {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'Invalid email or password' },
-      status => 401
-    );
-  }
+  SauronAPI::Exception->unauthorized('Invalid email or password')
+    if Sauron::BackEnd::get_user_by_email($email, \%user) != 0;
 
   my $status = Sauron::BackEnd::get_user_status($user{id});
-  if ($status =~ /E/) {
-    return $self->render(
-      json   => { error => 'Forbidden', message => 'Account has expired' },
-      status => 403
-    );
-  }
-  if ($status =~ /L/) {
-    return $self->render(
-      json   => { error => 'Forbidden', message => 'Account is locked' },
-      status => 403
-    );
-  }
+  SauronAPI::Exception->forbidden('Account has expired') if $status =~ /E/;
+  SauronAPI::Exception->forbidden('Account is locked') if $status =~ /L/;
 
-  my $pwd_result = Sauron::Util::pwd_check($password, $user{password});
-  if ($pwd_result != 0) {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'Invalid email or password' },
-      status => 401
-    );
-  }
+  SauronAPI::Exception->unauthorized('Invalid email or password')
+    if Sauron::Util::pwd_check($password, $user{password}) != 0;
 
   my $ip  = $self->req->env->{REMOTE_ADDR} // '';
   my $ttl = $self->app->config->{session}->{ttl} // 86400;
   my $token = Sauron::BackEnd::create_session($user{id}, 'password', $ip, $ttl);
 
-  if (!$token) {
-    return $self->render(
-      json   => { error => 'Internal Server Error', message => 'Failed to create session' },
-      status => 500
-    );
-  }
+  SauronAPI::Exception->persistence('Failed to create session') unless $token;
 
   my $cookie_name = $self->app->config->{session}->{cookie_name} // 'bff_session';
   my $secure      = $self->app->config->{session}->{secure} // 0;
@@ -148,12 +130,7 @@ sub me ($self) {
   my $uid = $self->stash('api_user_id');
   my $method = $self->stash('api_auth_method') // 'pat';
 
-  unless ($uid) {
-    return $self->render(
-      json   => { error => 'Unauthorized', message => 'Not authenticated' },
-      status => 401
-    );
-  }
+  SauronAPI::Exception->unauthorized('Not authenticated') unless $uid;
 
   my %user;
   if (Sauron::BackEnd::get_user_by_id($uid, \%user) == 0) {
@@ -161,10 +138,42 @@ sub me ($self) {
     return;
   }
 
-  $self->render(
-    json   => { error => 'Unauthorized', message => 'User not found' },
-    status => 401
-  );
+  SauronAPI::Exception->unauthorized('User not found');
+}
+
+# PUT /auth/me
+# Self-service account settings (email and email-notification preference).
+sub update_me ($self) {
+  return unless $self->openapi->valid_input;
+
+  my $uid = $self->stash('api_user_id');
+  my $method = $self->stash('api_auth_method') // 'pat';
+
+  SauronAPI::Exception->unauthorized('Not authenticated') unless $uid;
+
+  my $updated = eval { user_self_update($uid, $self->req->json // {}) };
+  return $self->render_exception($@) if $@;
+
+  return _render_user_response($self, $uid, $updated->{username}, $method);
+}
+
+# POST /auth/me/password
+# Change the caller's own local password.
+sub change_password ($self) {
+  return unless $self->openapi->valid_input;
+
+  my $uid = $self->stash('api_user_id');
+  SauronAPI::Exception->unauthorized('Not authenticated') unless $uid;
+
+  my $mode = $self->app->config->{auth}{mode} // 'password';
+  SauronAPI::Exception->forbidden('Password login is not enabled')
+    unless $mode eq 'password' || $mode eq 'both';
+
+  my $json = $self->req->json // {};
+  eval { user_change_password($uid, $json->{current_password}, $json->{new_password}) };
+  return $self->render_exception($@) if $@;
+
+  $self->render(json => { message => 'Password changed' });
 }
 
 # GET /auth/config

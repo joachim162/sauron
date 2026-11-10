@@ -10,6 +10,7 @@ use Sauron::Sauron;
 use Sauron::DB;
 use Sauron::BackEnd;
 use SauronAPI::Repository::Net ();
+use SauronAPI::Repository::User qw(user_is_active);
 use SauronAPI::Exception ();
 use Net::Netmask;
 
@@ -59,6 +60,18 @@ sub startup {
     if ($result->{user_id}) {
       $c->load_user_context($result->{user_id}, 'password');
     }
+
+    # Personal access token auth. Resolved here, not only in the OpenAPI
+    # security callback, so operations declared with `security: []`
+    # (e.g. /auth/me) also accept Bearer tokens. Precedence matches the
+    # secured operations: proxy > session > PAT.
+    unless ($c->stash('api_user_id')) {
+      my $auth = $c->req->headers->authorization;
+      if (defined $auth && $auth =~ /^Bearer\s+(\S+)$/) {
+        my $user_id = $c->pat_user_id($1);
+        $c->load_user_context($user_id, 'pat') if $user_id;
+      }
+    }
   });
 
   # Global exception boundary: any SauronAPI::Exception that unwinds out of an
@@ -94,6 +107,16 @@ sub startup {
       api_superuser   => $superuser,
     );
     return 1;
+  });
+
+  # Resolve a personal access token to a usable account. Tokens belonging to
+  # locked or expired accounts are rejected, matching the proxy/session flows.
+  $self->helper(pat_user_id => sub ($c, $token) {
+    my $user_id = Sauron::BackEnd::verify_pat($token);
+    return undef unless $user_id;
+
+    return undef unless user_is_active($user_id);
+    return $user_id;
   });
 
   $self->helper(require_auth => sub ($c) {
@@ -144,9 +167,7 @@ sub startup {
     warn "DEBUG resolve_proxy_user: match=$match found=$found user=" . ($user{id} // 'none') . "\n";
     SauronAPI::Exception->unauthorized("User '$remote_user' not found") unless $found;
 
-    my $ustatus = Sauron::BackEnd::get_user_status($user{id});
-    warn "DEBUG resolve_proxy_user: ustatus=" . ($ustatus // 'undef') . "\n";
-    SauronAPI::Exception->forbidden('Account is no longer active') if (!defined $ustatus || $ustatus =~ /[EL]/);
+    SauronAPI::Exception->forbidden('Account is no longer active') unless user_is_active($user{id});
 
     return { user_id => $user{id}, username => $user{username} };
   });
@@ -165,8 +186,7 @@ sub startup {
       return { error => 'Unauthorized', message => 'User not found', status => 401 };
     }
 
-    my $ustatus = Sauron::BackEnd::get_user_status($user_id);
-    if (!defined $ustatus || $ustatus =~ /[EL]/) {
+    if (!user_is_active($user_id)) {
       Sauron::BackEnd::delete_session($token);
       return { error => 'Forbidden', message => 'Account is no longer active', status => 403 };
     }
@@ -192,7 +212,7 @@ sub startup {
         my ($token) = $auth =~ /^Bearer\s+(.+)$/;
         return $c->$cb('Invalid Authorization format') unless ($token);
 
-        my $user_id = Sauron::BackEnd::verify_pat($token);
+        my $user_id = $c->pat_user_id($token);
         return $c->$cb('Invalid or expired token') unless ($user_id);
 
         $c->load_user_context($user_id, 'pat');

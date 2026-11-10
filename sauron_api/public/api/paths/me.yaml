@@ -3,9 +3,16 @@ get:
   summary: Get current authenticated user
   tags: [ auth ]
   description: >
-    Returns information about the currently authenticated user.
-    Auth is handled before routing: proxy auth (X-Remote-User header from trusted
-    reverse proxy) or session cookie. Returns 401 if not authenticated.
+    Returns information about the currently authenticated user, the existing
+    permissions summary, and a complete unpaginated rights array containing
+    all direct and inherited permission rules with source-group provenance.
+    Available to ordinary users and superusers, including email-less accounts;
+    only the authenticated user's rules are exposed. The administrative
+    /users/{id}/rights resource remains superuser-only. Auth is handled before
+    routing: proxy auth (X-Remote-User header from a trusted reverse proxy),
+    session cookie, or Bearer PAT. Unusable sessions and PATs do not establish
+    an identity; returns 401 if no eligible credential authenticates the caller.
+    An inactive proxy-identified account receives 403.
   operationId: auth_me
   x-mojo-name: auth_me
   x-mojo-to: "Auth#me"
@@ -17,14 +24,65 @@ get:
           schema:
             $ref: '../components/schemas.yaml#/UserResponse'
     '401':
-      description: Not authenticated
+      description: No eligible authentication, including unusable session or PAT
       content:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
     '403':
-      description: Account expired or locked
+      description: Proxy-identified account expired or locked
       content:
         application/json:
           schema:
             $ref: '../components/schemas.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'
+put:
+  security: []
+  summary: Update own personal settings
+  tags: [ auth ]
+  description: >
+    Self-service update of the authenticated user's email, notification
+    preference, and default server/zone selections. Ordinary users must leave
+    a valid, non-empty email: null, empty, or whitespace-only email is rejected.
+    Omission preserves an existing valid address; an email-less ordinary user
+    must supply one even for an otherwise empty update. Superusers may maintain
+    email-less accounts. Changing defaults never grants access. Permission
+    rules are read-only here. Available with proxy, session, or PAT
+    authentication. Administrative changes are handled by /users.
+  operationId: update_me
+  x-mojo-name: update_me
+  x-mojo-to: "Auth#update_me"
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: '../components/schemas.yaml#/UpdateMe'
+  responses:
+    '200':
+      description: Updated current user information
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/UserResponse'
+    '400':
+      description: Invalid request (unknown field, invalid defaults, or missing/invalid email)
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '401':
+      description: Not authenticated
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '409':
+      description: Email already in use by another account
+      content:
+        application/json:
+          schema:
+            $ref: '../components/schemas.yaml#/Error'
+    '500':
+      $ref: '../components/responses.yaml#/Error'

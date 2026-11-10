@@ -1,0 +1,294 @@
+UserAccountInput:
+  type: object
+  description: >-
+    Administrative account fields. Only supplied fields are changed on update.
+    Changing defaults never grants permissions. On creation only, supplying
+    both defaults for a non-superuser grants server R and zone R, matching
+    legacy adduser. A server alone grants nothing. Username and email are
+    mutable; the numeric user ID remains stable.
+  properties:
+    username:
+      type: string
+      pattern: '^[a-z0-9.@-]+$'
+    email:
+      type: string
+      nullable: true
+      description: >-
+        Unique email address validated like the legacy CGI, or null to clear it.
+        Administrators may create and maintain email-less accounts.
+    name:
+      type: string
+      nullable: true
+    comment:
+      type: string
+      nullable: true
+    superuser:
+      type: boolean
+    email_notify:
+      type: boolean
+    default_server_id:
+      type: integer
+      minimum: 1
+      nullable: true
+    default_zone_id:
+      type: integer
+      minimum: 1
+      nullable: true
+      description: Must belong to the default server; null clears the selection.
+    expiration:
+      type: integer
+      minimum: 0
+      maximum: 2147483647
+      nullable: true
+      description: Unix timestamp; zero or null means no expiration.
+
+NewUser:
+  allOf:
+    - $ref: '#/UserAccountInput'
+    - type: object
+      required: [username, password]
+      properties:
+        password:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 1
+          description: >-
+            Required non-empty local password. Account creation is allowed only
+            in password or both authentication mode. Password mode 1 rejects
+            values longer than eight bytes instead of truncating them.
+
+UpdateUser:
+  $ref: '#/UserAccountInput'
+
+AdminPassword:
+  type: object
+  additionalProperties: false
+  required: [password]
+  properties:
+    password:
+      type: string
+      format: password
+      writeOnly: true
+      minLength: 1
+      description: New local password; password mode 1 accepts at most eight bytes.
+
+NewUserRight:
+  oneOf:
+    - type: object
+      additionalProperties: false
+      required: [kind, group_id]
+      properties:
+        kind:
+          type: string
+          enum: [group]
+        group_id:
+          type: integer
+          minimum: 1
+    - type: object
+      additionalProperties: false
+      required: [kind, server_id, mode]
+      properties:
+        kind:
+          type: string
+          enum: [server]
+        server_id:
+          type: integer
+          minimum: 1
+        mode:
+          type: string
+          enum: [R, RW, RWX]
+    - type: object
+      additionalProperties: false
+      required: [kind, zone_id, mode]
+      properties:
+        kind:
+          type: string
+          enum: [zone]
+        zone_id:
+          type: integer
+          minimum: 1
+        mode:
+          type: string
+          enum: [R, RW, RWX]
+    - type: object
+      additionalProperties: false
+      required: [kind, net_id]
+      properties:
+        kind:
+          type: string
+          enum: [net]
+        net_id:
+          type: integer
+          minimum: 1
+    - type: object
+      additionalProperties: false
+      required: [kind, pattern]
+      properties:
+        kind:
+          type: string
+          enum: [hostmask, delmask]
+        pattern:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: Perl regular expression.
+        zone_id:
+          type: integer
+          minimum: 1
+          nullable: true
+          description: Omit or use null for a global rule.
+    - type: object
+      additionalProperties: false
+      required: [kind, pattern]
+      properties:
+        kind:
+          type: string
+          enum: [ipmask, tmplmask, grpmask]
+        pattern:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: IP-mask syntax for ipmask, otherwise a Perl regular expression.
+    - type: object
+      additionalProperties: false
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+          enum: [level]
+        value:
+          type: integer
+          minimum: 0
+          maximum: 999
+    - type: object
+      additionalProperties: false
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+          enum: [elimit]
+        value:
+          type: integer
+          minimum: 0
+          description: Host expiration limit in days.
+    - type: object
+      additionalProperties: false
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+          enum: [defdept, defhost]
+        value:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: >-
+            Department string (trimmed), or hostname template containing %{id}
+            (whitespace removed), following moduser.
+    - type: object
+      additionalProperties: false
+      required: [kind, field, required]
+      properties:
+        kind:
+          type: string
+          enum: [rhf]
+        field:
+          type: string
+          enum: [huser, dept, location, info, ether, duid, asset_id, model, serial, misc]
+        required:
+          type: boolean
+    - type: object
+      additionalProperties: false
+      required: [kind, value]
+      properties:
+        kind:
+          type: string
+          enum: [flag]
+        value:
+          type: string
+          minLength: 1
+          maxLength: 80
+          description: >-
+            Case-insensitive CNAME, SCNAME, AREC, MX, DELEG, GLUE, DHCP, PRINTER,
+            SRV, SSHFP, TLSA, NAPTR, RESERV, or TTL; stored uppercase.
+
+UserRight:
+  type: object
+  required: [id, kind, source, source_group_id, source_group_name]
+  description: >-
+    Typed permission rule with provenance. Only direct rules are writable here.
+    Inherited grants do not disappear when a matching direct rule is deleted.
+    Legacy evaluation is unchanged; direct rules are not guaranteed overrides
+    of group rules. Unsupported legacy rule types remain visible as kind legacy.
+  properties:
+    id:
+      type: integer
+    kind:
+      type: string
+      enum: [group, server, zone, net, hostmask, ipmask, level, elimit, defdept, tmplmask, grpmask, delmask, rhf, flag, defhost, legacy]
+    source:
+      type: string
+      enum: [direct, inherited]
+    source_group_id:
+      type: integer
+      nullable: true
+    source_group_name:
+      type: string
+      nullable: true
+    group_id:
+      type: integer
+    server_id:
+      type: integer
+    zone_id:
+      type: integer
+      nullable: true
+    net_id:
+      type: integer
+    mode:
+      type: string
+    pattern:
+      type: string
+    value:
+      anyOf:
+        - type: integer
+        - type: string
+    field:
+      type: string
+    required:
+      type: boolean
+    legacy_type:
+      type: integer
+    legacy_ref:
+      type: integer
+
+UserRightListResponse:
+  type: object
+  required: [data, metadata]
+  properties:
+    data:
+      type: array
+      items:
+        $ref: '#/UserRight'
+    metadata:
+      $ref: './schemas.yaml#/Metadata'
+
+UserGroupListResponse:
+  type: object
+  required: [data, metadata]
+  properties:
+    data:
+      type: array
+      items:
+        type: object
+        required: [id, name, comment]
+        properties:
+          id:
+            type: integer
+          name:
+            type: string
+          comment:
+            type: string
+            nullable: true
+    metadata:
+      $ref: './schemas.yaml#/Metadata'

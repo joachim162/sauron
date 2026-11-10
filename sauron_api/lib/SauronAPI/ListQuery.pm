@@ -134,7 +134,10 @@ sub _kind_bool {
   SauronAPI::Exception->validation("Invalid boolean '$value' for '$name' (true or false)")
     unless $b =~ /^(?:true|false|1|0)$/;
   my $bound = ($b eq 'true' || $b eq '1') ? 't' : 'f';
-  return ([$entry->{col} . ' = ?'], [$bound], _echo($name, $value), 0);
+  # OpenAPI-coerced boolean query parameters arrive as JSON booleans; echo a
+  # string so the response Filter schema (value: string) stays valid.
+  my $echo = ref $value ? ($value ? 'true' : 'false') : "$value";
+  return ([$entry->{col} . ' = ?'], [$bound], _echo($name, $echo), 0);
 }
 
 sub _kind_int {

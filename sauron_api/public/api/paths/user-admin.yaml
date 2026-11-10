@@ -1,0 +1,254 @@
+lock:
+  post:
+    security:
+      - BearerAuth: []
+    summary: Lock a user account
+    tags: [users]
+    description: >-
+      Requires superuser. Preserves account settings and rights, revokes all
+      sessions and PATs atomically, and blocks access until explicitly unlocked.
+      Already locked, closed, self-lockout, and last-administrator conflicts
+      return 409.
+    operationId: lock_user
+    x-mojo-name: lock_user
+    x-mojo-to: 'User#lock_user'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+    responses: &user_action_responses
+      '200':
+        description: Updated user account
+        content:
+          application/json:
+            schema:
+              $ref: '../components/schemas.yaml#/User'
+      '400':
+        $ref: '../components/responses.yaml#/Error'
+      '401':
+        $ref: '../components/responses.yaml#/UnauthorizedError'
+      '403':
+        $ref: '../components/responses.yaml#/ForbiddenError'
+      '404':
+        $ref: '../components/responses.yaml#/Error'
+      '409':
+        $ref: '../components/responses.yaml#/Error'
+      '500':
+        $ref: '../components/responses.yaml#/Error'
+
+unlock:
+  post:
+    security:
+      - BearerAuth: []
+    summary: Unlock a user account
+    tags: [users]
+    description: >-
+      Requires superuser. Does not restore revoked credentials or clear
+      expiration. Accounts that are closed or not locked return 409.
+    operationId: unlock_user
+    x-mojo-name: unlock_user
+    x-mojo-to: 'User#unlock_user'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+    responses: *user_action_responses
+
+close:
+  post:
+    security:
+      - BearerAuth: []
+    summary: Permanently close a user account while retaining its identity
+    tags: [users]
+    description: >-
+      Requires superuser and a locked or expired target. Clears personal details,
+      memberships, rights, and credentials, retaining username and ID for history.
+      Closure is terminal; closed accounts are only readable or permanently
+      deletable. Repeated closure and administrator-lockout conflicts return 409.
+    operationId: close_user
+    x-mojo-name: close_user
+    x-mojo-to: 'User#close_user'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+    responses: *user_action_responses
+
+password:
+  post:
+    security:
+      - BearerAuth: []
+    summary: Administratively reset a local password
+    tags: [users]
+    description: >-
+      Requires superuser and auth.mode password or both; oidc mode returns 403.
+      Does not require the previous password. Locked accounts remain locked;
+      closed accounts return 409. Revokes all sessions and PATs atomically.
+      Password mode 1 rejects values longer than eight bytes.
+    operationId: reset_user_password
+    x-mojo-name: reset_user_password
+    x-mojo-to: 'User#reset_password'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../components/user-admin.yaml#/AdminPassword'
+    responses: *user_action_responses
+
+rights:
+  get:
+    security:
+      - BearerAuth: []
+    summary: List direct and inherited user permission rules
+    tags: [users]
+    description: >-
+      Requires superuser, including when reading one's own rights. Ordinary
+      users can view their own complete rules through GET /auth/me instead.
+      Returns a paginated collection with source-group provenance. Direct rules sort first,
+      then inherited rules by group ID, and within each source by rule ID.
+      Inherited rules are read-only; only direct rules can be removed here.
+    operationId: list_user_rights
+    x-mojo-name: list_user_rights
+    x-mojo-to: 'User#list_rights'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/per_page'
+    responses:
+      '200':
+        description: Paginated permission rules
+        content:
+          application/json:
+            schema:
+              $ref: '../components/user-admin.yaml#/UserRightListResponse'
+      '400':
+        $ref: '../components/responses.yaml#/Error'
+      '401':
+        $ref: '../components/responses.yaml#/UnauthorizedError'
+      '403':
+        $ref: '../components/responses.yaml#/ForbiddenError'
+      '404':
+        $ref: '../components/responses.yaml#/Error'
+      '500':
+        $ref: '../components/responses.yaml#/Error'
+  post:
+    security:
+      - BearerAuth: []
+    summary: Add a direct permission rule or user-group membership
+    tags: [users]
+    description: >-
+      Requires superuser. All 15 moduser rule kinds are supported. Exact duplicate
+      direct rules and changes to closed accounts return 409. Matching inherited
+      grants are allowed. Permission evaluation remains legacy-compatible;
+      direct grants are not guaranteed overrides of inherited grants.
+    operationId: add_user_right
+    x-mojo-name: add_user_right
+    x-mojo-to: 'User#add_right'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '../components/user-admin.yaml#/NewUserRight'
+    responses:
+      '201':
+        description: Direct permission rule created
+        content:
+          application/json:
+            schema:
+              $ref: '../components/user-admin.yaml#/UserRight'
+      '400':
+        $ref: '../components/responses.yaml#/Error'
+      '401':
+        $ref: '../components/responses.yaml#/UnauthorizedError'
+      '403':
+        $ref: '../components/responses.yaml#/ForbiddenError'
+      '404':
+        $ref: '../components/responses.yaml#/Error'
+      '409':
+        $ref: '../components/responses.yaml#/Error'
+      '500':
+        $ref: '../components/responses.yaml#/Error'
+  delete:
+    security:
+      - BearerAuth: []
+    summary: Remove all direct user rules, including memberships
+    tags: [users]
+    description: >-
+      Requires superuser. Removes all direct rules, including user-group
+      memberships. Group-owned rules themselves are not changed. An already
+      empty collection succeeds without adding a change-history event; closed
+      accounts return 409. Existing sessions and PATs are not revoked.
+    operationId: delete_all_user_rights
+    x-mojo-name: delete_all_user_rights
+    x-mojo-to: 'User#delete_right'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+    responses: &delete_right_responses
+      '204':
+        description: Direct rules removed
+      '400':
+        $ref: '../components/responses.yaml#/Error'
+      '401':
+        $ref: '../components/responses.yaml#/UnauthorizedError'
+      '403':
+        $ref: '../components/responses.yaml#/ForbiddenError'
+      '404':
+        $ref: '../components/responses.yaml#/Error'
+      '409':
+        $ref: '../components/responses.yaml#/Error'
+      '500':
+        $ref: '../components/responses.yaml#/Error'
+
+right:
+  delete:
+    security:
+      - BearerAuth: []
+    summary: Remove one direct user rule
+    tags: [users]
+    description: >-
+      Requires superuser. The rule must belong directly to the specified user;
+      inherited or another user's rule ID returns 404. Closed accounts return
+      409. Existing sessions and PATs are not revoked.
+    operationId: delete_user_right
+    x-mojo-name: delete_user_right
+    x-mojo-to: 'User#delete_right'
+    parameters:
+      - $ref: '../components/parameters.yaml#/user_id'
+      - name: right_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+    responses: *delete_right_responses
+
+groups:
+  get:
+    security:
+      - BearerAuth: []
+    summary: List existing user groups for membership assignment
+    tags: [users]
+    description: >-
+      Superuser-only reference data, sorted by name then ID. Does not expose
+      user-group lifecycle or group-rule writes.
+    operationId: list_user_groups
+    x-mojo-name: list_user_groups
+    x-mojo-to: 'User#list_user_groups'
+    parameters:
+      - $ref: '../components/parameters.yaml#/page'
+      - $ref: '../components/parameters.yaml#/per_page'
+    responses:
+      '200':
+        description: Paginated user-group reference data
+        content:
+          application/json:
+            schema:
+              $ref: '../components/user-admin.yaml#/UserGroupListResponse'
+      '400':
+        $ref: '../components/responses.yaml#/Error'
+      '401':
+        $ref: '../components/responses.yaml#/UnauthorizedError'
+      '403':
+        $ref: '../components/responses.yaml#/ForbiddenError'
+      '500':
+        $ref: '../components/responses.yaml#/Error'
