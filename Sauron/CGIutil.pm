@@ -11,6 +11,7 @@ use Time::Local;
 use Sauron::DB;
 use Sauron::Util;
 use Sauron::BackEnd;
+use Sauron::DhcpDefs;
 use Net::IP qw(:PROC);
 use HTML::Entities;
 use Encode qw(decode encode FB_CROAK);
@@ -30,6 +31,7 @@ $VERSION = '$Id:$ ';
 	     valid_safe_string
 
 	     form_check_field
+	     dhcp_field
 	     form_get_defaults
 	     form_check_form
 	     form_magic
@@ -108,37 +110,72 @@ our $inetNet = undef;
 our $formduid = undef;
 our $zonename;
 
+# Group names of a user for is_hidden_form_field(), keyed by uid. The CGI
+# serves one request per process, so this caches the lookup for one page.
+our %hidden_form_groups;
+my $hidden_form_config_warned = 0;
+
+# Returns arrayref of the user's group names. On a DB error (or a missing
+# uid) logs it and returns no groups: fields are shown, the form still works.
+sub hidden_form_user_groups($) {
+  my ($uid) = @_;
+  my @q;
+
+  unless (defined $uid && $uid =~ /^\d+$/) {
+    Sauron::Util::write2log("is_hidden_form_field: no valid uid in session, " .
+			    "form fields are not hidden")
+      unless (exists $hidden_form_groups{''});
+    return $hidden_form_groups{''} = [];
+  }
+  return $hidden_form_groups{$uid} if (exists $hidden_form_groups{$uid});
+
+  if (db_query("SELECT g.name FROM user_groups g, user_rights r " .
+	       "WHERE g.id=r.rref AND r.rtype=0 AND r.type=2 AND r.ref=? " .
+	       "ORDER BY g.id;", \@q, $uid) < 0) {
+    Sauron::Util::write2log("is_hidden_form_field: cannot read groups of uid " .
+			    "$uid, form fields are not hidden: " .
+			    db_lasterrormsg());
+    @q = ();
+  }
+  # errors are cached too: log once per page, not once per form field
+  return $hidden_form_groups{$uid} = [ map { $$_[0] } @q ];
+}
+
 sub is_hidden_form_field($) {
   my $rec = shift @_;
   my $tag = $rec->{tag};
-  return 0 if $tag =~/^$/; # field without tag
-  return 0 if (%main::state{superuser} eq 'yes');  # superuser is always permitted
+  return 0 if (!defined $tag || $tag eq ''); # field without tag
+  return 0 if (($main::state{superuser} // '') eq 'yes');  # superuser is always permitted
   return 0 if (exists $rec->{empty} && $rec->{empty} == 0); # do not hide mandatory items
   if (exists $rec->{hide} && defined $rec->{hide}) {
     return $rec->{hide};
   }
-  my (@q, $group);
+  my $hide = $main::SAURON_HIDE_FORM_FIELDS;
+  # nothing configured to hide: skip the group lookup
+  return 0 unless (defined $hide);
+  unless (ref($hide) eq 'HASH') {
+    Sauron::Util::write2log("is_hidden_form_field: \$SAURON_HIDE_FORM_FIELDS " .
+			    "is not a hash reference, ignored")
+      unless ($hidden_form_config_warned++);
+    return 0;
+  }
+  return 0 unless (%{$hide});
   my $module=(split /::/, (caller(1))[0])[-1];
 
-  db_query("SELECT g.name FROM user_groups g, user_rights r " .
-           "WHERE g.id=r.rref AND r.rtype=0 AND r.type=2 AND r.ref=$main::state{uid} " .
-           " ORDER BY g.id;",\@q);
+  # user is not listed in any group (or the lookup failed)
+  my $groups = hidden_form_user_groups($main::state{uid});
+  return 0 unless (@{$groups});
 
-  #print "<pre>" . Dumper (\@q) . "</pre>\n";
-  return 0 if (scalar(@{$q[0]}) == 0); # user is not listed in any group
-
-  foreach my $group (map { @$_ } @q) { # array of array into simple array
+  foreach my $group (@{$groups}) {
     # read the list of tags for each group, if this tag is missing, set false
-    #print "<pre>" . Dumper($main::SAURON_HIDE_FORM_FIELDS) . "</pre>\n";
-    #print "<pre>uid: $main::state{uid}\ngroup: $group\nmodule: $module\n</pre>";
 
     # which regexps match the group
-    foreach my $matching_group (grep { $group =~ /^$_$/ } keys %{$main::SAURON_HIDE_FORM_FIELDS}) {
-      if (exists $main::SAURON_HIDE_FORM_FIELDS->{$matching_group}->{$module}) {
+    foreach my $matching_group (grep { $group =~ /^$_$/ } keys %{$hide}) {
+      if (exists $hide->{$matching_group}->{$module}) {
 
         # Check if $tag is in the list of hidden tags and return 1 for hidden field
         return 1
-          if (grep { $_ eq $tag } @{$main::SAURON_HIDE_FORM_FIELDS->{$matching_group}->{$module}});
+          if (grep { $_ eq $tag } @{$hide->{$matching_group}->{$module}});
       }
     }
   }
@@ -269,6 +306,30 @@ sub form_check_field($$$) {
   } elsif ($type eq 'path') {
     return 'valid pathname required!'
       unless ($value =~ /^(|\S+\/)$/);
+  } elsif ($type eq 'filepath') {
+    # File path (no trailing slash required); restricted to safe characters
+    # so values cannot break out of the quoted "..." context in named.conf.
+    return 'valid file path required (allowed: letters, digits, . _ - /)!'
+      unless ($value =~ m{^[\w.\-/]*$});
+  } elsif ($type eq 'tlsref') {
+    # Reference to a TLS profile name (or built-in 'ephemeral'/'none');
+    # emitted into named.conf, so restricted like the profile name itself.
+    return 'valid TLS profile name required (or ephemeral/none)!'
+      unless ($value =~ /^[a-zA-Z0-9_\-\.]+$/);
+  } elsif ($type eq 'tlsprotocols') {
+    return 'valid TLS protocols required (TLSv1.2 and/or TLSv1.3)!'
+      unless (valid_tls_protocols($value));
+  } elsif ($type eq 'tlsciphers') {
+    return 'invalid OpenSSL cipher list (no matching TLSv1.2 cipher), ' .
+           'check with: openssl ciphers -v \'<list>\''
+      unless (valid_tls_ciphers($value));
+  } elsif ($type eq 'urlpath') {
+    return 'valid URL path required (e.g. /dns-query)!'
+      unless ($value =~ m{^/[\w./\-]*$});
+  } elsif ($type eq 'tlshostname') {
+    return 'fully qualified host name required (e.g. ns1.example.com, ' .
+           'without trailing dot)!'
+      unless (valid_tls_hostname($value));
   } elsif ($type =~ /ip[46]?/) {
     my $ipversion = ip_get_version($value);
      return 'IPv4 address required!' if $type eq 'ip4' and $ipversion == 6;
@@ -637,6 +698,17 @@ sub form_check_form($$$) {
 	  return 2
 	    if (form_check_field($rec,$tmp,$k) ne '');
 	}
+	# whole row check (fields depending on each other), for new or
+	# changed rows only: a stored row that fails it does not block saving
+	if ($rec->{rowcheck}) {
+	  my $v = form_row_values($rec,$p."_".$j);
+	  my $id = param($p."_".$j."_id");
+	  my ($old) = grep { defined $id && $id ne '' && $_->[0] eq $id }
+	    @{$data->{$tag}}[1..$#{$data->{$tag}}];
+	  my $changed = !$old ||
+	    grep { (defined $old->[$_+1] ? $old->[$_+1] : '') ne $v->[$_] } 0..$#$v;
+	  return 2 if ($changed && (form_row_check($rec,$v,$data))[0] ne '');
+	}
       }
 
       # if we get this far, check what records we need to add/update/delete
@@ -673,12 +745,12 @@ sub form_check_form($$$) {
 	    push @{$list}, $new;
 	  } else {
 	    for $k (1..$f) {
-	      if (param($p2."_".$k) ne $$list[$ind][$k]) {
+	      $tmp=param($p2."_".$k);
+	      if ($rec->{type}[$k-1] eq 'enum') {
+		$tmp=param($p2."_".$k."_enum") if ($tmp eq '');
+	      }
+	      if ($tmp ne $$list[$ind][$k]) {
 		$$list[$ind][$f+1]=1;
-		$tmp=param($p2."_".$k);
-                if ($rec->{type}[$k-1] eq 'enum') {
-                  $tmp=param($p2."_".$k."_enum") if ($tmp eq '');
-                }
 		$tmp=($tmp eq 'on' ? 't':'f') if ($type==5 && $k>1);
 		$$list[$ind][$k]=$tmp;
 		#print p,"$p2 modified record (field $k)";
@@ -781,6 +853,73 @@ sub form_check_form($$$) {
   return 0;
 }
 
+# dhcp_field($tag,$name,$family,%extra) - form field (ftype 2) for a list
+# of DHCP entries (dhcp_entries rows [id, dhcp, comment, fmt]); $family 4,
+# 6 or 0 (by the record's 'net' address, e.g. a net); %extra adds
+# or overrides keys (iff, no_empty, extrainfo, label, ...)
+sub dhcp_field($$$;%) {
+  my ($tag,$name,$family,%extra) = @_;
+  my $label = (delete $extra{label}) || 'DHCP';
+
+  return { ftype => 2, tag => $tag, name => $name, fields => 3,
+	   type => ['text','text','enum'], enum => [undef,undef,\%DHCP_FMT_NAMES],
+	   enum_only => [0,0,1],
+	   len => [50,20,2], maxlen => [1000,80,1], empty => [0,1,0],
+	   whitesp => ['LT','P',''], elabels => [$label,'comment','format'],
+	   family => $family, rowcheck => \&_dhcp_rowcheck,
+	   extrainfo => 'format: ISC + KEA = ISC statement used for both ' .
+	     '(where KEA has an equivalent), ISC only = ISC statement, ' .
+	     'KEA only = KEA JSON object with one member, e.g. ' .
+	     '{"renew-timer": 900}',
+	   %extra };
+}
+
+sub _dhcp_rowcheck($$;$) {
+  my ($rec,$v,$data) = @_;
+  my $family = $rec->{family} ||
+    ((ref($data) eq 'HASH' && defined $data->{net} && $data->{net} =~ /:/) ? 6 : 4);
+
+  return ('','') if (!defined $v->[0] || $v->[0] eq '');
+  return dhcp_entry_check($v->[0],$v->[2],$family);
+}
+
+# form_row_values($rec,$prefix) - values of the fields of one ftype 2 row
+# from the form parameters ($prefix_1 .. $prefix_N, enum fallbacks)
+sub form_row_values($$) {
+  my ($rec,$prefix) = @_;
+  my @v;
+
+  for my $k (1..$rec->{fields}) {
+    my $t = param($prefix."_".$k);
+    $t = param($prefix."_".$k."_enum")
+      if ($rec->{type}[$k-1] eq 'enum' && (!defined $t || $t eq ''));
+    push @v, (defined $t ? $t : '');
+  }
+  return \@v;
+}
+
+# form_row_check($rec,\@values,$data) - ($error,$warning) of an ftype 2
+# row from the field's rowcheck callback (empty strings when not set)
+sub form_row_check($$;$) {
+  my ($rec,$v,$data) = @_;
+
+  return ('','') unless ($rec->{rowcheck});
+  my ($e,$w) = $rec->{rowcheck}->($rec,$v,$data);
+  return ((defined $e ? $e : ''),(defined $w ? $w : ''));
+}
+
+# print the row check result of an ftype 2 row as a table row
+sub form_row_check_print($$;$) {
+  my ($rec,$v,$data) = @_;
+  my ($e,$w) = form_row_check($rec,$v,$data);
+
+  return unless ($e ne '' || $w ne '');
+  print '<TR><TD colspan="' . ($rec->{fields} + 1) . '">',
+    ($e ne '' ? '<span class="s-form__error">' . encode_entities($e) . '</span>'
+	      : '<span class="s-form__hint">' . encode_entities($w) . '</span>'),
+    "</TD></TR>\n";
+}
+
 sub form_field_enum($$$$) {
   my ($rec, $n, $k, $update) = @_;
   my (@lst, %lsth);
@@ -816,10 +955,11 @@ sub form_field_enum($$$$) {
     popup_menu(
       -name=>$n."_enum",
       -values=>\@lst,
-      -value=> $cur_e ? $cur_e : $lst[0],
-      -labels=>\%lsth),
-    " ",
-    textfield(-name=>$n,-size=>$len,-maxlength=>$maxlen,-value=>$cur);
+      -value=> (defined $cur_e && $cur_e ne '') ? $cur_e : $lst[0],
+      -labels=>\%lsth);
+  # enum_only: selection from the list only, no free text value
+  print " ", textfield(-name=>$n,-size=>$len,-maxlength=>$maxlen,-value=>$cur)
+    unless ($rec->{enum_only} && $rec->{enum_only}[$k-1]);
   if ($update > 0) {
     my $tmp=param($n);
     $tmp=param($n."_enum") if ($tmp eq '');
@@ -904,8 +1044,8 @@ sub form_magic($$$) {
 	}
 	param($p1."_count",($#{$a} < 0 ? 0 : $#{$a}));
       }
-      elsif ($rec->{ftype} == 0 || $rec->{ftype} == 9) {
-	# do nothing...
+      elsif ($rec->{ftype} == 0 || $rec->{ftype} == 9 || $rec->{ftype} == 16) {
+	# do nothing... (ftype 16 reads its data directly when rendered)
       }
       elsif ($rec->{ftype} == 3) {
 	param($p1,$val);
@@ -1138,6 +1278,8 @@ sub form_magic($$$) {
         print td(checkbox(-label=>'Delete',
 		     -name=>$p2."_del",-checked=>scalar(param($p2."_del")))),
 	       "</TR>";
+	form_row_check_print($rec,form_row_values($rec,$p2),$data)
+	  if ($rec->{rowcheck} && param($p2."_del") ne 'on');
       }
       print "<TR>";
       $j=$a+1;

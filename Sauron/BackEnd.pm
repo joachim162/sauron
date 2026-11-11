@@ -45,7 +45,7 @@ $VERSION = '$Id:$ ';
 	     update_record
 	     add_record_sql
 	     add_record
-	     copy_records
+	     copy_records add_dhcp_field update_dhcp_field
 
 	     get_server_id
 	     get_server_list
@@ -153,6 +153,13 @@ $VERSION = '$Id:$ ';
 	     delete_acl
 	     get_acl_list
 	     get_acl_by_name
+
+	     get_tls_profile
+	     update_tls_profile
+	     add_tls_profile
+	     delete_tls_profile
+	     get_tls_profile_list
+	     get_tls_profile_refs
 
 	     add_news
 	     get_news_list
@@ -378,39 +385,49 @@ sub hostname_in_use($$) {
   return 0;
 }
 
-# ip_in_use_with_pending($serverid, $ip, $exclude_request_id) -> ($conflict_source, $conflict_id)
-# Check if IP is in use in hosts OR in pending/approved dns_change_requests
+# ip_in_use_with_pending($serverid, $ip, $exclude_request_id [, $exclude_host_id])
+#   -> ($conflict_source, $conflict_id)
+# Check if IP is in use by a host of the server OR claimed by a pending
+# dns_change_request in a zone of the server. The given request and host
+# (and other requests for that host) are not counted.
 # Returns: (undef, undef) if free, ('hosts', host_id) if in hosts, ('pending', req_id) if in pending request
-sub ip_in_use_with_pending($$$) {
-  my($serverid,$ip,$exclude_request_id)=@_;
+sub ip_in_use_with_pending($$$;$) {
+  my($serverid,$ip,$exclude_request_id,$exclude_host_id)=@_;
   my(@q);
 
   return (-1, -1) unless ($serverid > 0);
   return (-2, -2) unless (is_cidr($ip));
+  $exclude_request_id = int($exclude_request_id || 0);
+  $exclude_host_id = int($exclude_host_id || 0);
 
   # Check in hosts table (including a_entries)
   db_query("SELECT a.host FROM hosts h, a_entries a, zones z " .
 	   "WHERE z.server=$serverid AND h.zone=z.id AND a.host=h.id " .
-	   " AND a.ip = " . db_encode_str($ip) . " LIMIT 1;",\@q);
+	   " AND a.ip = " . db_encode_str($ip) .
+	   ($exclude_host_id > 0 ? " AND a.host != $exclude_host_id" : "") .
+	   " LIMIT 1;",\@q);
   if (@q > 0 && $q[0][0] > 0) {
     return ('hosts', $q[0][0]);
   }
 
-  # Check in pending/approved dns_change_requests
-  # Look for IP in change_data JSON
+  # Check in pending dns_change_requests (approved ones are already
+  # applied, so their addresses are in a_entries).
   undef @q;
-  my $exclude_clause = ($exclude_request_id > 0) ? " AND id != $exclude_request_id" : "";
   db_query("SELECT id, change_data FROM dns_change_requests " .
-	   "WHERE status IN ('P','A') AND zone_id = " .
-	   "(SELECT zone FROM hosts WHERE id = (SELECT host FROM a_entries WHERE ip = " . db_encode_str($ip) . " LIMIT 1)) " .
-	   $exclude_clause,\@q);
-  
-  # Parse change_data for IP match
+	   "WHERE status = 'P' AND zone_id IN " .
+	   "(SELECT id FROM zones WHERE server=$serverid)" .
+	   ($exclude_request_id > 0 ? " AND id != $exclude_request_id" : "") .
+	   ($exclude_host_id > 0 ?
+	    " AND (host_id IS NULL OR host_id != $exclude_host_id)" : ""),\@q);
+
+  # change_data is a Data::Dumper dump; match the address as a whole
+  # quoted value, so 192.0.2.1 does not match 192.0.2.10.
+  (my $bare = $ip) =~ s{/(?:32|128)$}{};
   for my $i (0..$#q) {
     my $req_id = $q[$i][0];
     my $change_data = $q[$i][1];
-    # Simple string search - if IP appears in change_data, it's likely in the request
-    if (defined $change_data && $change_data =~ /\Q$ip\E/) {
+    if (defined $change_data &&
+	$change_data =~ m{'\Q$bare\E(?:/(?:32|128))?'}i) {
       return ('pending', $req_id);
     }
   }
@@ -697,6 +714,68 @@ sub add_array_field($$$$$$) {
   return 0;
 }
 
+# DHCP entry lists (dhcp_entries): rows [id, dhcp, comment, fmt, marker],
+# fmt: 0 = ISC and KEA, 1 = ISC only, 2 = KEA only (see Sauron::DhcpDefs)
+use constant DHCP_ENTRY_COLUMNS => 'id,dhcp,comment,COALESCE(fmt,0)';
+
+# fmt value of a DHCP entry row: 0..2, undef for an invalid value
+# (missing/empty = 0)
+sub _dhcp_fmt($) {
+  my ($fmt) = @_;
+  return 0 if (!defined $fmt || $fmt =~ /^\s*$/);
+  return ($fmt =~ /^\s*([012])\s*$/) ? $1 : undef;
+}
+
+# normalize DHCP entry rows to [id, dhcp, comment, fmt, marker]: a row
+# of exactly 4 elements is the former layout [id, dhcp, comment, marker];
+# returns -30 on an invalid fmt
+sub _dhcp_rows($) {
+  my ($list) = @_;
+
+  for my $row (@$list) {
+    next unless (ref($row) eq 'ARRAY' && @$row > 1);
+    next if (defined $row->[0] && $row->[0] !~ /^\d*$/);   # header
+    splice(@$row,3,0,0) if (@$row == 4);
+    my $f = _dhcp_fmt($row->[3]);
+    return -30 unless (defined $f);
+    $row->[3] = $f;
+  }
+  return 0;
+}
+
+# add_dhcp_field($keyname,$rec,$vals) - insert DHCP entries of
+# $rec->{$keyname} with "type,ref" values $vals; rows are
+# [id, dhcp, comment?, fmt?, marker?] (4 element rows: former layout),
+# header rows are skipped; -30 = invalid fmt
+sub add_dhcp_field($$$) {
+  my ($keyname,$rec,$vals) = @_;
+  my %tmp;
+
+  return 0 unless (ref($rec) eq 'HASH' && ref($rec->{$keyname}) eq 'ARRAY');
+  return -30 if (_dhcp_rows($rec->{$keyname}) < 0);
+  $tmp{list} = [ map { [ $_->[0], $_->[1],
+			 (defined $_->[2] ? $_->[2] : ''), ($_->[3] || 0) ] }
+		 grep { ref($_) eq 'ARRAY' && @$_ > 1 &&
+			(!defined $_->[0] || $_->[0] =~ /^\d*$/) }
+		 @{$rec->{$keyname}} ];
+  return add_array_field('dhcp_entries','dhcp,comment,fmt','list',\%tmp,
+			 'type,ref',$vals);
+}
+
+# update_dhcp_field($keyname,$rec,$vals) - update_array_field for DHCP
+# entries (rows [id, dhcp, comment, fmt, marker]); rows in the former
+# layout [id, dhcp, comment, marker] (4 elements) get fmt 0
+sub update_dhcp_field($$$) {
+  my ($keyname,$rec,$vals) = @_;
+  my $list = $rec->{$keyname};
+
+  if (ref($list) eq 'ARRAY') {
+    return -30 if (_dhcp_rows([ @{$list}[1..$#{$list}] ]) < 0);
+  }
+  return update_array_field("dhcp_entries",4,"dhcp,comment,fmt,type,ref",
+			    $keyname,$rec,$vals);
+}
+
 sub update_record($$) {
   my ($table,$rec) = @_;
   my ($key,$sqlstr,$id,$flag,$r);
@@ -798,7 +877,7 @@ sub copy_records($$$$$$$) {
 
   $tmp="SELECT $reffield,$fields FROM $stable WHERE $key IN ($selectsql)";
   #print "$tmp\n";
-  db_query($tmp,\@data);
+  return -2 if (db_query($tmp,\@data) < 0);
   #print "<br>$stable records to copy: " . @data . "\n";
   return 0 if (@data < 1);
 
@@ -1006,8 +1085,10 @@ sub get_server($$) {
 		    "df_loadbalmax,hostaddr,".
 		    "cdate,cuser,mdate,muser,lastrun," .
 		    "df_port6,df_max_delay6,df_max_uupdates6,df_mclt6,df_split6,".
-		    "df_loadbalmax6,dhcp_flags,".
-            "listen_on_port_v6,transfer_source_v6,query_src_ip_v6,query_src_port_v6",
+		    "df_loadbalmax6,dhcp_flags6,kea_ha_port,kea_ha_port6,".
+            "listen_on_port_v6,transfer_source_v6,query_src_ip_v6,query_src_port_v6," .
+            "tls_default_profile,tls_listen_profile,tls_listen_port," .
+            "doh_profile,doh_port,doh_endpoint",
 		    $id,$rec,"id");
   return -1 if ($res < 0);
   fix_bools($rec,"no_roots,zones_only");
@@ -1024,9 +1105,9 @@ sub get_server($$) {
   get_array_field("cidr_entries",3,"id,ip,comment","IP,Comments",
 		  "type=11 AND ref=$id ORDER BY ip",$rec,'forwarders');
 # Local DHCP settings 2020-07-20 TVu
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=7 AND ref=$id ORDER BY id",$rec,'dhcp_l');
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=1 AND ref=$id ORDER BY id",$rec,'dhcp');
   get_array_field("txt_entries",3,"id,txt,comment","TXT,Comments",
 		  "type=3 AND ref=$id ORDER BY id",$rec,'txt');
@@ -1037,9 +1118,9 @@ sub get_server($$) {
   get_array_field("txt_entries",3,"id,txt,comment","TXT,Comments",
 		  "type=13 AND ref=$id ORDER BY id",$rec,'bind_globals');
 # Local DHCP settings 2020-07-20 TVu
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP6,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP6,Comments,Format",
 		  "type=17 AND ref=$id ORDER BY id",$rec,'dhcp6_l');
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP6,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP6,Comments,Format",
 		  "type=11 AND ref=$id ORDER BY id",$rec,'dhcp6');
 
   get_aml_field($id,14,$id,$rec,'allow_query_cache');
@@ -1118,18 +1199,18 @@ sub update_server($) {
   if ($r < 0) { db_rollback(); return -12; }
   # dhcp
 # Local DHCP settings 2020-07-20 TVu
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",'dhcp_l',$rec,
+  $r=update_dhcp_field('dhcp_l',$rec,
 		        "7,$id");
   if ($r < 0) { db_rollback(); return -13; }
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",'dhcp',$rec,
+  $r=update_dhcp_field('dhcp',$rec,
 		        "1,$id");
   if ($r < 0) { db_rollback(); return -13; }
   # dhcp6
 # Local DHCP settings 2020-07-20 TVu
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",'dhcp6_l',$rec,
+  $r=update_dhcp_field('dhcp6_l',$rec,
 		        "17,$id");
   if ($r < 0) { db_rollback(); return -132; }
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",'dhcp6',$rec,
+  $r=update_dhcp_field('dhcp6',$rec,
 		        "11,$id");
   if ($r < 0) { db_rollback(); return -132; }
   # txt
@@ -1207,19 +1288,15 @@ sub add_server($) {
   if ($res < 0) { db_rollback(); return -10; }
   # dhcp
 # Local DHCP settings 2020-07-20 TVu
-  $res = add_array_field('dhcp_entries','dhcp,comment','dhcp_l',$rec,
-			 'type,ref',"7,$id");
+  $res = add_dhcp_field('dhcp_l',$rec,"7,$id");
   if ($res < 0) { db_rollback(); return -11; }
-  $res = add_array_field('dhcp_entries','dhcp,comment','dhcp',$rec,
-			 'type,ref',"1,$id");
+  $res = add_dhcp_field('dhcp',$rec,"1,$id");
   if ($res < 0) { db_rollback(); return -11; }
   # dhcp6
 # Local DHCP settings 2020-07-20 TVu
-  $res = add_array_field('dhcp_entries','dhcp,comment','dhcp6_l',$rec,
-			 'type,ref',"17,$id");
+  $res = add_dhcp_field('dhcp6_l',$rec,"17,$id");
   if ($res < 0) { db_rollback(); return -11; }
-  $res = add_array_field('dhcp_entries','dhcp,comment','dhcp6',$rec,
-			 'type,ref',"11,$id");
+  $res = add_dhcp_field('dhcp6',$rec,"11,$id");
   if ($res < 0) { db_rollback(); return -11; }
   # txt
   $res = add_array_field('txt_entries','txt,comment','txt',$rec,
@@ -1277,8 +1354,7 @@ sub _delete_server_parts($) {
 
   # cidr_entries
   $res=db_exec("DELETE FROM cidr_entries " .
-               "WHERE (type=1 OR type=7 OR type=8 OR type=9 OR type=10 " .
-               " OR type=11) AND ref=$id;");
+               "WHERE type IN (1,7,8,9,10,11,14,15,16) AND ref=$id;");
   if ($res < 0) { db_rollback(); return -1; }
 
   $res=db_exec("DELETE FROM cidr_entries WHERE id IN ( " .
@@ -1397,6 +1473,10 @@ sub _delete_server_parts($) {
   $res=db_exec("DELETE FROM wks_templates WHERE server=$id;");
   if ($res < 0) { db_rollback(); return -25; }
 
+  # tls_profiles (XoT, RFC 9103)
+  $res=db_exec("DELETE FROM tls_profiles WHERE type=1 AND ref=$id;");
+  if ($res < 0) { db_rollback(); return -29; }
+
   # mx_templates
   $res=db_exec("DELETE FROM mx_templates WHERE id IN ( " .
                "SELECT a.id FROM mx_templates a, zones z " .
@@ -1410,6 +1490,17 @@ sub _delete_server_parts($) {
   # nets
   $res=db_exec("DELETE FROM nets WHERE server=$id;");
   if ($res < 0) { db_rollback(); return -28; }
+
+  # ACLs (with their entries) and TSIG keys of the server
+  $res=db_exec("DELETE FROM cidr_entries WHERE type=0 AND ref IN ( " .
+               "SELECT id FROM acls WHERE server=$id);");
+  if ($res < 0) { db_rollback(); return -32; }
+
+  $res=db_exec("DELETE FROM acls WHERE server=$id;");
+  if ($res < 0) { db_rollback(); return -33; }
+
+  $res=db_exec("DELETE FROM keys WHERE type=1 AND ref=$id;");
+  if ($res < 0) { db_rollback(); return -34; }
 
   # vlans
   # Poznámka: VLAN nejsou smazány, pouze zóny a jejich obsah
@@ -1437,10 +1528,30 @@ sub delete_server($) {
   write2log("SERVER_DELETE_START: Deleting server ID=$id");
   db_begin();
 
+  # slave servers use the master's zones, ACLs and keys; delete them first.
+  # Lock servers so no slave can be assigned to this server by a concurrent
+  # add_server()/update_server() between this check and the deletion.
+  my @slaves;
+  if (db_exec("LOCK TABLE servers IN SHARE ROW EXCLUSIVE MODE") < 0 ||
+      db_query("SELECT id FROM servers WHERE masterserver=$id", \@slaves) < 0) {
+    db_rollback();
+    write2log("SERVER_DELETE_FAILED: Server ID=$id was NOT deleted - slave server check failed");
+    return -102;
+  }
+  if (@slaves > 0) {
+    db_rollback();
+    write2log("SERVER_DELETE_FAILED: Server ID=$id was NOT deleted - it has slave servers");
+    return -101;
+  }
+
   # get all zones of server
   my @zone_ids;
   my @q;
-  db_query("SELECT id FROM zones WHERE server=$id", \@q);
+  if (db_query("SELECT id FROM zones WHERE server=$id", \@q) < 0) {
+    db_rollback();
+    write2log("SERVER_DELETE_FAILED: Server ID=$id was NOT deleted - zone query failed");
+    return -103;
+  }
   for my $i (0..$#q) {
       push @zone_ids, $q[$i][0];
   }
@@ -1552,7 +1663,8 @@ sub get_zone($$) {
 	       "server,active,dummy,catalog_only,type,reverse,class,name,nnotify," .
 	       "hostmaster,serial,refresh,retry,expire,minimum,ttl," .
 	       "chknames,reversenet,comment,cdate,cuser,mdate,muser," .
-	       "forward,serial_date,flags,rdate,transfer_source,transfer_source_v6,expiration",
+	       "forward,serial_date,flags,rdate,transfer_source,transfer_source_v6,expiration," .
+	       "xot_transfer,tls_profile",
 	       $id,$rec,"id");
   return -1 if ($res < 0);
   fix_bools($rec,"active,dummy,catalog_only,reverse,noreverse");
@@ -1596,14 +1708,16 @@ sub get_zone($$) {
     }
   }
 
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=2 AND ref=$id ORDER BY id",$rec,'dhcp');
   get_aml_field($sid,2,$id,$rec,'allow_update');
-  get_array_field("cidr_entries",3,"id,ip,comment","IP,Comments",
+  get_array_field("cidr_entries",5,"id,ip,port,tls,comment",
+		  "IP,Port,TLS profile,Comments",
 		  "type=3 AND ref=$id ORDER BY ip",$rec,'masters');
   get_aml_field($sid,4,$id,$rec,'allow_query');
   get_aml_field($sid,5,$id,$rec,'allow_transfer');
-  get_array_field("cidr_entries",3,"id,ip,comment","IP,Comments",
+  get_array_field("cidr_entries",5,"id,ip,port,tls,comment",
+		  "IP,Port,TLS profile,Comments",
 		  "type=6 AND ref=$id ORDER BY ip",$rec,'also_notify');
   get_array_field("cidr_entries",4,"id,ip,port,comment","IP,Port,Comments",
 		  "type=12 AND ref=$id ORDER BY ip",$rec,'forwarders');
@@ -1841,7 +1955,7 @@ sub update_zone($) {
       $r=update_array_field("caa_entries",5,"flags,tag,value,comment,type,ref",
     			    'caa',$rec,"1,$hid");
       if ($r < 0) { db_rollback(); return -141; }
-      $r=update_array_field("naptr_entries",7,"order_val,preference,flags,service,regexp,replacement,comment,type,ref",
+      $r=update_array_field("naptr_entries",8,"order_val,preference,flags,service,regexp,replacement,comment,type,ref",
 			    'naptr',$rec,"1,$hid");
       if ($r < 0) { db_rollback(); return -140; }
     }
@@ -1853,15 +1967,15 @@ sub update_zone($) {
   }
 
   # dhcp
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp',$rec,"2,$id");
   if ($r < 0) { db_rollback(); return -15; }
 
   # allow_update
   $r=update_aml_field(2,$id,$rec,'allow_update');
   if ($r < 0) { db_rollback(); return -16; }
-  # masters
-  $r=update_array_field("cidr_entries",3,"ip,comment,type,ref",
+  # masters (with optional XoT port/tls profile, RFC 9103)
+  $r=update_array_field("cidr_entries",5,"ip,port,tls,comment,type,ref",
 			'masters',$rec,"3,$id");
   if ($r < 0) { db_rollback(); return -17; }
   # allow_query
@@ -1870,8 +1984,8 @@ sub update_zone($) {
   # allow_transfer
   $r=update_aml_field(5,$id,$rec,'allow_transfer');
   if ($r < 0) { db_rollback(); return -19; }
-  # also_notify
-  $r=update_array_field("cidr_entries",3,"ip,comment,type,ref",
+  # also_notify (with optional XoT port/tls profile, RFC 9103)
+  $r=update_array_field("cidr_entries",5,"ip,port,tls,comment,type,ref",
 			'also_notify',$rec,"6,$id");
   if ($r < 0) { db_rollback(); return -20; }
   # forwarders
@@ -2221,8 +2335,7 @@ sub add_zone($) {
   }
 
   # dhcp
-  $res = add_array_field('dhcp_entries','dhcp,comment','dhcp',$rec,
-			 'type,ref',"2,$id");
+  $res = add_dhcp_field('dhcp',$rec,"2,$id");
   if ($res < 0) { db_rollback(); return -111; }
 
   # allow_update
@@ -2270,6 +2383,14 @@ sub copy_zone($$$$) {
   delete $z{pending_info};
   delete $z{zonehostid};
   delete $z{txt_auto_generation};
+  # get_zone() adds helper fields (catalog info etc.) that are not columns
+  # of the zones table; copy only the real columns
+  db_query("SELECT column_name FROM information_schema.columns " .
+	   "WHERE table_name='zones'",\@q);
+  return -1 unless (@q > 0);
+  my %zcols = map { $_->[0] => 1 } @q;
+  for $i (keys %z) { delete $z{$i} unless ($zcols{$i}); }
+  undef @q;
 
 
   if ($z{reverse} =~ /^(t|true)$/) {
@@ -2296,15 +2417,16 @@ sub copy_zone($$$$) {
   print "<BR>Copying records pointing to zone record..." if ($verbose);
 
   # cidr_entries
-  $res=db_exec("INSERT INTO cidr_entries (type,ref,ip,comment) " .
-	       "SELECT type,$newid,ip,comment FROM cidr_entries " .
+  # port/tls carry XoT (RFC 9103) settings of masters/also-notify
+  $res=db_exec("INSERT INTO cidr_entries (type,ref,ip,port,tls,comment) " .
+	       "SELECT type,$newid,ip,port,tls,comment FROM cidr_entries " .
 	       "WHERE (type=2 OR type=3 OR type=4 OR type=5 OR type=6 " .
 	       " OR type=12) AND ref=$id;");
   if ($res < 0) { db_rollback(); return -3; }
 
   # dhcp_entries
-  $res=db_exec("INSERT INTO dhcp_entries (type,ref,dhcp,comment) " .
-	       "SELECT type,$newid,dhcp,comment FROM dhcp_entries " .
+  $res=db_exec("INSERT INTO dhcp_entries (type,ref,dhcp,comment,fmt) " .
+	       "SELECT type,$newid,dhcp,comment,fmt FROM dhcp_entries " .
 	       "WHERE type=2 AND ref=$id;");
   if ($res < 0) { db_rollback(); return -4; }
 
@@ -2344,22 +2466,21 @@ sub copy_zone($$$$) {
 
   db_query("SELECT a.id,b.id,a.domain FROM hosts a, hosts b " .
 	   "WHERE a.zone=$id AND b.zone=$newid AND a.domain=b.domain;",\@hids);
-  print "<br>hids = " . $#hids;
   for $i (0..$#hids) { $hidh{$hids[$i][0]}=$hids[$i][1]; }
 
   # a_entries
   print "<BR>Copying A records..." if ($verbose);
   $res=copy_records('a_entries','a_entries','id','host',\@hids,
-     'ip,ipv6,type,reverse,forward,comment',
+     'ip,type,reverse,forward,comment',
      "SELECT a.id FROM a_entries a,hosts h WHERE a.host=h.id AND h.zone=$id");
   if ($res < 0) { db_rollback(); return -12; }
 
   # dhcp_entries
   print "<BR>Copying DHCP records..." if ($verbose);
   $res=copy_records('dhcp_entries','dhcp_entries','id','ref',\@hids,
-     'type,dhcp,comment',
+     'type,dhcp,comment,fmt',
      "SELECT a.id FROM dhcp_entries a,hosts h " .
-     "WHERE a.type=3 AND a.ref=h.id AND h.zone=$id");
+     "WHERE a.type IN (3,13) AND a.ref=h.id AND h.zone=$id");
   if ($res < 0) { db_rollback(); return -13; }
 
   # mx_entires
@@ -2560,9 +2681,9 @@ sub get_host($$) {
 		  "type=1 AND ref=$id ORDER BY proto,services",$rec,'wks_l');
   get_array_field("mx_entries",4,"id,pri,mx,comment","Priority,MX,Comments",
 		  "type=2 AND ref=$id ORDER BY pri,mx",$rec,'mx_l');
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=3 AND ref=$id ORDER BY id",$rec,'dhcp_l');
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=13 AND ref=$id ORDER BY id",$rec,'dhcp_l6');
   get_array_field("printer_entries",3,"id,printer,comment","PRINTER,Comments",
 		  "type=2 AND ref=$id ORDER BY printer",$rec,'printer_l');
@@ -2584,11 +2705,14 @@ sub get_host($$) {
 
     # For TXT hosts (type=13), TXT value is stored in hosts.cname_txt.
     # Keep txt_l in the same shape as get_array_field() output so existing
-    # form validation/serialization logic works unchanged.
+    # form validation/serialization logic works unchanged. The row needs a
+    # non-zero id, otherwise form_check_form() can't match it on submit and
+    # treats an edited value as a new row (leaving the original one active).
+    # It is negative so that it never matches a real txt_entries.id.
   if ($rec->{type} == 13) {
       $rec->{txt_l} = [
   	      ['Text', 'Comments'],
-  	      [0, ($rec->{cname_txt} // ''), ($rec->{comment} // ''), 0]
+  	      [-1, ($rec->{cname_txt} // ''), ($rec->{comment} // ''), 0]
   	  ];
   } else {
       get_array_field("txt_entries",3,"id,txt,comment",
@@ -2720,6 +2844,13 @@ sub get_host($$) {
 sub _host_has_active_list_entries($$) {
   my($list, $value_index) = @_;
 
+  return (_host_count_active_list_entries($list, $value_index) > 0);
+}
+
+sub _host_count_active_list_entries($$) {
+  my($list, $value_index) = @_;
+  my $count = 0;
+
   return 0 unless (ref($list) eq 'ARRAY');
 
   for my $row (@{$list}) {
@@ -2737,7 +2868,29 @@ sub _host_has_active_list_entries($$) {
       next unless (defined($val) && $val !~ /^\s*$/);
     }
 
-    return 1;
+    $count++;
+  }
+
+  return $count;
+}
+
+# No other data may exist at a CNAME owner name (RFC 1034), so aliases (type 4)
+# can't get TXT entries. TXT rows stored before this was enforced are ignored
+# by the zone generator; leaving them unchanged doesn't block editing the alias.
+sub _alias_has_new_txt_entries($) {
+  my($rec) = @_;
+  my $new_rec = !($rec->{id} && $rec->{id} > 0);
+
+  return 0 unless (ref($rec->{txt_l}) eq 'ARRAY');
+  for my $row (@{$rec->{txt_l}}) {
+    next unless (ref($row) eq 'ARRAY');
+    my $id = $$row[0];
+    next if (defined($id) && $id !~ /^-?\d+$/); # header row
+    my $val = $$row[1];
+    next unless (defined($val) && $val !~ /^\s*$/);
+    my $state = $$row[3] || 0;
+    next if ($state == -1);
+    return 1 if ($new_rec || $state == 1 || $state == 2);
   }
 
   return 0;
@@ -2770,6 +2923,17 @@ sub _host_first_active_list_entry($$$) {
   }
 
   return ('','');
+}
+
+# TXT host (type 13): its value and comment live in hosts.cname_txt and
+# hosts.comment, edited as a single txt_l row (see get_host()).
+sub _txt_host_from_txt_l($) {
+  my($rec) = @_;
+
+  return unless ($rec->{type} == 13);
+  my($txt_val, $txt_comment) = _host_first_active_list_entry($rec->{txt_l}, 1, 2);
+  $rec->{cname_txt} = $txt_val;
+  $rec->{comment} = $txt_comment;
 }
 
 sub _host_has_ip_entries($) {
@@ -2816,6 +2980,8 @@ sub host_required_data_error($) {
     if ($alias <= 0 && $cname_txt eq '') {
       return 'Alias record requires alias target.';
     }
+    return 'Alias (CNAME) record cannot have TXT entries.'
+      if (_alias_has_new_txt_entries($rec));
   }
 
   if ($type == 5 && !_host_has_active_list_entries($rec->{printer_l}, 1)) {
@@ -2876,14 +3042,7 @@ sub update_host($) {
   delete $rec->{fqdn};
   delete $rec->{approval_reason};
 
-  if ($rec->{type} == 13) {
-    my($txt_val, $txt_comment) = _host_first_active_list_entry($rec->{txt_l}, 1, 2);
-    $rec->{cname_txt} = $txt_val;
-    if ((!defined($rec->{comment}) || $rec->{comment} =~ /^\s*$/) &&
-        defined($txt_comment) && $txt_comment ne '') {
-      $rec->{comment} = $txt_comment;
-    }
-  }
+  _txt_host_from_txt_l($rec);
 
   $rec->{alias} = -1 if ($rec->{cname_txt});
 
@@ -2910,7 +3069,7 @@ sub update_host($) {
   $r=update_array_field("mx_entries",4,"pri,mx,comment,type,ref",
 			'mx_l',$rec,"2,$id");
   if ($r < 0) { db_rollback(); return -14; }
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp_l',$rec,"3,$id");
   if ($r < 0) { db_rollback(); return -16; }
   $r=update_array_field("printer_entries",3,"printer,comment,type,ref",
@@ -2960,7 +3119,7 @@ sub update_host($) {
 			'subgroups',$rec,"$id");
   if ($r < 0) { db_rollback(); return -25; }
 
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp_l6',$rec,"13,$id");
   if ($r < 0) { db_rollback(); return -26; }
 
@@ -3084,14 +3243,7 @@ sub add_host($) {
 
   return -100 unless ($rec->{zone} > 0);
 
-  if ($rec->{type} == 13) {
-    my($txt_val, $txt_comment) = _host_first_active_list_entry($rec->{txt_l}, 1, 2);
-    $rec->{cname_txt} = $txt_val;
-    if ((!defined($rec->{comment}) || $rec->{comment} =~ /^\s*$/) &&
-        defined($txt_comment) && $txt_comment ne '') {
-      $rec->{comment} = $txt_comment;
-    }
-  }
+  _txt_host_from_txt_l($rec);
 
   # Catalog zones cannot have hosts added (RFC 9432)
   if (is_catalog_zone($rec->{zone})) {
@@ -3577,12 +3729,12 @@ sub get_group($$) {
 			     "type,alevel,vmps",
 			     $id,$rec,"id"));
 
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=5 AND ref=$id ORDER BY id",$rec,'dhcp');
   get_array_field("printer_entries",3,"id,printer,comment","PRINTER,Comments",
 		  "type=1 AND ref=$id ORDER BY printer",$rec,'printer');
 
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comments",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=15 AND ref=$id ORDER BY id",$rec,'dhcp6');
 
   add_std_fields($rec);
@@ -3600,14 +3752,14 @@ sub update_group($) {
   if ($r < 0) { db_rollback(); return $r; }
   $id=$rec->{id};
 
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp',$rec,"5,$id");
   if ($r < 0) { db_rollback(); return -16; }
   $r=update_array_field("printer_entries",3,"printer,comment,type,ref",
 			'printer',$rec,"1,$id");
   if ($r < 0) { db_rollback(); return -17; }
 
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp6',$rec,"15,$id");
   if ($r < 0) { db_rollback(); return -16; }
 
@@ -3626,13 +3778,11 @@ sub add_group($) {
   $id=$res;
 
   # dhcp_entries
-  $res = add_array_field('dhcp_entries','dhcp,comment','dhcp',$rec,
-			 'type,ref',"5,$id");
+  $res = add_dhcp_field('dhcp',$rec,"5,$id");
   if ($res < 0) { db_rollback(); return -3; }
 
   # dhcp_entries
-  $res = add_array_field('dhcp_entries','dhcp,comment','dhcp6',$rec,
-			 'type,ref',"15,$id");
+  $res = add_dhcp_field('dhcp6',$rec,"15,$id");
   if ($res < 0) { db_rollback(); return -3; }
 
   # printer_entries
@@ -4000,7 +4150,7 @@ sub get_net($$) {
                       "netname,alevel,type,dummy,ip_policy", $id,$rec,"id"));
 
   fix_bools($rec,"subnet,no_dhcp,dummy");
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comment",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=4 AND ref=$id ORDER BY id",$rec,'dhcp_l');
 
   $rec->{private_flag} = ($rec->{type} & 0x01 ? 1 : 0);
@@ -4042,7 +4192,7 @@ sub update_net($) {
   if ($r < 0) { db_rollback(); return $r; }
   $id=$rec->{id};
 
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp_l',$rec,"4,$id");
   if ($r < 0) { db_rollback(); return -10; }
 
@@ -4102,18 +4252,11 @@ sub add_net($) {
   if ($res < 0) { db_rollback(); return -1; }
   $id=$res;
 
-  # dhcp_entries
-  for $i (0..$#{$rec->{dhcp_l}}) {
-    $res=db_exec("INSERT INTO dhcp_entries (type,ref,dhcp) " .
-		 "VALUES(4,$id,'$rec->{dhcp_l}[$i][1]')");
-    if ($res < 0) { db_rollback(); return -3; }
-  }
-
-  for $i (0..$#{$rec->{dhcp_l6}}) {
-    $res=db_exec("INSERT INTO dhcp_entries (type,ref,dhcp) " .
-		 "VALUES(4,$id,'$rec->{dhcp_l6}[$i][1]')");
-    if ($res < 0) { db_rollback(); return -4; }
-  }
+  # dhcp_entries (a net has one list for both families, type 4)
+  $res = add_dhcp_field('dhcp_l',$rec,"4,$id");
+  if ($res < 0) { db_rollback(); return -3; }
+  $res = add_dhcp_field('dhcp_l6',$rec,"4,$id");
+  if ($res < 0) { db_rollback(); return -4; }
 
   return -10 if (db_commit() < 0);
   return $id;
@@ -4152,9 +4295,9 @@ sub get_vlan($$) {
                       "server,name,description,comment,vlanno,".
 		      "cdate,cuser,mdate,muser", $id,$rec,"id"));
 
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comment",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=6 AND ref=$id ORDER BY id",$rec,'dhcp_l');
-  get_array_field("dhcp_entries",3,"id,dhcp,comment","DHCP,Comment",
+  get_array_field("dhcp_entries",4,DHCP_ENTRY_COLUMNS,"DHCP,Comments,Format",
 		  "type=16 AND ref=$id ORDER BY id",$rec,'dhcp_l6');
 
   add_std_fields($rec);
@@ -4173,11 +4316,11 @@ sub update_vlan($) {
   if ($r < 0) { db_rollback(); return $r; }
   $id=$rec->{id};
 
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp_l',$rec,"6,$id");
   if ($r < 0) { db_rollback(); return -10; }
 
-  $r=update_array_field("dhcp_entries",3,"dhcp,comment,type,ref",
+  $r=update_dhcp_field(
 			'dhcp_l6',$rec,"16,$id");
   if ($r < 0) { db_rollback(); return -10; }
 
@@ -4196,18 +4339,10 @@ sub add_vlan($) {
   $id=$res;
 
   # dhcp_entries
-  for $i (0..$#{$rec->{dhcp_l}}) {
-    $res=db_exec("INSERT INTO dhcp_entries (type,ref,dhcp) " .
-		 "VALUES(6,$id,'$rec->{dhcp_l}[$i][1]')");
-    if ($res < 0) { db_rollback(); return -3; }
-  }
-
-# dhcp_entries6
-  for $i (0..$#{$rec->{dhcp_l6}}) {
-    $res=db_exec("INSERT INTO dhcp_entries (type,ref,dhcp) " .
-		 "VALUES(16,$id,'$rec->{dhcp_l6}[$i][1]')");
-    if ($res < 0) { db_rollback(); return -4; }
-  }
+  $res = add_dhcp_field('dhcp_l',$rec,"6,$id");
+  if ($res < 0) { db_rollback(); return -3; }
+  $res = add_dhcp_field('dhcp_l6',$rec,"16,$id");
+  if ($res < 0) { db_rollback(); return -4; }
 
   return -10 if (db_commit() < 0);
   return $id;
@@ -4744,6 +4879,147 @@ sub get_acl_by_name($$) {
   db_query("SELECT id FROM acls " .
 	   "WHERE server=$serverid AND name=$name",\@q);
   return ($q[0][0] > 0 ? $q[0][0] : -1);
+}
+
+
+############################################################################
+# TLS profile functions (DNS Zone Transfer over TLS, XoT, RFC 9103)
+
+# 'ephemeral' and 'none' are built-in BIND TLS objects; they must not be
+# used as user-defined profile names (they are emitted without a tls{} block).
+sub tls_profile_reserved_name($) {
+  my($name) = @_;
+  return (defined($name) && $name =~ /^(?:ephemeral|none)$/i);
+}
+
+sub get_tls_profile($$) {
+  my ($id,$rec) = @_;
+
+  return -100 unless ($id =~ /^\d+$/ && $id > 0);
+  return -100 if (get_record("tls_profiles",
+		      "ref,name,cert_file,key_file,ca_file,dhparam_file," .
+		      "protocols,ciphers,prefer_server_ciphers," .
+		      "session_tickets,remote_hostname,comment," .
+		      "cdate,cuser,mdate,muser", $id,$rec,"id"));
+  add_std_fields($rec);
+  return 0;
+}
+
+# Profiles are referenced by name from servers, zones and masters/also-notify
+# rows of the same server. Returns a list of descriptions of those references.
+sub get_tls_profile_refs($$) {
+  my($serverid,$name) = @_;
+  my(@q,@refs,$i);
+
+  return () unless ($serverid =~ /^\d+$/ && $serverid > 0 && $name ne '');
+  my $n=db_encode_str($name);
+
+  db_query("SELECT name,tls_listen_profile,tls_default_profile,doh_profile " .
+	   "FROM servers WHERE id=$serverid",\@q);
+  for $i (0..$#q) {
+    push @refs, "server $q[$i][0]: TLS listener" if ($q[$i][1] eq $name);
+    push @refs, "server $q[$i][0]: default TLS profile" if ($q[$i][2] eq $name);
+    push @refs, "server $q[$i][0]: DoH listener" if ($q[$i][3] eq $name);
+  }
+  undef @q;
+  db_query("SELECT name FROM zones WHERE server=$serverid AND tls_profile=$n " .
+	   "ORDER BY name",\@q);
+  push @refs, map { "zone $_->[0]: TLS profile" } @q;
+  undef @q;
+  db_query("SELECT DISTINCT z.name,c.type FROM cidr_entries c, zones z " .
+	   "WHERE c.ref=z.id AND z.server=$serverid AND c.type IN (3,6) " .
+	   "AND c.tls=$n ORDER BY z.name,c.type",\@q);
+  push @refs, map { "zone $_->[0]: " .
+		    ($_->[1] == 3 ? 'masters' : 'also-notify') } @q;
+  return @refs;
+}
+
+sub update_tls_profile($) {
+  my($rec) = @_;
+  my($r,%old);
+
+  return -1 unless ($rec->{id} =~ /^\d+$/ && $rec->{id} > 0);
+  return -3 if (tls_profile_reserved_name($rec->{name}));
+  return -2 if (get_tls_profile($rec->{id},\%old) < 0);
+  del_std_fields($rec);
+
+  db_begin();
+  $r=update_record('tls_profiles',$rec);
+  if ($r < 0) { db_rollback(); return $r; }
+
+  # renamed: update the name-based references of the same server
+  if (defined($rec->{name}) && $rec->{name} ne $old{name}) {
+    my $sid=$old{ref};
+    my $on=db_encode_str($old{name});
+    my $nn=db_encode_str($rec->{name});
+    for my $f (qw(tls_listen_profile tls_default_profile doh_profile)) {
+      $r=db_exec("UPDATE servers SET $f=$nn WHERE id=$sid AND $f=$on");
+      if ($r < 0) { db_rollback(); return -4; }
+    }
+    $r=db_exec("UPDATE zones SET tls_profile=$nn " .
+	       "WHERE server=$sid AND tls_profile=$on");
+    if ($r < 0) { db_rollback(); return -5; }
+    $r=db_exec("UPDATE cidr_entries SET tls=$nn WHERE tls=$on AND " .
+	       "type IN (3,6) AND ref IN (SELECT id FROM zones " .
+	       "WHERE server=$sid)");
+    if ($r < 0) { db_rollback(); return -6; }
+  }
+
+  return db_commit();
+}
+
+sub add_tls_profile($) {
+  my($rec) = @_;
+  my($res);
+
+  return -3 if (tls_profile_reserved_name($rec->{name}));
+
+  db_begin();
+  $rec->{cdate}=time;
+  $rec->{cuser}=$muser if !$rec->{'cuser'};
+  $rec->{type}=1 unless ($rec->{type} > 0);
+  $res=add_record('tls_profiles',$rec);
+  if ($res < 0) { db_rollback(); return -1; }
+  $rec->{id}=$res;
+
+  return -10 if (db_commit() < 0);
+  return $res;
+}
+
+sub delete_tls_profile($) {
+  my($id) = @_;
+  my($res);
+
+  return -100 unless ($id =~ /^\d+$/ && $id > 0);
+
+  # still referenced: deleting it would leave dangling tls "<name>" references
+  my %p;
+  return -2 if (get_tls_profile($id,\%p) < 0);
+  return -20 if (get_tls_profile_refs($p{ref},$p{name}) > 0);
+
+  db_begin();
+  $res=db_exec("DELETE FROM tls_profiles WHERE id=$id");
+  if ($res < 0) { db_rollback(); return -1; }
+
+  return db_commit();
+}
+
+sub get_tls_profile_list($$$) {
+  my($serverid,$rec,$lst) = @_;
+  my(@q,$i);
+
+  undef @{$lst};
+  undef %{$rec};
+  push @{$lst}, '';
+  $$rec{''}='(none)';
+  return unless ($serverid > 0);
+
+  db_query("SELECT name FROM tls_profiles " .
+	   "WHERE type=1 AND ref=$serverid ORDER BY name",\@q);
+  for $i (0..$#q) {
+    push @{$lst}, $q[$i][0];
+    $$rec{$q[$i][0]}=$q[$i][0];
+  }
 }
 
 

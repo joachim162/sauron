@@ -72,6 +72,13 @@ sub set_defaults() {
   $main::SAURON_DHCP_CHK_PROG = '';
   $main::SAURON_DHCP_CHK_ARGS  = '-4 -q -t -cf';
   $main::SAURON_DHCP6_CHK_ARGS = '-6 -q -t -cf';
+  $main::SAURON_KEA4_CHK_PROG = '';
+  $main::SAURON_KEA4_CHK_ARGS = '-t';
+  $main::SAURON_KEA6_CHK_PROG = '';
+  $main::SAURON_KEA6_CHK_ARGS = '-t';
+  $main::SAURON_KEA_HOOKS_DIR = '';
+  $main::SAURON_KEA_D2_CHK_PROG = '';
+  $main::SAURON_KEA_D2_CHK_ARGS = '-t';
   $main::SAURON_NAMED_CHK_PROG = '';
   $main::SAURON_NAMED_CHK_ARGS = '';
   $main::SAURON_ZONE_CHK_PROG = '';
@@ -91,6 +98,7 @@ sub set_defaults() {
 
   $main::SAURON_BASE_URL = '';
   $main::SAURON_APPROVAL_REMINDER_HOURS = 24;
+  $main::SAURON_ZERO_IP = '0.0.0.0'; # placeholder IP for aliases in host browse
   $main::ALEVEL_APPROVAL_ADMIN = 5;
 
   $main::SAURON_RHF{huser}    = 0; # User
@@ -160,6 +168,13 @@ sub print_config() {
   print "SAURON_DHCP_CHK_ARGS=",$main::SAURON_DHCP_CHK_ARGS,"\n";
   print "SAURON_DHCP6_CHK_PROG=",$main::SAURON_DHCP6_CHK_PROG,"\n";
   print "SAURON_DHCP6_CHK_ARGS=",$main::SAURON_DHCP6_CHK_ARGS,"\n";
+  print "SAURON_KEA4_CHK_PROG=",$main::SAURON_KEA4_CHK_PROG,"\n";
+  print "SAURON_KEA4_CHK_ARGS=",$main::SAURON_KEA4_CHK_ARGS,"\n";
+  print "SAURON_KEA6_CHK_PROG=",$main::SAURON_KEA6_CHK_PROG,"\n";
+  print "SAURON_KEA6_CHK_ARGS=",$main::SAURON_KEA6_CHK_ARGS,"\n";
+  print "SAURON_KEA_HOOKS_DIR=",$main::SAURON_KEA_HOOKS_DIR,"\n";
+  print "SAURON_KEA_D2_CHK_PROG=",$main::SAURON_KEA_D2_CHK_PROG,"\n";
+  print "SAURON_KEA_D2_CHK_ARGS=",$main::SAURON_KEA_D2_CHK_ARGS,"\n";
   print "SAURON_NAMED_CHK_PROG=",$main::SAURON_NAMED_CHK_PROG,"\n";
   print "SAURON_NAMED_CHK_ARGS=",$main::SAURON_NAMED_CHK_ARGS,"\n";
   print "SAURON_ZONE_CHK_PROG=",$main::SAURON_ZONE_CHK_PROG,"\n";

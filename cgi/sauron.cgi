@@ -159,8 +159,10 @@ $debug_mode = $SAURON_DEBUG_MODE;
 	    'acls'=>[
 		       ['ACLs','',['level', $main::ALEVEL_ACLS]],
 		       ['Keys','sub=keys',['level', $main::ALEVEL_ACLS]],
+		       ['TLS Profiles','sub=tls',['level', $main::ALEVEL_ACLS]],
 		       [],
-		       ['Add ACL','sub=addacl',['level', $main::ALEVEL_ACLS]]
+		       ['Add ACL','sub=addacl',['level', $main::ALEVEL_ACLS]],
+		       ['Add TLS Profile','sub=addtls',['level', $main::ALEVEL_ACLS]]
 		      ],
 	    'hosts'=>[
 		      ['Search',''],
@@ -440,6 +442,17 @@ elsif ($menuref=$menus{$menu}) {
   }
 }
 else { print p,"Unknown menu '" . encode_entities($menu) . "'"; }
+
+# The context bar was printed before the menu handler ran, so it shows the
+# previous selection if the handler changed it. Emit the final server/zone
+# selection; sauron.js rebuilds the bar from it.
+unless (param('csv')) {
+  print '<span id="s-ctx-update" hidden',
+        ' data-server="', encode_entities($state{server} // ''), '"',
+        ' data-serverid="', (($state{serverid} // 0)+0), '"',
+        ' data-zone="', encode_entities($state{zone} // ''), '"',
+        ' data-zoneid="', (($state{zoneid} // 0)+0), '"></span>', "\n";
+}
 
 
 if ($debug_mode) {

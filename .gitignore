@@ -36,6 +36,7 @@ doc/tables.sgml
 # don't ignore (yourself, github, ...)
 !.gitignore
 !.github/
+!.dockerignore
 
 # Sauron API
 sauron_api/sauron_a_p_i.yml

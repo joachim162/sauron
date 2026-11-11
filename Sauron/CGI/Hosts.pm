@@ -44,8 +44,16 @@ sub write2log{
 
 sub _host_required_data_error($) {
   my($rec) = @_;
+  my $err = Sauron::BackEnd::host_required_data_error($rec);
 
-  return Sauron::BackEnd::host_required_data_error($rec);
+  return $err if ($err ne '');
+  # A TXT host keeps a single value (hosts.cname_txt); update_host() would
+  # silently drop the other rows. Not enforced in BackEnd, since import-zone
+  # passes all TXT strings of a TXT-only name to add_host().
+  return 'TXT record allows only one TXT entry.'
+    if ($rec->{type} == 13 &&
+        Sauron::BackEnd::_host_count_active_list_entries($rec->{txt_l}, 1) > 1);
+  return '';
 }
 
 
@@ -460,12 +468,8 @@ my %host_form = (
   {ftype=>2, tag=>'printer_l', name=>'PRINTER entries', no_empty=>1,
    type=>['text','text'], fields=>2,len=>[50,20], empty=>[0,1],
    elabels=>['PRINTER','Comment'], iff=>['type','[15]']},
-  {ftype=>2, tag=>'dhcp_l', name=>'DHCP entries', no_empty=>1, whitesp=>['N','P'],
-   type=>['text','text'], fields=>2,len=>[50,20], maxlen=>[200,80],
-   empty=>[0,1],elabels=>['DHCP','comment'], iff=>['type','[15]']},
-  {ftype=>2, tag=>'dhcp_l6', name=>'DHCPv6 entries', no_empty=>1, whitesp=>['N','P'],
-   type=>['text','text'], fields=>2,len=>[50,20], maxlen=>[200,80],
-   empty=>[0,1],elabels=>['DHCP','comment'], iff=>['type','[15]']},
+  dhcp_field('dhcp_l','DHCP entries',4, no_empty=>1, iff=>['type','[15]']),
+  dhcp_field('dhcp_l6','DHCPv6 entries',6, no_empty=>1, iff=>['type','[15]']),
   {ftype=>2, tag=>'sshfp_l', name=>'SSHFP entries', no_empty=>1, fields=>4,len=>[2,2,60,10],
    empty=>[0,0,0,1],elabels=>['Algorithm','Hashtype','Fingerprint','comment'],
    type=>['enum','enum','hex','text'], enum=>[\%sshfp_algorithms, \%sshfp_types, undef, undef],
@@ -976,8 +980,8 @@ sub restricted_add_host($) {
 
   # Check approval workflow before adding the host record
   # This applies to all record types added via add_magic
-  if (defined($rec->{zone_id}) && $rec->{zone_id} > 0) {
-    my $policy_id = check_approval_needed($rec->{zone_id}, 'A', $rec->{type}, $rec->{domain});
+  if (defined($rec->{zone}) && $rec->{zone} > 0) {
+    my $policy_id = check_approval_needed($rec->{zone}, 'A', $rec->{type}, $rec->{domain});
     if ($policy_id) {
       # Approval is needed but add_magic doesn't support deferred adds
       # Return error to indicate approval is required
@@ -1076,7 +1080,10 @@ sub show_host_record($$)
         $host{type} == 8 && $rwx && check_perms('flags','SRV',1) ||
         $host{type} == 15 && $rwx && check_perms('flags','CAA',1));
 
-    print submit(-name=>'sub',-value=>'Move'), " " if ($host{type} == 1);
+    print submit(-name=>'sub',-value=>'Move'), " "
+      if ($host{type} == 1 ||
+	  $host{type} == 4 && $host{cname_alias} &&
+	  !($rwx && check_perms('flags','CNAME',1)));
 
     #print submit(-name=>'sub',-value=>'Alias'), " " if ($host{type} == 1);
 
@@ -1146,6 +1153,129 @@ sub browse_hosts($$)
 
 # HOSTS menu
 #
+# Find a host record by name in the given zone. Accepts a name relative
+# to the zone or an FQDN (with or without the trailing dot). Host names
+# may be stored relative or absolute (with the trailing dot), so the
+# absolute spellings are tried after the relative ones.
+sub _find_zone_host($$) {
+  my($zoneid,$name) = @_;
+  my(%zone,@q,@names);
+
+  return () if ($name eq '' || get_zone($zoneid,\%zone) < 0);
+  (my $zname = $zone{name}) =~ s/\.$//;
+  if ($name =~ /\.$/) {
+    return () unless ($name =~ /^(.+)\.\Q$zname\E\.$/i);
+    @names = ($1, $name);
+  } else {
+    @names = ($name);
+    push @names, $1, "$name." if ($name =~ /^(.+)\.\Q$zname\E$/i);
+    push @names, "$name.$zname.";
+  }
+  for my $n (@names) {
+    undef @q;
+    db_query("SELECT id,type,domain FROM hosts WHERE zone=$zoneid " .
+	     "AND domain=" . db_encode_str($n) . ";",\@q);
+    return @{$q[0]} if (@q > 0);
+  }
+  return ();
+}
+
+# Point an existing CNAME alias to another host in the same zone.
+sub move_cname_alias($$$) {
+  my($state,$perms,$host) = @_;
+  my($target,$tid,$ttype,$tdomain,$res,%oldhost,%zone);
+
+  my $selfurl = $state->{selfurl};
+
+  return if (check_perms('zone','RW'));
+  if (check_perms('zone','RWX',1) && check_perms('flags','CNAME',1)) {
+    alert1("You don't have permission to edit CNAME Aliases");
+    return;
+  }
+  unless ($host->{cname_alias} && $host->{alias} > 0) {
+    alert1("Only CNAME aliases can be moved to another host.");
+    show_host_record($state,$perms);
+    return;
+  }
+  # Permissions and approval policy are those of the selected zone.
+  if ($host->{zone} != $state->{zoneid}) {
+    alert1("Alias is not in the selected zone ($state->{zone}).");
+    show_host_record($state,$perms);
+    return;
+  }
+  if (get_zone($host->{zone},\%zone) < 0) {
+    alert2("Cannot get zone record (id=$host->{zone})!");
+    return;
+  }
+
+  if (param('move_cancel')) {
+    alert1("Alias not moved.");
+    show_host_record($state,$perms);
+    return;
+  }
+
+  # Only a POST may change the record (no moves via crafted links).
+  if (param('move_confirm') && request_method() eq 'POST') {
+    $target = lc(param('new_target') // '');
+    $target =~ s/^\s+|\s+$//g;
+    ($tid,$ttype,$tdomain) = _find_zone_host($host->{zone},$target);
+
+    if ($target eq '') {
+      alert1("Target host not specified.");
+    } elsif (!$tid) {
+      alert1("Cannot find host '" . encode_entities($target) .
+	     "' in zone $zone{name}");
+    } elsif ($ttype != 1) {
+      alert1("Target must be a host record, not $host_types{$ttype}.");
+    } elsif ($tid == $host->{alias}) {
+      alert1("Alias already points to $tdomain.");
+    } elsif (check_perms('host',$tdomain,1)) {
+      alert1("Not authorized to add aliases to host $tdomain.");
+    } else {
+      my $old_target = $host->{alias_d};
+      %oldhost = %{$host};
+      $host->{alias} = $tid;
+      $host->{alias_d} = $tdomain; # shown in approval request details
+
+      return if (_maybe_submit_approval($state, 'M', $host->{type},
+					$host->{domain}, $host->{id},
+					$host, \%oldhost));
+
+      $res = update_host($host);
+      if ($res < 0) {
+	alert1("Alias update failed! ($res)");
+	alert2(db_lasterrormsg());
+      } else {
+	update_history($state->{uid},$state->{sid},1,
+		       "MOVE: $host_types{4} ",
+		       "domain: $oldhost{domain}, " .
+		       "alias for: $old_target --> $tdomain",$oldhost{id});
+	success1("Alias moved: $old_target --> $tdomain");
+      }
+      show_host_record($state,$perms);
+      return;
+    }
+  }
+
+  print h2("Move alias to another host:"),
+        p,start_form(-method=>'POST',-action=>$selfurl),
+        hidden('menu','hosts'),hidden('h_id',$host->{id}),hidden('sub','Move'),
+        '<table class="s-form">',
+        '<tr class="s-form__row"><td class="s-form__label">Alias:</td>',
+        '<td class="s-form__value">',$host->{domain},'</td></tr>',
+        '<tr class="s-form__row"><td class="s-form__label">Current target:</td>',
+        '<td class="s-form__value">',$host->{alias_d},'</td></tr>',
+        '<tr class="s-form__row"><td class="s-form__label">New target host:</td>',
+        '<td class="s-form__value">',
+        textfield(-name=>'new_target',-size=>40,-maxlength=>253),
+        '</td></tr>',
+        '</table>',
+        submit(-name=>'move_confirm',-value=>'Move'), ' ',
+        submit(-name=>'move_cancel',-value=>'Cancel'),
+        end_form;
+  display_form($host,\%host_form);
+}
+
 sub menu_handler {
   my($state,$perms) = @_;
 
@@ -1369,7 +1499,6 @@ sub menu_handler {
 
     $data{type}=4;
     $data{zone}=$zoneid;
-    $data{zone_id}=$zoneid;  # Pass zone_id for approval check in restricted_add_host
     $data{alias}=param('aliasadd_alias') if (param('aliasadd_alias'));
     $res=add_magic('aliasadd','ALIAS','hosts',\%new_alias_form,
 		   \&restricted_add_host,\%data);
@@ -1398,6 +1527,10 @@ sub menu_handler {
     return unless ($id > 0);
     if (check_perms('host',$host{domain})) {
       show_host_record($state,$perms);
+      return;
+    }
+    if ($host{type} == 4) {
+      move_cname_alias($state,$perms,\%host);
       return;
     }
     # These moves are now supported.
