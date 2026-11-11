@@ -1,5 +1,33 @@
-.devbox
-devbox.json
-devbox.lock
-.git
+# Local secrets
 .env
+
+# Version control / metadata not needed in the image build
+.git
+.gitignore
+.github
+.agents
+.dockerignore
+
+# Documentation and tests (not installed by `make install`)
+*.md
+doc/
+docs/
+t/
+test/
+
+# OS packaging artifacts (not for Docker image)
+redhat/
+solaris/
+
+# Compose files (bind-mounted at runtime, not baked into image)
+docker-compose.yml
+docker-compose.upstream.yml
+docker-compose.dev.yml
+docker-compose.e2e.yml
+
+# Build artifacts from in-tree ./configure runs on the host
+Makefile
+config.h
+config.log
+config.status
+modgroup
